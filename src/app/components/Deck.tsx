@@ -262,7 +262,9 @@ export function Deck({ deckId }: { deckId: DeckId }) {
               tabIndex, and HTML forbids any tabindex-bearing descendant of a
               <button> — this div is already `relative`, so the badge anchors
               to it exactly as it would have anchored to the button itself. */}
-          <HintIcon id="deck.bpm" className="absolute -top-1 -right-1" />
+          {/* Left of the number, not over its corner: the readout is right-
+              aligned, so a badge at the top-right sat on the last digit. */}
+          <HintIcon id="deck.bpm" className="absolute -left-4 top-0" />
           {/* Live bar/downbeat correction (v0.8.8) — only relevant mid-mix:
               this deck is phase-locked to the other one, which is actually
               playing right now. `shiftDeckByBeat` itself guards master/no-

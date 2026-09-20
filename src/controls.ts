@@ -321,10 +321,11 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     c.kind == null && !isOrdinalLabel(c) ? { ...c, kind: 'mixEntry' as const } : c,
   )
   const cuePointSec = storedCues?.cuePointSec ?? 0
-  // v0.8.6: `null` (never saved for this track, or hash unknown) means the
-  // deck keeps whatever tempo it already had — same "leave it alone" default
-  // the physical pitch fader would give, not a reset to 0. Only a value this
-  // exact track was saved at previously overrides the current fader.
+  // v0.8.6 kept the previous track's fader position when nothing was saved
+  // ("like a physical fader"). Shalom found it wrong (20/09): the new track
+  // showed the old track's tempo offset, so its own BPM never appeared. `null`
+  // (never saved for this track, or hash unknown) now resets to 0 = the file's
+  // own BPM; only a value saved for this exact track overrides that.
   const storedTempo = contentHash ? await getTempo(contentHash) : null
   // v0.5.4: same "not yet identified, not an error" treatment as `storedCues`.
   const excellentMixPoints = contentHash ? await getExcellentPoints(contentHash) : []
@@ -352,7 +353,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
   // persist, refreshing FX beat-sync time) is for a genuine fader touch, not
   // for re-applying a value that was already this track's saved tempo a
   // moment ago.
-  if (storedTempo != null) engine.decks[deckId].setTempo(storedTempo)
+  engine.decks[deckId].setTempo(storedTempo ?? 0)
   if (startSec > 0) engine.decks[deckId].seek(startSec)
   patchDeck(deckId, {
     track: { ...track, contentHash, bpm: track.bpm ?? undefined, durationSec },
@@ -366,7 +367,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     syncActive: false,
     peaks: null,
     bands: null,
-    ...(storedTempo != null ? { tempo: storedTempo } : {}),
+    tempo: storedTempo ?? 0,
     hotCues,
     cuePointSec,
     excellentMixPoints,
@@ -884,7 +885,7 @@ export function shiftDeckByBeat(deckId: DeckId, direction: 1 | -1) {
  * then set `syncActive: true` themselves right after, so that path is not
  * affected — only a caller that patches `tempo` alone, i.e. a manual touch.
  */
-export function setTempo(deckId: DeckId, tempo: number) {
+export function setTempo(deckId: DeckId, tempo: number, opts: { persist?: boolean } = {}) {
   // Safe against this same function's own internal callers (syncDeck /
   // setMasterDeck, re-matching the *incoming* or *outgoing* deck's tempo):
   // during an active transition those only ever target `toDeckId`, and by
@@ -896,7 +897,10 @@ export function setTempo(deckId: DeckId, tempo: number) {
   engine.decks[deckId].setTempo(t)
   useStore.getState().patchDeck(deckId, { tempo: t, syncActive: false })
   if (useStore.getState().masterDeckId === deckId) refreshFxTimeForMasterTempo()
-  schedulePersistTempo(deckId)
+  // A tempo SYNC derived from whichever deck was master is that pairing's
+  // number, not this track's — remembering it made the track come back later at
+  // an unrelated offset. Only a hand-set fader value is worth keeping.
+  if (opts.persist !== false) schedulePersistTempo(deckId)
 }
 
 const persistTempoTimers: Record<DeckId, number> = { A: 0, B: 0 }
@@ -2409,7 +2413,7 @@ export function syncDeck(deckId: DeckId) {
     refreshFxTimeForMasterTempo()
   }
   const tempo = syncTempoFor(master.bpm, master.tempo, st.bpm, settings.values.tempoRange)
-  setTempo(deckId, tempo)
+  setTempo(deckId, tempo, { persist: false })
   patchDeck(deckId, { syncActive: true })
   ensureSyncLoop()
 }
@@ -2437,7 +2441,7 @@ export function setMasterDeck(deckId: DeckId) {
   const mine = st.bpm
   if (!master.bpm || !mine) return
   const tempo = syncTempoFor(master.bpm, master.tempo, mine, settings.values.tempoRange)
-  setTempo(other, tempo)
+  setTempo(other, tempo, { persist: false })
   patchDeck(other, { syncActive: true })
   ensureSyncLoop()
 }

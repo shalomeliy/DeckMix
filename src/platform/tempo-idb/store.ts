@@ -8,7 +8,11 @@
  */
 import { get, set } from 'idb-keyval'
 
-const KEY_PREFIX = 'soundgrid:tempo:'
+// `tempo2`, not `tempo`: until 20/09 a SYNC-derived offset was saved here too,
+// so tracks came back at another song's pairing (e.g. pinned at +8%). Those old
+// values can't be told apart from hand-set ones, so they are left orphaned
+// rather than restored.
+const KEY_PREFIX = 'soundgrid:tempo2:'
 
 /**
  * Never throws — a missing/blocked IndexedDB must not stop a track from

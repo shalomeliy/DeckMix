@@ -51,7 +51,7 @@ const wavBytes = makeWav(DURATION_SEC, SAMPLE_RATE)
 const CONTENT_HASH = createHash('sha256').update(wavBytes).digest('hex')
 const WAV_BASE64 = wavBytes.toString('base64')
 const SEEDED_TEMPO = 0.25
-const TEMPO_KEY = 'soundgrid:tempo:' + CONTENT_HASH
+const TEMPO_KEY = 'soundgrid:tempo2:' + CONTENT_HASH
 
 function harness({ seedTempo } = {}) {
   return `(() => {
