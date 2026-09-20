@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { keysCompatible, mixRecommendations, orderMixList, type DeckMixState } from '@/core/recommend'
+import {
+  keysCompatible,
+  matchReasons,
+  matchTier,
+  mixRecommendations,
+  orderMixList,
+  type DeckMixState,
+  type MixMatch,
+} from '@/core/recommend'
 import type { Track } from '@/core/types'
 
 /** Nothing here reads `handle` — it exists only to satisfy `Track`. */
@@ -309,5 +317,71 @@ describe('orderMixList (v0.8.10)', () => {
   it('drops played tracks when asked to hide them', () => {
     expect(ids(orderMixList(tracks, matches, { hidePlayed: true, keepOrder: false }))).toEqual(['a', 'c'])
     expect(ids(orderMixList(tracks, matches, { hidePlayed: true, keepOrder: true }))).toEqual(['a', 'c'])
+  })
+})
+
+describe('matchReasons / matchTier (v0.8.11)', () => {
+  const m = (over: Partial<MixMatch> = {}): MixMatch => ({
+    strong: true, deck: 'A', multiplier: 1, refBpm: 128, trackBpm: 128, keyMatch: true, ...over,
+  })
+
+  it('says the track is faster/slower than the deck, with an explicit sign', () => {
+    expect(matchReasons(m({ trackBpm: 130 }))[0]).toBe('+2 BPM vs deck A')
+    expect(matchReasons(m({ trackBpm: 126 }))[0]).toBe('−2 BPM vs deck A')
+    expect(matchReasons(m())[0]).toBe('same tempo as deck A')
+  })
+
+  it('names half-time and double-time instead of a BPM delta', () => {
+    expect(matchReasons(m({ multiplier: 2, trackBpm: 64 }))[0]).toBe('half-time (64→128)')
+    expect(matchReasons(m({ multiplier: 0.5, trackBpm: 256 }))[0]).toBe('double-time (256→128)')
+  })
+
+  it('a track with no key is "key unknown", never "key clashes"', () => {
+    const r = matchReasons(m({ keyMatch: undefined }))
+    expect(r).toContain('key unknown')
+    expect(r).not.toContain('key clashes')
+  })
+
+  it('says a key clashes only when both keys were compared', () => {
+    expect(matchReasons(m({ keyMatch: false }))).toContain('key clashes')
+    expect(matchReasons(m({ keyMatch: true }))).toContain('key compatible')
+  })
+
+  it('adds the played reason last, and keeps the order fixed', () => {
+    expect(matchReasons(m({ played: true }))).toEqual([
+      'same tempo as deck A', 'key compatible', 'already loaded this set',
+    ])
+  })
+
+  it('tiers: tight, loose, then played (which beats strong)', () => {
+    expect(matchTier(m())).toBe(0)
+    expect(matchTier(m({ strong: false }))).toBe(1)
+    expect(matchTier(m({ played: true }))).toBe(2)
+    expect(matchTier(m({ strong: false, played: true }))).toBe(2)
+  })
+
+  it('does not change which tracks are suggested or how tight they are', () => {
+    const lib = [track('a', 128, '8A'), track('b', 130, '3B'), track('c', 300)]
+    const recs = mixRecommendations([deck('A', { bpm: 128, camelot: '8A' })], lib)
+    expect([...recs.matches.keys()]).toEqual(['a', 'b'])
+    expect(recs.matches.get('a')?.strong).toBe(true)
+    expect(recs.matches.get('b')?.strong).toBe(false)
+  })
+})
+
+describe('orderMixList tiers (v0.8.11)', () => {
+  const t = ['a', 'b', 'c', 'd'].map((id) => track(id, 128))
+  const mm = (strong: boolean, played?: boolean): MixMatch => ({
+    strong, deck: 'A', multiplier: 1, refBpm: 128, trackBpm: 128, ...(played ? { played } : {}),
+  })
+  const matches = new Map([['a', mm(false)], ['b', mm(true, true)], ['c', mm(true)], ['d', mm(false)]])
+  const ids = (l: Track[]) => l.map((x) => x.id)
+
+  it('puts tight first, loose next, played last — stable inside a tier', () => {
+    expect(ids(orderMixList(t, matches, { hidePlayed: false, keepOrder: false }))).toEqual(['c', 'a', 'd', 'b'])
+  })
+
+  it('leaves the owner’s own sort alone', () => {
+    expect(ids(orderMixList(t, matches, { hidePlayed: false, keepOrder: true }))).toEqual(['a', 'b', 'c', 'd'])
   })
 })

@@ -19,7 +19,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { bootCopy, bootFor, bootForScanError } from '@/core/library-boot'
 import { findSimilarTracks } from '@/core/embedding-search'
 import { libraryEmptyCopy } from '@/core/library-list-copy'
-import { mixRecommendations, orderMixList, type MixMatch } from '@/core/recommend'
+import { matchReasons, mixRecommendations, orderMixList, type MixMatch } from '@/core/recommend'
 import { settings } from '@/platform/settings-idb/store'
 import { useSettings } from '@/app/hooks/useSettings'
 import { useStore } from '@/app/state/store'
@@ -1197,11 +1197,11 @@ function Row({
   // 2 means the candidate's own tag is *half* the reference tempo (so it
   // plays in half-time relative to what's on the deck), and 0.5 the mirror.
   const chipLabel = match?.multiplier === 2 ? 'half-time' : match?.multiplier === 0.5 ? 'double-time' : null
+  // v0.8.11: one source (`matchReasons`) for the tooltip, the sr-only text and
+  // the selected-row line, so they cannot say different things.
+  const reasons = match ? matchReasons(match).join(' · ') : null
   const matchTitle = match
-    ? `Mixes with deck ${match.deck}${match.strong ? '' : ' (loose)'}` +
-      (chipLabel ? ` · ${match.trackBpm}→${match.refBpm} ${chipLabel}` : '') +
-      (match.keyMatch === undefined ? '' : match.keyMatch ? ' · key compatible' : ' · key clashes') +
-      (match.played ? ' · already loaded this set' : '')
+    ? `Suggested${match.strong ? '' : ' (loose match)'} · ${reasons}`
     : undefined
   // aria-describedby's value is parsed as a whitespace-separated list of
   // IDREFs — track.id is a scan-relative file path, and any space in a
@@ -1329,7 +1329,16 @@ function Row({
             </span>
           )}
           <span className="truncate">{track.title ?? track.name}</span>
-          {chipLabel && <span className="shrink-0 text-2xs text-grid-dim">{chipLabel}</span>}
+          {selected && reasons ? (
+            // v0.8.11: the why, on the selected row only, on the same line — the
+            // table is windowed on a fixed ROW_HEIGHT, so a second line here
+            // would break the row math. Full text is in the tooltip.
+            <span className="min-w-0 truncate text-2xs font-normal text-grid-dim" title={matchTitle}>
+              {reasons}
+            </span>
+          ) : (
+            chipLabel && <span className="shrink-0 text-2xs text-grid-dim">{chipLabel}</span>
+          )}
         </span>
       </td>
       <td className="max-w-0 truncate py-1.5 pr-2 text-grid-muted">{track.artist}</td>
