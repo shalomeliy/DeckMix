@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { keysCompatible, mixRecommendations, type DeckMixState } from '@/core/recommend'
+import { keysCompatible, mixRecommendations, orderMixList, type DeckMixState } from '@/core/recommend'
 import type { Track } from '@/core/types'
 
 /** Nothing here reads `handle` — it exists only to satisfy `Track`. */
@@ -222,5 +222,92 @@ describe('mixRecommendations', () => {
   it('no reason is set when there are matches', () => {
     const recs = mixRecommendations([deck('A', { bpm: 128 })], [track('t', 128)])
     expect(recs.reason).toBeUndefined()
+  })
+})
+
+describe('mixRecommendations — set history (v0.8.10)', () => {
+  const hashed = (id: string, hash: string | undefined, bpm = 128): Track => ({ ...track(id, bpm), contentHash: hash })
+  const decks = [deck('A', { bpm: 128 })]
+  const lib = [hashed('a', 'ha'), hashed('b', 'hb'), hashed('c', undefined), hashed('d', 'hd', 128.4)]
+
+  it('without a context the result is what it was before', () => {
+    const before = mixRecommendations(decks, lib)
+    expect(before.playedCount).toBe(0)
+    expect(before.unverifiedAgainstHistory).toBe(0)
+    for (const m of before.matches.values()) expect(m.played).toBeUndefined()
+  })
+
+  it('an empty history is the same as no context — and does not count hash-less tracks', () => {
+    const none = mixRecommendations(decks, lib)
+    const empty = mixRecommendations(decks, lib, undefined, { playedHashes: new Set() })
+    expect(empty).toEqual(none)
+  })
+
+  it('flags a track whose hash is in the history, and keeps it in the matches', () => {
+    const recs = mixRecommendations(decks, lib, undefined, { playedHashes: new Set(['hb']) })
+    expect(recs.matches.get('b')?.played).toBe(true)
+    expect(recs.matches.get('a')?.played).toBeUndefined()
+    expect(recs.playedCount).toBe(1)
+  })
+
+  it('does not change how tight the match is', () => {
+    const plain = mixRecommendations(decks, lib).matches.get('b')!
+    const played = mixRecommendations(decks, lib, undefined, { playedHashes: new Set(['hb']) }).matches.get('b')!
+    expect(played.strong).toBe(plain.strong)
+    expect(played.keyMatch).toBe(plain.keyMatch)
+    expect(played.deck).toBe(plain.deck)
+  })
+
+  it('a track with no hash yet is counted as unverified, not as played', () => {
+    const recs = mixRecommendations(decks, lib, undefined, { playedHashes: new Set(['hb']) })
+    expect(recs.matches.get('c')?.played).toBeUndefined()
+    expect(recs.unverifiedAgainstHistory).toBe(1)
+  })
+
+  it('two files with the same hash both read as played', () => {
+    const twins = [hashed('x', 'same'), hashed('y', 'same')]
+    const recs = mixRecommendations(decks, twins, undefined, { playedHashes: new Set(['same']) })
+    expect(recs.playedCount).toBe(2)
+  })
+
+  it('a very close match that was played earlier is still suggested', () => {
+    const rare = [{ ...hashed('rare', 'hr', 128), camelot: '8A' }]
+    const recs = mixRecommendations([deck('A', { bpm: 128, camelot: '8A' })], rare, undefined, {
+      playedHashes: new Set(['hr']),
+    })
+    expect(recs.matches.get('rare')).toMatchObject({ strong: true, played: true })
+  })
+
+  it('the same input gives the same order every time', () => {
+    const ctx = { playedHashes: new Set(['hb']) }
+    const one = [...mixRecommendations(decks, lib, undefined, ctx).matches.keys()]
+    const two = [...mixRecommendations(decks, lib, undefined, ctx).matches.keys()]
+    expect(one).toEqual(two)
+  })
+})
+
+describe('orderMixList (v0.8.10)', () => {
+  const tracks = ['a', 'b', 'c', 'd', 'e'].map((id) => track(id, 128))
+  const match = (played?: boolean) => ({
+    strong: true, deck: 'A' as const, multiplier: 1 as const, refBpm: 128, trackBpm: 128, ...(played ? { played } : {}),
+  })
+  const matches = new Map([['a', match()], ['b', match(true)], ['c', match()], ['d', match(true)]])
+  const ids = (l: Track[]) => l.map((t) => t.id)
+
+  it('keeps only suggested tracks (e is not in the matches)', () => {
+    expect(ids(orderMixList(tracks, matches, { hidePlayed: false, keepOrder: false }))).not.toContain('e')
+  })
+
+  it('pushes played tracks below fresh ones, keeping order within each group', () => {
+    expect(ids(orderMixList(tracks, matches, { hidePlayed: false, keepOrder: false }))).toEqual(['a', 'c', 'b', 'd'])
+  })
+
+  it('leaves the order alone when the owner picked a sort', () => {
+    expect(ids(orderMixList(tracks, matches, { hidePlayed: false, keepOrder: true }))).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  it('drops played tracks when asked to hide them', () => {
+    expect(ids(orderMixList(tracks, matches, { hidePlayed: true, keepOrder: false }))).toEqual(['a', 'c'])
+    expect(ids(orderMixList(tracks, matches, { hidePlayed: true, keepOrder: true }))).toEqual(['a', 'c'])
   })
 })

@@ -124,6 +124,9 @@ const HINT_BASE = {
   'library.folder': { text: 'Pick the folder SoundGrid scans for tracks.' },
   'library.addFiles': { text: 'Add individual track files without scanning a whole folder.' },
   'library.mixOnly': { text: 'Show only tracks that mix well with what’s currently playing.' },
+  'library.played': {
+    text: 'Suggested tracks you already loaded to a deck this session sit at the bottom, marked ✓. Click to hide them, click again to show them.',
+  },
   'library.search': { text: 'Filter the track list by title, artist or genre.' },
   'library.rows': {
     text: 'Click a row to select it, or drag it onto a deck to load. Click the Genre cell to change it. The two buttons on the right load straight to deck A or B.',

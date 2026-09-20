@@ -59,6 +59,13 @@ export function libraryEmptyCopy(
    * state was already narrowing the table.
    */
   similarToName: string | null = null,
+  /**
+   * v0.8.10: Mix Only found suggestions, but every one of them was already
+   * loaded this set and the owner chose to hide played tracks. Without its own
+   * message this fell through to "no tracks currently mix" — false, and its
+   * "turn off Mix Only" advice would not bring anything back.
+   */
+  allSuggestionsPlayedHidden = false,
 ): LibraryEmptyCopy {
   if (similarToName) {
     return {
@@ -78,6 +85,13 @@ export function libraryEmptyCopy(
     return {
       title: `No tracks in "${activeCrateName}"`,
       body: 'Drag tracks onto it from the crate rail, or clear the crate filter to see the whole library.',
+      offerMixOnlyReset: false,
+    }
+  }
+  if (mixOnly && allSuggestionsPlayedHidden) {
+    return {
+      title: 'Every mixable track was already played this set',
+      body: 'Click the “played” badge in the toolbar to show them again.',
       offerMixOnlyReset: false,
     }
   }
