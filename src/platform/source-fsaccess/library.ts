@@ -3,6 +3,7 @@ import { matchGenre, parentFolderName } from '@/core/genres'
 import type { SavedPermission } from '@/core/library-boot'
 import type { Track } from '@/core/types'
 import { readTags } from '@/platform/source-fsaccess/tags'
+import { analysisCacheKey } from '@/core/analysis-cache'
 import { hashBytes } from '@/platform/source-fsaccess/hash'
 import { engine } from '@/platform/audio-webaudio/engine'
 import { pcmFromAudioBuffer, pcmCopyFromAudioBuffer } from '@/platform/analyzer-js/analyze'
@@ -244,6 +245,15 @@ export async function scanLibrary(
   return { tracks: out, skipped, unrecognizedGenre }
 }
 
+/** The tempo the file's own tag names, or `null` — the hint grid detection refines around. Same reader the scan uses, so a load and the background queue agree. */
+export async function readTagBpm(track: Track): Promise<number | null> {
+  try {
+    return (await readTags(await track.handle.getFile())).bpm ?? null
+  } catch {
+    return null
+  }
+}
+
 export async function readTrackData(track: Track): Promise<ArrayBuffer> {
   const file = await track.handle.getFile()
   return await file.arrayBuffer()
@@ -383,7 +393,9 @@ export async function queueLibraryAnalysis(
         // took, which reads exactly like "it never came back".
         if (opts.signal?.cancelled) return
         onUpdate(new Map([[track.id, { contentHash }]]), { done, total, failed })
-        let analysis = await analysisCache.get(contentHash)
+        const hintBpm = await readTagBpm(track)
+        const cacheKey = analysisCacheKey(contentHash, hintBpm)
+        let analysis = await analysisCache.get(cacheKey)
         // v0.8.5 M3: resolved on BOTH branches below (cache hit and miss) —
         // M1 only ever set this on a miss, so a track whose analysis was
         // already cached (every track analyzed before v0.8.5 existed, i.e.
@@ -395,8 +407,8 @@ export async function queueLibraryAnalysis(
         let embeddingFailed = false
         if (!analysis) {
           const buffer = await engine.decode(data)
-          analysis = await analyzerWorker.analyze(pcmFromAudioBuffer(buffer))
-          await analysisCache.put(contentHash, analysis)
+          analysis = await analyzerWorker.analyze(pcmFromAudioBuffer(buffer), { hintBpm })
+          await analysisCache.put(cacheKey, analysis)
           // v0.8.5: piggybacks on this exact decode rather than a second
           // queue/pass — `workshop-output/PLAN.md` §3. A failure here never
           // fails the track's analysis (BPM/waveform already succeeded).

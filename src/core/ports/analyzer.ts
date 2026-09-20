@@ -33,7 +33,7 @@ export interface TrackAnalysis extends WaveformData {
 }
 
 export interface Analyzer {
-  analyze(pcm: PcmData, opts?: { minBpm?: number; maxBpm?: number }): Promise<TrackAnalysis>
+  analyze(pcm: PcmData, opts?: { minBpm?: number; maxBpm?: number; hintBpm?: number | null }): Promise<TrackAnalysis>
 }
 
 /** Analysis is expensive and deterministic — v0.4.0 keys this by file content hash. */

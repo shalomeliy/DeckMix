@@ -9,7 +9,7 @@ import type { PcmData, TrackAnalysis } from '@/core/ports/analyzer'
 export interface AnalyzeRequest {
   id: number
   pcm: PcmData
-  opts?: { minBpm?: number; maxBpm?: number }
+  opts?: { minBpm?: number; maxBpm?: number; hintBpm?: number | null }
 }
 
 export type AnalyzeResponse =

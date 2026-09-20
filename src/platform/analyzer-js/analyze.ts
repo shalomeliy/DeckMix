@@ -162,7 +162,7 @@ const FRAMES_PER_SEC = 200
  * candidate tempos, finding phase, quantizing to the result — is pure and
  * lives in `core/beatgrid.ts` so it can be unit tested without any.
  */
-function buildOnsetEnvelope(pcm: PcmData): { onsets: Float32Array; framesPerSec: number } {
+export function buildOnsetEnvelope(pcm: PcmData): { onsets: Float32Array; framesPerSec: number } {
   const sr = pcm.sampleRate
   // channels averaged inline: flattening to a full-length mono copy first cost
   // 63MB on a 6-minute stereo track, for an envelope we throw away immediately
@@ -213,7 +213,7 @@ function buildOnsetEnvelope(pcm: PcmData): { onsets: Float32Array; framesPerSec:
  */
 export function detectBeatGrid(
   pcm: PcmData,
-  opts?: { minBpm?: number; maxBpm?: number },
+  opts?: { minBpm?: number; maxBpm?: number; hintBpm?: number | null },
 ): BeatGridEstimate | null {
   const { onsets, framesPerSec } = buildOnsetEnvelope(pcm)
   return estimateBeatGrid(onsets, framesPerSec, opts)
@@ -233,7 +233,7 @@ export function detectBeatGrid(
  */
 export function analyzeTrack(
   pcm: PcmData,
-  opts?: { minBpm?: number; maxBpm?: number },
+  opts?: { minBpm?: number; maxBpm?: number; hintBpm?: number | null },
 ): TrackAnalysis {
   const durationSec = pcm.channels[0].length / pcm.sampleRate
   const buckets = Math.min(120_000, Math.max(2_000, Math.ceil(durationSec * 200)))

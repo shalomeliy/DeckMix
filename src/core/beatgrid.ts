@@ -52,6 +52,52 @@ function peakToMeanRatio(values: number[], peakIndex: number): number {
  */
 const CONFIDENCE_RATIO = 1.15
 
+/** Onset energy folded modulo a (fractional) beat period into ~1-frame bins. */
+function foldOnsets(onsets: Float32Array, periodFrames: number): { bins: number[]; binFrames: number } {
+  const nBins = Math.max(1, Math.round(periodFrames))
+  const binFrames = periodFrames / nBins
+  const bins = new Array<number>(nBins).fill(0)
+  for (let i = 0; i < onsets.length; i++) {
+    if (onsets[i] === 0) continue
+    const phase = i - Math.floor(i / periodFrames) * periodFrames
+    bins[Math.min(nBins - 1, Math.floor(phase / binFrames))] += onsets[i]
+  }
+  return { bins, binFrames }
+}
+
+/**
+ * The autocorrelation above works in whole-frame lags, so its BPM is only as
+ * fine as one frame of the beat period (~0.8 BPM at 100 BPM, ~2.5 at 174). A
+ * grid drawn from that drifts: 0.25 BPM off at 100 BPM is half a beat out
+ * after 200 beats, i.e. the middle of a song (Shalom's report, 20/09). This
+ * re-scores fractional tempos around the coarse pick by how sharply the onsets
+ * pile into one phase bin — the right tempo stacks every beat in the same bin
+ * across the whole track, a wrong one smears them.
+ */
+function refineBpm(
+  onsets: Float32Array,
+  framesPerSec: number,
+  coarseBpm: number,
+  relWindow?: number,
+): number {
+  const window = relWindow != null ? coarseBpm * relWindow : (coarseBpm * coarseBpm) / (60 * framesPerSec)
+  const tried: { c: number; score: number }[] = []
+  let bestScore = -Infinity
+  for (let c = coarseBpm - window; c <= coarseBpm + window; c += 0.01) {
+    const { bins } = foldOnsets(onsets, (60 / c) * framesPerSec)
+    let score = 0
+    for (const v of bins) score += v * v
+    tried.push({ c, score })
+    if (score > bestScore) bestScore = score
+  }
+  // A clean or short envelope scores a whole plateau of tempos equally well;
+  // taking the first of them lands on its edge and shifts the phase estimate
+  // by a frame. The middle of the plateau is the tempo they bracket.
+  const top = tried.filter((t) => t.score >= bestScore * 0.999)
+  const centre = top.reduce((a, t) => a + t.c, 0) / top.length
+  return Math.round(centre * 100) / 100
+}
+
 export interface BeatGridEstimate {
   grid: BeatGrid
   confident: boolean
@@ -76,9 +122,22 @@ export interface BeatGridEstimate {
 export function estimateBeatGrid(
   onsets: Float32Array,
   framesPerSec: number,
-  opts?: { minBpm?: number; maxBpm?: number },
+  opts?: { minBpm?: number; maxBpm?: number; hintBpm?: number | null },
 ): BeatGridEstimate | null {
   if (onsets.length < 64) return null
+  // A file tag names the tempo; the tag is usually a rounded label of it. Skip
+  // the blind search (which can lock on a wrong multiple — 163 for a track
+  // tagged 100) and find the exact tempo near the tag, then the phase at it.
+  if (opts?.hintBpm != null && opts.hintBpm > 0) {
+    const bpm = refineBpm(onsets, framesPerSec, opts.hintBpm, 0.019)
+    const { bins, binFrames } = foldOnsets(onsets, (60 / bpm) * framesPerSec)
+    let bestBin = 0
+    for (let b = 1; b < bins.length; b++) if (bins[b] > bins[bestBin]) bestBin = b
+    return {
+      grid: { bpm, offsetSec: (bestBin * binFrames) / framesPerSec },
+      confident: peakToMeanRatio(bins, bestBin) >= CONFIDENCE_RATIO,
+    }
+  }
   const min = opts?.minBpm ?? 80
   const max = opts?.maxBpm ?? 180
 
@@ -98,17 +157,16 @@ export function estimateBeatGrid(
       bestIdx = candidates.length - 1
     }
   }
-  const bpm = Math.round(candidates[bestIdx] * 10) / 10
   const bpmConfident = peakToMeanRatio(scores, bestIdx) >= CONFIDENCE_RATIO
+  const bpm = refineBpm(onsets, framesPerSec, candidates[bestIdx])
 
-  const beatFrames = Math.max(1, Math.round((60 / bpm) * framesPerSec))
-  const bins = new Array<number>(beatFrames).fill(0)
-  for (let i = 0; i < onsets.length; i++) bins[i % beatFrames] += onsets[i]
+  const periodFrames = (60 / bpm) * framesPerSec
+  const { bins, binFrames } = foldOnsets(onsets, periodFrames)
   let bestBin = 0
   for (let b = 1; b < bins.length; b++) if (bins[b] > bins[bestBin]) bestBin = b
   const phaseConfident = peakToMeanRatio(bins, bestBin) >= CONFIDENCE_RATIO
 
-  const offsetSec = bestBin / framesPerSec
+  const offsetSec = (bestBin * binFrames) / framesPerSec
   return {
     grid: { bpm, offsetSec },
     confident: bpmConfident && phaseConfident,

@@ -29,3 +29,12 @@ export function resolveCacheEntry(
   if (stored.analyzerVersion !== currentVersion) return null
   return stored.analysis
 }
+
+/**
+ * Cache key for an analysis. The tag tempo a grid was refined around is part of
+ * what the result means, so the same bytes analysed with a different hint are a
+ * different entry, not a stale one.
+ */
+export function analysisCacheKey(contentHash: string, hintBpm: number | null): string {
+  return hintBpm == null ? contentHash : `${contentHash}@${hintBpm}`
+}

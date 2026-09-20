@@ -42,6 +42,31 @@ describe('estimateBeatGrid', () => {
     }
   })
 
+  it('recovers a fractional tempo finely enough not to drift across a whole song', () => {
+    // 100.3 BPM is 119.64 frames per beat — not a whole number of frames. A
+    // whole-frame lag can only say ~100.0 or ~100.8, and a 0.3 BPM error is
+    // half a beat of drift after ~170 beats (the middle of a 5-minute song).
+    const trueBpm = 100.3
+    const period = (60 / trueBpm) * FPS
+    const frames = 60000
+    const onsets = new Float32Array(frames)
+    for (let k = 0; Math.round(k * period) < frames; k++) onsets[Math.round(k * period)] = 1
+    const result = estimateBeatGrid(onsets, FPS)
+    expect(result).not.toBeNull()
+    expect(Math.abs(result!.grid.bpm - trueBpm)).toBeLessThan(0.05)
+  })
+
+  it('refines around a rounded tag tempo instead of trusting the blind search', () => {
+    // Tagged "100", really 100.3: the grid must land on 100.3, not on 100.
+    const trueBpm = 100.3
+    const period = (60 / trueBpm) * FPS
+    const onsets = new Float32Array(60000)
+    for (let k = 0; Math.round(k * period) < 60000; k++) onsets[Math.round(k * period)] = 1
+    const result = estimateBeatGrid(onsets, FPS, { hintBpm: 100 })
+    expect(Math.abs(result!.grid.bpm - trueBpm)).toBeLessThan(0.05)
+    expect(result!.confident).toBe(true)
+  })
+
   it('recovers a known phase offset to within one frame', () => {
     const bpm = 128
     const lag = Math.round((60 / bpm) * FPS)

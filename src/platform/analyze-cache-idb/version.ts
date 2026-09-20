@@ -10,4 +10,4 @@
  * named here rather than left implicit. See `workshop-output/PLAN.md`
  * (v0.4.0) Risk 2.
  */
-export const ANALYZER_VERSION = 1
+export const ANALYZER_VERSION = 2

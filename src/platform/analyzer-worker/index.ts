@@ -47,7 +47,7 @@ function getWorker(): Worker {
   return worker
 }
 
-function analyzeInWorker(pcm: PcmData, opts?: { minBpm?: number; maxBpm?: number }): Promise<AnalyzeResponse> {
+function analyzeInWorker(pcm: PcmData, opts?: { minBpm?: number; maxBpm?: number; hintBpm?: number | null }): Promise<AnalyzeResponse> {
   const id = nextId++
   const w = getWorker()
   return new Promise((resolve) => {
@@ -72,7 +72,7 @@ function analyzeInWorker(pcm: PcmData, opts?: { minBpm?: number; maxBpm?: number
  * function throwing in a way that looks like a bug in the fallback itself.
  */
 export const analyzerWorker: Analyzer = {
-  async analyze(pcm: PcmData, opts?: { minBpm?: number; maxBpm?: number }): Promise<TrackAnalysis> {
+  async analyze(pcm: PcmData, opts?: { minBpm?: number; maxBpm?: number; hintBpm?: number | null }): Promise<TrackAnalysis> {
     if (!detectCapabilities().webWorker) {
       return analyzeTrack(pcm, opts)
     }

@@ -53,7 +53,8 @@ import { getCues, putCues } from '@/platform/cues-idb/store'
 import { getTempo, putTempo } from '@/platform/tempo-idb/store'
 import { getExcellentPoints, markExcellent } from '@/platform/mix-ratings-idb/store'
 import { clock } from '@/platform/clock-audio'
-import { readTrackData } from '@/platform/source-fsaccess/library'
+import { readTagBpm, readTrackData } from '@/platform/source-fsaccess/library'
+import { analysisCacheKey } from '@/core/analysis-cache'
 import { hashBytes, hashFile } from '@/platform/source-fsaccess/hash'
 import { settings } from '@/platform/settings-idb/store'
 import { DEFAULTS, FIELD_BY_KEY, secPerRev, type Settings } from '@/core/settings'
@@ -392,14 +393,16 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     // No hash (a hashing failure above) means "not yet identified" — analysis
     // still runs so this load gets its waveform/grid, it just can't be cached
     // or looked up by identity yet.
-    let analysis = contentHash ? await analysisCache.get(contentHash) : null
+    const hintBpm = await readTagBpm(track)
+    const cacheKey = contentHash ? analysisCacheKey(contentHash, hintBpm) : null
+    let analysis = cacheKey ? await analysisCache.get(cacheKey) : null
     if (!analysis) {
       // `pcmFromAudioBuffer` only now, not before `deck.load` above: the
       // Worker path transfers (detaches) these channel buffers, and nothing
       // else needs to read `buffer` again after this point.
       const pcm = pcmFromAudioBuffer(buffer)
-      analysis = await analyzerWorker.analyze(pcm)
-      if (contentHash) await analysisCache.put(contentHash, analysis)
+      analysis = await analyzerWorker.analyze(pcm, { hintBpm })
+      if (cacheKey) await analysisCache.put(cacheKey, analysis)
     }
     // A fast second load on this same deck may have already replaced the
     // track this analysis was for — don't let a late result clobber it.
@@ -411,7 +414,16 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     // core/beatgrid.ts). What v0.3.0 changes: detection is the *only* source
     // of phase (`offsetSec`) — tags carry no phase — so it always runs and its
     // grid is always kept, even when the tag wins on the bpm number itself.
-    const bpm = track.bpm ?? analysis.bpm
+    // Exception (20/09): a tag is usually a rounded label ("100") of a tempo
+    // that is really 99.8 or 100.3, and a grid built on the rounded number
+    // drifts a whole beat over a song. When our own refined estimate is within
+    // 2% of the tag they are the same tempo, and the finer number is the one
+    // that stays on the beats; a bigger gap is an octave/detection miss, where
+    // the tag still wins as before.
+    const detectedBpm = analysis.beatGrid?.bpm ?? null
+    const tagAgrees =
+      track.bpm != null && detectedBpm != null && Math.abs(detectedBpm - track.bpm) / track.bpm <= 0.02
+    const bpm = tagAgrees ? detectedBpm : (track.bpm ?? analysis.bpm)
     const beatGrid: BeatGrid | null = analysis.beatGrid
       ? { bpm: bpm ?? analysis.beatGrid.bpm, offsetSec: analysis.beatGrid.offsetSec }
       : null
