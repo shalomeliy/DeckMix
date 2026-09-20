@@ -489,9 +489,26 @@ function maybeAutoMaster(deckId: DeckId) {
   if (useStore.getState().masterDeckId == null) useStore.setState({ masterDeckId: deckId })
 }
 
+/**
+ * Stopping the outgoing deck mid-transition used to cancel the transition,
+ * and a cancel pauses the incoming deck too — one PAUSE press silenced both
+ * decks. Refused instead, and named: CANCEL TRANSITION is the one way back,
+ * and it leaves the outgoing deck playing.
+ */
+function blockStopOfOutgoingDeck(deckId: DeckId): boolean {
+  if (!activeTransition || deckId !== activeTransition.fromDeckId) return false
+  useStore.getState().setNotice({
+    text: `Deck ${deckId} is fading out in a transition — press CANCEL TRANSITION to stop it, or wait for it to finish.`,
+    tone: 'warn',
+    source: 'sync',
+  })
+  return true
+}
+
 export function togglePlay(deckId: DeckId) {
   const deck = engine.decks[deckId]
   if (!deck.hasTrack) return
+  if (deck.playing && blockStopOfOutgoingDeck(deckId)) return
   // Captured before the guard: cancelling pauses+repositions the *incoming*
   // deck by itself (cancelTransition's own restore), and this is a *toggle* —
   // calling deck.togglePlay() afterward would see it now paused and flip it
@@ -517,6 +534,7 @@ export function play(deckId: DeckId) {
 export function pause(deckId: DeckId) {
   const deck = engine.decks[deckId]
   if (!deck.playing) return
+  if (blockStopOfOutgoingDeck(deckId)) return
   cancelTransitionIfEitherDeckTouched(deckId)
   deck.pause()
   useStore.getState().patchDeck(deckId, { playing: false })
@@ -551,6 +569,7 @@ export function cue(deckId: DeckId) {
   if (!deck.hasTrack) return
   const st = useStore.getState().decks[deckId]
   if (deck.playing) {
+    if (blockStopOfOutgoingDeck(deckId)) return
     cancelTransitionIfEitherDeckTouched(deckId)
     deck.pause()
     deck.seek(st.cuePointSec)
