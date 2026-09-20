@@ -55,6 +55,19 @@ export interface TrackSimilarityMatch {
   score: number
 }
 
+/** Same tempo range Mix Assist uses in spirit: a DJ can beatmatch within ~8%, or ride half/double time. */
+const BPM_TOLERANCE = 0.08
+
+/**
+ * Tempo-compatible: within ±8% of the seed, or of its half/double time.
+ * Cosine on averaged MFCC/chroma measures timbre only (real library, 20/09:
+ * a 97 BPM Hip Hop seed returned Techno at 122-173 BPM — 2/10 matched the
+ * v0.8.5 criterion), so tempo has to be a hard gate, not a tiebreak.
+ */
+export function bpmCompatible(seedBpm: number, candidateBpm: number): boolean {
+  return [1, 2, 0.5].some((m) => Math.abs(candidateBpm / (seedBpm * m) - 1) <= BPM_TOLERANCE)
+}
+
 /**
  * `rankBySimilarity` adapted to `Library.tsx`'s actual keys (M3) — rows are
  * addressed by `Track.id`, not `contentHash` (two rows can share a hash if
@@ -62,28 +75,40 @@ export interface TrackSimilarityMatch {
  * throws, never a guess — when the seed itself isn't found or has no
  * embedding yet, matching every other "not ready" state in this project
  * (a disabled button, not a crash).
+ *
+ * Similar = tempo + genre + sound (Shalom, 20/09): candidates outside the
+ * seed's tempo range are dropped (a candidate with no BPM can't be shown to
+ * match, so it is dropped too — the chip says so); same-genre tracks come
+ * first; sound (cosine) orders within each group. A seed with no BPM applies
+ * no tempo gate — the chip shows no BPM in that case, so it isn't hidden.
  */
 export function findSimilarTracks(seedId: string, tracks: Track[], opts: { limit?: number } = {}): TrackSimilarityMatch[] {
   const seedTrack = tracks.find((t) => t.id === seedId)
   if (!seedTrack?.embedding || !seedTrack.contentHash) return []
 
+  const seedBpm = seedTrack.bpm ?? null
   const idByHash = new Map<string, string>()
+  const genreByHash = new Map<string, string | null>()
   const candidates: SimilarityCandidate[] = []
   for (const t of tracks) {
     if (!t.embedding || !t.contentHash) continue
+    if (seedBpm != null && t.contentHash !== seedTrack.contentHash && (t.bpm == null || !bpmCompatible(seedBpm, t.bpm))) continue
     if (!idByHash.has(t.contentHash)) idByHash.set(t.contentHash, t.id)
+    genreByHash.set(t.contentHash, t.genre ?? null)
     candidates.push({ contentHash: t.contentHash, embedding: t.embedding, bpm: t.bpm ?? null, genre: t.genre ?? null })
   }
 
   const seed: SimilarityCandidate = {
     contentHash: seedTrack.contentHash,
     embedding: seedTrack.embedding,
-    bpm: seedTrack.bpm ?? null,
+    bpm: seedBpm,
     genre: seedTrack.genre ?? null,
   }
+  const seedGenre = seedTrack.genre ?? null
+  const sameGenre = (hash: string) => seedGenre != null && genreByHash.get(hash) === seedGenre
 
-  return rankBySimilarity(seed, candidates, opts).map((m) => ({
-    id: idByHash.get(m.contentHash) ?? m.contentHash,
-    score: m.score,
-  }))
+  return rankBySimilarity(seed, candidates, { limit: Infinity })
+    .sort((a, b) => Number(sameGenre(b.contentHash)) - Number(sameGenre(a.contentHash)) || b.score - a.score)
+    .slice(0, opts.limit ?? DEFAULT_LIMIT)
+    .map((m) => ({ id: idByHash.get(m.contentHash) ?? m.contentHash, score: m.score }))
 }

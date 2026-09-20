@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cosineSimilarity, findSimilarTracks, rankBySimilarity, type SimilarityCandidate } from '@/core/embedding-search'
+import { bpmCompatible, cosineSimilarity, findSimilarTracks, rankBySimilarity, type SimilarityCandidate } from '@/core/embedding-search'
 import type { Track } from '@/core/types'
 
 function vec(...values: number[]): Float32Array {
@@ -110,5 +110,45 @@ describe('findSimilarTracks', () => {
       ...Array.from({ length: 5 }, (_, i) => track(`c${i}`, { embedding: vec(1, i) })),
     ]
     expect(findSimilarTracks('seed', tracks, { limit: 2 })).toHaveLength(2)
+  })
+})
+
+describe('bpmCompatible', () => {
+  it('accepts ±8% and half/double time, rejects the rest', () => {
+    expect(bpmCompatible(100, 107)).toBe(true)
+    expect(bpmCompatible(100, 93)).toBe(true)
+    expect(bpmCompatible(100, 109)).toBe(false)
+    expect(bpmCompatible(70, 140)).toBe(true)
+    expect(bpmCompatible(140, 70)).toBe(true)
+    expect(bpmCompatible(97, 122)).toBe(false)
+  })
+})
+
+describe('findSimilarTracks — tempo and genre (20/09 real-library failure: Hip Hop 97 BPM returned Techno 122-173)', () => {
+  const seed = track('seed', { embedding: vec(1, 0), bpm: 97, genre: 'Hip Hop' })
+
+  it('drops tracks outside the seed tempo range, however close the sound', () => {
+    const tracks = [seed, track('techno', { embedding: vec(1, 0), bpm: 128, genre: 'Techno' }), track('hop', { embedding: vec(0, 1), bpm: 100, genre: 'Hip Hop' })]
+    expect(findSimilarTracks('seed', tracks).map((m) => m.id)).toEqual(['hop'])
+  })
+
+  it('drops a candidate with no BPM when the seed has one — it cannot be shown to match', () => {
+    const tracks = [seed, track('nobpm', { embedding: vec(1, 0) })]
+    expect(findSimilarTracks('seed', tracks)).toEqual([])
+  })
+
+  it('puts same-genre first, then orders by sound within each group', () => {
+    const tracks = [
+      seed,
+      track('other-close', { embedding: vec(1, 0.01), bpm: 97, genre: 'Trap' }),
+      track('same-far', { embedding: vec(0.2, 1), bpm: 97, genre: 'Hip Hop' }),
+      track('same-near', { embedding: vec(1, 0.3), bpm: 97, genre: 'Hip Hop' }),
+    ]
+    expect(findSimilarTracks('seed', tracks).map((m) => m.id)).toEqual(['same-near', 'same-far', 'other-close'])
+  })
+
+  it('applies no tempo gate when the seed itself has no BPM', () => {
+    const tracks = [track('s', { embedding: vec(1, 0) }), track('x', { embedding: vec(1, 0.1), bpm: 173 })]
+    expect(findSimilarTracks('s', tracks).map((m) => m.id)).toEqual(['x'])
   })
 })
