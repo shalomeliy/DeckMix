@@ -2338,7 +2338,20 @@ export function syncDeck(deckId: DeckId) {
     return
   }
 
-  const resolvedMaster = masterDeckId ?? other
+  // A stored master that is paused is stale while the other deck plays: master
+  // is only ever assigned, never released, so a deck that led an earlier mix
+  // kept the role after stopping. Left as is, SYNC on the loaded deck said
+  // "already master" and did nothing, while SYNC on the playing deck retuned
+  // it to the paused one — the reverse of what a DJ means.
+  let resolvedMaster: DeckId = masterDeckId ?? other
+  if (!decks[resolvedMaster].playing) {
+    const otherOfMaster: DeckId = resolvedMaster === 'A' ? 'B' : 'A'
+    if (decks[otherOfMaster].playing) resolvedMaster = otherOfMaster
+  }
+  if (resolvedMaster !== masterDeckId && masterDeckId != null && resolvedMaster !== deckId) {
+    useStore.setState({ masterDeckId: resolvedMaster })
+    refreshFxTimeForMasterTempo()
+  }
   if (resolvedMaster === deckId) {
     setNotice({
       text: `Deck ${deckId} is already master — long-press SYNC on deck ${other} to make it master instead.`,
