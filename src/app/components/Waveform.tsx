@@ -127,24 +127,6 @@ export function Waveform({
     const centerBucket = positionSec * bucketsPerSec
     const bucketsPerPx = bucketsPerSec / PX_PER_SEC
 
-    // beat grid — beat 0 sits at offsetSec, the detected/edited grid's own
-    // phase, not necessarily track start (v0.3.0). offsetSec defaults to 0,
-    // which draws exactly the pre-v0.3.0 grid (bar-aligned to track start).
-    if (bpm && bpm > 0) {
-      const beatSec = 60 / bpm
-      const halfSpanSec = w / 2 / PX_PER_SEC
-      const firstBeat = Math.floor((positionSec - offsetSec - halfSpanSec) / beatSec)
-      const lastBeat = Math.ceil((positionSec - offsetSec + halfSpanSec) / beatSec)
-      for (let b = firstBeat; b <= lastBeat; b++) {
-        const beatTimeSec = b * beatSec + offsetSec
-        if (beatTimeSec < 0) continue
-        const x = w / 2 + (beatTimeSec - positionSec) * PX_PER_SEC
-        const bar = b % 4 === 0
-        ctx.fillStyle = bar ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.05)'
-        ctx.fillRect(x, bar ? 0 : h * 0.12, 1, bar ? h : h * 0.76)
-      }
-    }
-
     // Waveform body: one column per pixel so each carries its own colour.
     // Colours are quantised to 5% band steps, which is invisible to the eye but
     // lets neighbouring columns share a style — assigning fillStyle is the
@@ -217,6 +199,42 @@ export function Waveform({
     // centre spine
     ctx.fillStyle = 'rgba(255,255,255,0.14)'
     ctx.fillRect(0, mid - 0.5, w, 1)
+
+    // beat grid — beat 0 sits at offsetSec, the detected/edited grid's own
+    // phase, not necessarily track start (v0.3.0). Drawn AFTER the body: the
+    // body paints an opaque column per pixel, so a grid drawn first (as it was
+    // until 20/09, at 5%/16% alpha) was buried under it and effectively
+    // invisible. Every 4th beat is the bar line Mix Assist must land on.
+    if (bpm && bpm > 0) {
+      const beatSec = 60 / bpm
+      const halfSpanSec = w / 2 / PX_PER_SEC
+      const firstBeat = Math.floor((positionSec - offsetSec - halfSpanSec) / beatSec)
+      const lastBeat = Math.ceil((positionSec - offsetSec + halfSpanSec) / beatSec)
+      for (let b = firstBeat; b <= lastBeat; b++) {
+        const beatTimeSec = b * beatSec + offsetSec
+        if (beatTimeSec < 0) continue
+        const x = Math.round(w / 2 + (beatTimeSec - positionSec) * PX_PER_SEC)
+        if (b % 4 === 0) {
+          ctx.fillStyle = 'rgba(255,196,46,0.95)'
+          ctx.fillRect(x - 1, 0, 3, h)
+          ctx.beginPath()
+          ctx.moveTo(x - 6, 0)
+          ctx.lineTo(x + 6, 0)
+          ctx.lineTo(x, 8)
+          ctx.closePath()
+          ctx.fill()
+          ctx.beginPath()
+          ctx.moveTo(x - 6, h)
+          ctx.lineTo(x + 6, h)
+          ctx.lineTo(x, h - 8)
+          ctx.closePath()
+          ctx.fill()
+        } else {
+          ctx.fillStyle = 'rgba(255,255,255,0.4)'
+          ctx.fillRect(x, 0, 1, h)
+        }
+      }
+    }
 
     // hot cue flags
     for (const cue of hotCues) {
