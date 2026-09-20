@@ -21,6 +21,7 @@ import {
   BEATGRID_NUDGE_SEC,
   HOT_CUE_COLORS,
   RECENTLY_REMOVED_WINDOW_SEC,
+  syncTempoFor,
   tempoToRate,
   TRANSITION_CROSSFADE_SEC,
 } from '@/core/constants'
@@ -2375,8 +2376,7 @@ export function syncDeck(deckId: DeckId) {
     useStore.setState({ masterDeckId: resolvedMaster })
     refreshFxTimeForMasterTempo()
   }
-  const ratio = master.bpm / st.bpm
-  const tempo = (ratio - 1) / settings.values.tempoRange
+  const tempo = syncTempoFor(master.bpm, master.tempo, st.bpm, settings.values.tempoRange)
   setTempo(deckId, tempo)
   patchDeck(deckId, { syncActive: true })
   ensureSyncLoop()
@@ -2404,8 +2404,7 @@ export function setMasterDeck(deckId: DeckId) {
   const master = decks[deckId]
   const mine = st.bpm
   if (!master.bpm || !mine) return
-  const ratio = master.bpm / mine
-  const tempo = (ratio - 1) / settings.values.tempoRange
+  const tempo = syncTempoFor(master.bpm, master.tempo, mine, settings.values.tempoRange)
   setTempo(other, tempo)
   patchDeck(other, { syncActive: true })
   ensureSyncLoop()

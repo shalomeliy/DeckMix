@@ -55,6 +55,25 @@ export function tempoToRate(tempo: number, range: number = TEMPO_RANGE): number 
   return 1 + tempo * range
 }
 
+/**
+ * Tempo fader value that makes a deck (native `deckBpm`) play at the same
+ * *audible* speed as the master. The master's audible BPM is its native BPM
+ * times its own tempo rate — matching its native BPM alone left a deck 6 BPM off
+ * whenever the master's fader was not at zero (every second Mix Assist
+ * transition, since the previous incoming deck stays tempo-shifted), and the
+ * phase-sync loop then bent pitch every second trying to close a gap that a
+ * tempo mismatch can never close.
+ */
+export function syncTempoFor(
+  masterBpm: number,
+  masterTempo: number,
+  deckBpm: number,
+  range: number = TEMPO_RANGE,
+): number {
+  const targetBpm = masterBpm * tempoToRate(masterTempo, range)
+  return (targetBpm / deckBpm - 1) / range
+}
+
 // ————————————————————————————————————————————————————————————————
 // Defaults the user may override from the Settings screen (v0.2.5)
 //

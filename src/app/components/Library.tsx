@@ -669,9 +669,11 @@ export function Library() {
           <button
             onClick={() => setSimilarTo(null)}
             className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-grid-text hover:bg-surface-3"
-            title="Showing tracks similar to this one — click to see the whole library again"
+            title="Similar = same tempo range (±8%, or half/double time), same genre first, then closest sound. Tracks with no BPM are left out. Click to see the whole library again."
           >
-            Similar to: {similarToTrack.title ?? similarToTrack.name} ✕
+            Similar to: {similarToTrack.title ?? similarToTrack.name}
+            {similarToTrack.bpm != null && ` · ${Math.round(similarToTrack.bpm)} BPM`}
+            {similarToTrack.genre && ` · ${similarToTrack.genre}`} ✕
           </button>
         )}
         {/* Zero-size anchor: the badge is absolutely placed off it, so it never
