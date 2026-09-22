@@ -19,7 +19,7 @@
   [`docs/handoff/v0.8.11.md`](docs/handoff/v0.8.11.md). `v0.8.5` סגירה רשמית ממתינה
   לקריטריון **איכות** מדיד (spec: `workshop-output/FEATURE_SPEC_SUGGEST.md`, החלטה 4). |
 | **⚠ לקח 17/09** | "✅" לא מוכיח מיזוג — `git log origin/main..<branch>` כן (`v0.8.6`, PR #27). |
-| **branch** | `main` — v0.8.10/v0.8.11 ממוזגים ב-PR, `git log --oneline -3` מראה איזה. |
+| **branch** | `main`, הכל ממוזג — PR #29 (v0.8.10), PR #30 (v0.8.11). `git log --oneline -1`. |
 | **גרסה נוכחית** | `v0.8.11` (`package.json`) — נסגרה. |
 | **`check`** | ירוק. |
 | **הבא בתור** | v0.8.12 (זיכרון זוגות) או v0.8.9 (ייצוא סאמפלר). |
