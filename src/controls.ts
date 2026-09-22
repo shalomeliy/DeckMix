@@ -79,6 +79,10 @@ import {
   saveSamplerBank,
   type StoredSamplerBank,
 } from '@/platform/sampler-idb/store'
+import {
+  exportSamplerBankWithRecordings,
+  importSamplerBankWithRecordings,
+} from '@/platform/sampler-bank-fsaccess/store'
 import { getFxBank, saveFxBank, type StoredFxBank } from '@/platform/fx-idb/store'
 import { useStore, type FxState } from '@/app/state/store'
 import type { AIMessage, AIToolCall } from '@/core/ports/ai'
@@ -1875,46 +1879,51 @@ export async function exportSamplerBank(): Promise<void> {
   }
 }
 
+/**
+ * Shared by both import paths (plain JSON and "collect and copy"): clears
+ * every slot, drops entries a hand-edited or corrupted file could carry with
+ * a `mode` that isn't one of the three real ones (leaving that pad looking
+ * loaded but silently doing nothing on press — this project's central rule
+ * forbids exactly that), saves, and resolves against the library/recordings.
+ * Sanitized before it's saved, not just before it's applied, so a bad entry
+ * doesn't survive round-trip through IndexedDB and come back valid-looking
+ * on the next boot restore.
+ */
+async function applyImportedBank(bank: StoredSamplerBank): Promise<{ invalid: number }> {
+  const { patchSamplerSlot } = useStore.getState()
+  for (let i = 0; i < SAMPLER_SLOT_COUNT; i++) clearSamplerSlot(i)
+  let invalid = 0
+  const sanitized: StoredSamplerBank = bank.map((s, i) => {
+    if (!s) return null
+    if (!isSamplerMode(s.mode) || typeof s.gain !== 'number' || !isFinite(s.gain)) {
+      invalid++
+      return null
+    }
+    const gain = Math.max(0, Math.min(1, s.gain))
+    patchSamplerSlot(i, {
+      trackName: s.trackName,
+      contentHash: s.contentHash,
+      recordingId: s.recordingId,
+      bpm: s.bpm,
+      mode: s.mode,
+      gain,
+      syncEnabled: s.syncEnabled === true,
+    })
+    engine.sampler.setGain(i, gain)
+    return { ...s, gain, syncEnabled: s.syncEnabled === true }
+  })
+  await saveSamplerBank(sanitized)
+  await resolveSamplerSlots()
+  return { invalid }
+}
+
 /** Import (ROADMAP.md v0.6.0's "import bank") — replaces every slot's settings, then resolves what it can against the current library exactly like a fresh boot restore. */
 export async function importSamplerBank(): Promise<void> {
-  const { setNotice, patchSamplerSlot } = useStore.getState()
+  const { setNotice } = useStore.getState()
   try {
     const bank = await importSamplerBankFromFile()
     if (bank === 'cancelled') return
-    // Clear every slot first — an imported bank with fewer than 16 saved
-    // entries must not leave the current bank's leftovers in the gaps.
-    for (let i = 0; i < SAMPLER_SLOT_COUNT; i++) clearSamplerSlot(i)
-    // A hand-edited or corrupted file can carry a `mode` string that isn't
-    // one of the three real ones — applying it as-is would make a pad that
-    // looks loaded (has a `contentHash`) silently do nothing on press
-    // (`pressSamplerPad`'s `switch` falls through its `default`), exactly
-    // the failure this project's central rule forbids. Bad entries are
-    // dropped, not guessed at, and counted rather than swallowed.
-    let invalid = 0
-    // Sanitized before it's saved, not just before it's applied — otherwise
-    // a bad entry survives round-trip through IndexedDB and comes back
-    // exactly as invalid on the next boot restore.
-    const sanitized: StoredSamplerBank = bank.map((s, i) => {
-      if (!s) return null
-      if (!isSamplerMode(s.mode) || typeof s.gain !== 'number' || !isFinite(s.gain)) {
-        invalid++
-        return null
-      }
-      const gain = Math.max(0, Math.min(1, s.gain))
-      patchSamplerSlot(i, {
-        trackName: s.trackName,
-        contentHash: s.contentHash,
-        recordingId: s.recordingId,
-        bpm: s.bpm,
-        mode: s.mode,
-        gain,
-        syncEnabled: s.syncEnabled === true,
-      })
-      engine.sampler.setGain(i, gain)
-      return { ...s, gain, syncEnabled: s.syncEnabled === true }
-    })
-    await saveSamplerBank(sanitized)
-    await resolveSamplerSlots()
+    const { invalid } = await applyImportedBank(bank)
     setNotice({
       text:
         invalid > 0
@@ -1925,6 +1934,81 @@ export async function importSamplerBank(): Promise<void> {
     })
   } catch (err) {
     console.error('sampler bank import failed', err)
+    setNotice({
+      text: `Sampler bank import failed — ${err instanceof Error ? err.message : String(err)}`,
+      tone: 'warn',
+      source: 'sampler',
+    })
+  }
+}
+
+/**
+ * "Collect and copy" export (v0.8.9) — same JSON as `exportSamplerBank`, but
+ * into a folder alongside the actual recorded audio, so a recorded slot
+ * travels with the bank instead of being left out and only counted.
+ */
+export async function exportSamplerBankWithRecordingsToFolder(): Promise<void> {
+  const { sampler, setNotice } = useStore.getState()
+  const bank: StoredSamplerBank = sampler.slots.map((s) =>
+    s.contentHash || s.recordingId
+      ? {
+          contentHash: s.contentHash,
+          recordingId: s.recordingId,
+          trackName: s.trackName ?? '',
+          bpm: s.bpm,
+          mode: s.mode,
+          gain: s.gain,
+          syncEnabled: s.syncEnabled,
+        }
+      : null,
+  )
+  try {
+    const result = await exportSamplerBankWithRecordings(bank, getRecordingBlob)
+    if (result.kind === 'cancelled') return
+    const missing = result.total - result.collected
+    setNotice({
+      text:
+        missing > 0
+          ? `Sampler bank saved — ${result.collected} of ${result.total} recordings were collected (${missing} missing from storage).`
+          : result.total > 0
+            ? `Sampler bank + ${result.total} recording${result.total === 1 ? '' : 's'} saved.`
+            : 'Sampler bank saved — no recordings in this bank.',
+      tone: missing > 0 ? 'warn' : 'info',
+      source: 'sampler',
+    })
+  } catch (err) {
+    console.error('sampler bank + recordings export failed', err)
+    setNotice({
+      text: `Sampler bank export failed — ${err instanceof Error ? err.message : String(err)}`,
+      tone: 'warn',
+      source: 'sampler',
+    })
+  }
+}
+
+/** Inverse of `exportSamplerBankWithRecordingsToFolder` — restores both the bank layout and, for every recording the folder still has, its audio. */
+export async function importSamplerBankWithRecordingsFromFolder(): Promise<void> {
+  const { setNotice } = useStore.getState()
+  try {
+    const result = await importSamplerBankWithRecordings(saveRecordingBlob)
+    if (result === 'cancelled') return
+    const { invalid } = await applyImportedBank(result.bank)
+    const parts: string[] = [
+      `Sampler bank imported — ${result.recordingsFound} recording${result.recordingsFound === 1 ? '' : 's'} restored.`,
+    ]
+    if (result.recordingsMissing > 0) {
+      parts.push(
+        `${result.recordingsMissing} recording${result.recordingsMissing === 1 ? '' : 's'} named in the export weren't in the folder.`,
+      )
+    }
+    if (invalid > 0) parts.push(`${invalid} slot${invalid === 1 ? '' : 's'} had invalid data and were left empty.`)
+    setNotice({
+      text: parts.join(' '),
+      tone: result.recordingsMissing > 0 || invalid > 0 ? 'warn' : 'info',
+      source: 'sampler',
+    })
+  } catch (err) {
+    console.error('sampler bank + recordings import failed', err)
     setNotice({
       text: `Sampler bank import failed — ${err instanceof Error ? err.message : String(err)}`,
       tone: 'warn',
