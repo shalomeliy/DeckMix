@@ -22,7 +22,7 @@
   `v0.8.5` סגירה רשמית ממתינה לקריטריון **איכות** מדיד
   (spec: `workshop-output/FEATURE_SPEC_SUGGEST.md`). |
 | **⚠ לקח 17/09** | "✅" לא מוכיח מיזוג — `git log origin/main..<branch>` כן (`v0.8.6`, PR #27). |
-| **branch** | `main`, טרם נדחף — commit ל‑v0.8.13 בהכנה (`git log --oneline -1`). |
+| **branch** | `main`, מחובר מקומית (`3646411`) — טרם נדחף ל‑`origin` (`git log origin/main..HEAD --oneline`). |
 | **גרסה נוכחית** | `v0.8.13` (`package.json`) — נסגרה. |
 | **`check`** | ירוק. |
 | **הבא בתור** | אחרי v0.8.13: v0.8.14 (זיכרון זוגות שיר→שיר). |
