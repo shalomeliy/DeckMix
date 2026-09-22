@@ -19,7 +19,14 @@ import { useShallow } from 'zustand/react/shallow'
 import { bootCopy, bootFor, bootForScanError } from '@/core/library-boot'
 import { findSimilarTracks } from '@/core/embedding-search'
 import { libraryEmptyCopy } from '@/core/library-list-copy'
-import { matchReasons, mixRecommendations, orderMixList, type MixMatch } from '@/core/recommend'
+import {
+  excellentPairSuggestions,
+  matchReasons,
+  mixRecommendations,
+  orderMixList,
+  type MixMatch,
+} from '@/core/recommend'
+import { getExcellentFollowUps } from '@/platform/mix-pairs-idb/store'
 import { settings } from '@/platform/settings-idb/store'
 import { useSettings } from '@/app/hooks/useSettings'
 import { useStore } from '@/app/state/store'
@@ -175,19 +182,46 @@ export function Library() {
     const id = window.setInterval(() => setRecentlyRemovedTick((n) => n + 1), 5000)
     return () => window.clearInterval(id)
   }, [])
+  // v0.8.14: `mix-pairs-idb` is async, so it can't sit inside the recommendations
+  // memo below — loaded here into local state instead, keyed off the same
+  // `aHash`/`bHash` primitives, and consumed as a plain `Map` by the pure
+  // `mixRecommendations` the same way `playedHashes` already is.
+  const [excellentPairs, setExcellentPairs] = useState<
+    ReadonlyMap<string, { fromName: string; entrySec: number }>
+  >(new Map())
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      const map = new Map<string, { fromName: string; entrySec: number }>()
+      const decks = useStore.getState().decks
+      for (const track of [decks.A.track, decks.B.track]) {
+        if (!track?.contentHash) continue
+        const followUps = await getExcellentFollowUps(track.contentHash)
+        for (const f of followUps) map.set(`${track.contentHash}:${f.toHash}`, { fromName: track.name, entrySec: f.entrySec })
+      }
+      if (!cancelled) setExcellentPairs(map)
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [aHash, bHash])
   const recommendations = useMemo(
     () =>
       mixRecommendations(
         [
-          { id: 'A', playing: aP, bpm: aB, tempo: aT, trackId: aId, camelot: aK },
-          { id: 'B', playing: bP, bpm: bB, tempo: bT, trackId: bId, camelot: bK },
+          { id: 'A', playing: aP, bpm: aB, tempo: aT, trackId: aId, camelot: aK, contentHash: aHash },
+          { id: 'B', playing: bP, bpm: bB, tempo: bT, trackId: bId, camelot: bK, contentHash: bHash },
         ],
         library.tracks,
         ctl.recentlyRemovedTrackIds(),
-        { playedHashes: new Set(useStore.getState().history.map((h) => h.contentHash)) },
+        {
+          playedHashes: new Set(useStore.getState().history.map((h) => h.contentHash)),
+          excellentPairs,
+        },
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- recentlyRemovedTick only forces a recheck of the time-based exclusion set, its value is never read
-    [aP, aB, aT, aId, aK, bP, bB, bT, bId, bK, library.tracks, recentlyRemovedTick, historyLen],
+    [aP, aB, aT, aId, aK, aHash, bP, bB, bT, bId, bK, bHash, library.tracks, recentlyRemovedTick, historyLen, excellentPairs],
   )
   const recs = recommendations.matches
   const anyPlaying = aP || bP
@@ -597,6 +631,10 @@ export function Library() {
     : mixOnly
       ? orderMixList(preMixList, recs, { hidePlayed, keepOrder: library.sortKey != null })
       : preMixList
+  // v0.8.14: a fixed strip above the table, never a reordering of `list` —
+  // `preMixList` (search/crate filters, not `mixOnly`/`similarTo`) so it's
+  // available regardless of which view the table itself is showing.
+  const excellentMatches = anyPlaying ? excellentPairSuggestions(preMixList, recs, 3) : []
   // Decided from what this view would show, not from library-wide counts: a
   // crate or text filter can leave a view whose suggestions are all played
   // while others exist elsewhere (or the reverse), and the message has to
@@ -875,6 +913,56 @@ export function Library() {
           )}
         </span>
       </div>
+
+      {/*
+        v0.8.14: fixed above the table, never mixed into it — Shalom's explicit
+        call (22/09) was "constant, doesn't move" so a rare hit is never lost
+        below the fold. A row here behaves differently from a row in the
+        table below (it runs the whole mix on click, not just a load), so
+        that difference is spelled out in text, not left to a color/icon.
+      */}
+      {excellentMatches.length > 0 && (
+        <div className="flex items-center gap-2 border-b border-hairline bg-surface-1 px-2 py-1.5">
+          <span className="relative inline-flex shrink-0">
+            <span className="label text-2xs text-grid-muted">Excellent matches</span>
+            <HintIcon id="library.excellentMatches" className="absolute -right-3 -top-1.5" />
+          </span>
+          <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto">
+            {excellentMatches.map((t) => {
+              const match = recs.get(t.id)
+              const info = match?.excellentPairAfter
+              if (!match || !info) return null
+              const fromHash = match.deck === 'A' ? aHash : bHash
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => {
+                    // Not reachable in practice — a track only gets `excellentPairAfter`
+                    // when `best.contentHash` (the deck this row is keyed on) was
+                    // already non-null in the same render — but named rather than a
+                    // bare no-op, per this project's "nothing drops silently" rule.
+                    if (!fromHash) {
+                      useStore.getState().setNotice({
+                        text: `Deck ${match.deck}'s track isn't identified yet — try again in a moment.`,
+                        tone: 'warn',
+                        source: 'mixRating',
+                      })
+                      return
+                    }
+                    void ctl.startExcellentPairTransition(match.deck, fromHash, t, info.entrySec)
+                  }}
+                  className="shrink-0 rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-left text-2xs hover:bg-surface-3"
+                  title={`Click to mix now — enters at the point that worked after ${info.fromName}`}
+                >
+                  <div className="font-semibold text-grid-text">{t.title ?? t.name}</div>
+                  <div className="text-grid-dim">after {info.fromName} · click to mix now</div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1">
         {/*

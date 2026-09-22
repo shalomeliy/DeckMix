@@ -32,6 +32,7 @@ export type NoticeSource =
   | 'fx'
   | 'recording'
   | 'history'
+  | 'mixRating'
 
 /**
  * v0.5.5's natural-language control bar — see `controls.ts`'s AI section
@@ -223,6 +224,10 @@ export interface AppState {
     contentHash: string | undefined
     trackName: string
     exitPointSec: number
+    /** v0.8.14: the incoming deck's own track, for `markExcellentPair` — undefined when it hadn't been analyzed yet at rating time (see `mix-pairs-idb`'s doc comment). */
+    toContentHash: string | undefined
+    /** v0.8.14: the raw entry second `startAutoTransition` was called with (pre phase-alignment) — what a later "excellent match" replay seeks the incoming track to. */
+    entrySec: number
   } | null
 
   library: {

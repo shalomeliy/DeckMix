@@ -129,6 +129,9 @@ const HINT_BASE = {
   'library.played': {
     text: 'Suggested tracks you already loaded to a deck this session sit at the bottom, marked ✓. Click to hide them, click again to show them.',
   },
+  'library.excellentMatches': {
+    text: 'Tracks that followed what’s playing now in a transition you once rated excellent. This is different from the table below: clicking a track here loads it and runs the whole mix right away, entering at the point that worked last time — it doesn’t just load the track.',
+  },
   'library.search': { text: 'Filter the track list by title, artist or genre.' },
   'library.rows': {
     text: 'Click a row to select it, or drag it onto a deck to load. Click the Genre cell to change it. The two buttons on the right load straight to deck A or B.',

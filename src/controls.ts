@@ -52,6 +52,7 @@ import { sortTracks } from '@/core/library-sort'
 import { getCues, putCues } from '@/platform/cues-idb/store'
 import { getTempo, putTempo } from '@/platform/tempo-idb/store'
 import { getExcellentPoints, markExcellent } from '@/platform/mix-ratings-idb/store'
+import { markExcellentPair } from '@/platform/mix-pairs-idb/store'
 import { clock } from '@/platform/clock-audio'
 import { readTagBpm, readTrackData } from '@/platform/source-fsaccess/library'
 import { analysisCacheKey } from '@/core/analysis-cache'
@@ -508,6 +509,59 @@ export function loadSuggestionToDeck(track: Track, awayFromDeck: DeckId) {
     return
   }
   void loadTrackToDeck(target, track)
+}
+
+/**
+ * v0.8.14: a click on the "Excellent matches" strip (`Library.tsx`) — unlike
+ * `loadSuggestionToDeck` above, this doesn't just load the track, it replays
+ * the whole mix that was rated excellent last time: load, seek to the entry
+ * point that worked, then `startAutoTransition` immediately. Composes three
+ * already-existing pieces rather than new async infrastructure:
+ * `loadSuggestionToDeck`'s free-deck check, `loadTrackToDeck`'s own in-line
+ * await of analysis (so its promise resolving already means "beatGrid is
+ * ready or failed"), and `startAutoTransition` unchanged.
+ *
+ * Shalom's explicit call (22/09): starts immediately on click, no waiting for
+ * the live outgoing deck to reach the exit point it used last time — only the
+ * *entry* point is replayed, the exit point is still `startAutoTransition`'s
+ * own live "next candidate ahead" heuristic, same as a manual transition.
+ *
+ * `fromHashAtClick` guards the one gap `startAutoTransition`'s own
+ * preconditions don't cover: loading + analyzing the incoming track can take
+ * a second or two, and nothing else here checks *which* track is still on
+ * the outgoing deck by the time that finishes. Without this check, swapping
+ * the outgoing deck's track mid-load would still fire the transition, using
+ * an entry point calibrated for a pairing that's no longer playing.
+ * `phaseAlignedEntrySec` (inside `startAutoTransition`) would keep that
+ * technically safe — no bad seek — but the *pairing* itself would be wrong,
+ * and Shalom chose to refuse and say so rather than proceed regardless.
+ */
+export async function startExcellentPairTransition(
+  fromDeckId: DeckId,
+  fromHashAtClick: string,
+  toTrack: Track,
+  entrySec: number,
+) {
+  const target: DeckId = fromDeckId === 'A' ? 'B' : 'A'
+  const { decks, setNotice } = useStore.getState()
+  if (decks[target].track) {
+    setNotice({
+      text: `Deck ${target} already has a track loaded — unload it before starting an excellent-match mix there.`,
+      tone: 'warn',
+      source: 'mixRating',
+    })
+    return
+  }
+  await loadTrackToDeck(target, toTrack)
+  if (useStore.getState().decks[fromDeckId].track?.contentHash !== fromHashAtClick) {
+    useStore.getState().setNotice({
+      text: `Deck ${fromDeckId} is playing a different track now — mix not started.`,
+      tone: 'warn',
+      source: 'mixRating',
+    })
+    return
+  }
+  startAutoTransition(fromDeckId, target, entrySec)
 }
 
 /**
@@ -2577,6 +2631,8 @@ interface ActiveTransition {
   unsubscribe: () => void
   /** v0.5.4: the outgoing deck's own suggested exit point — see `AppState.activeTransition`'s own doc comment. Carried here too so `finishTransition` can raise the rating prompt without recomputing it. */
   exitPointSec: number | null
+  /** v0.8.14: the raw `entrySec` this transition was called with, before `phaseAlignedEntrySec` re-aligns it — carried through to `pendingMixRating` for `markExcellentPair`, same split as `exitPointSec` above. */
+  entrySec: number
 }
 
 let activeTransition: ActiveTransition | null = null
@@ -2745,6 +2801,7 @@ export function startAutoTransition(fromDeckId: DeckId, toDeckId: DeckId, entryS
     startedAtSec,
     unsubscribe,
     exitPointSec,
+    entrySec,
   }
   useStore.setState({ activeTransition: { fromDeckId, toDeckId, exitPointSec } })
 }
@@ -2771,12 +2828,15 @@ function finishTransition() {
 
   const fromTrack = useStore.getState().decks[t.fromDeckId].track
   if (t.exitPointSec != null && fromTrack) {
+    const toTrack = useStore.getState().decks[t.toDeckId].track
     useStore.setState({
       pendingMixRating: {
         fromDeckId: t.fromDeckId,
         contentHash: fromTrack.contentHash,
         trackName: fromTrack.name,
         exitPointSec: t.exitPointSec,
+        toContentHash: toTrack?.contentHash,
+        entrySec: t.entrySec,
       },
     })
   }
@@ -2832,6 +2892,24 @@ export function rateMixTransition(rating: 'bad' | 'needs-work' | 'excellent') {
   void markExcellent(pendingMixRating.contentHash, pendingMixRating.exitPointSec).catch((err) => {
     console.error('markExcellent failed', err)
   })
+  // v0.8.14: the pair only saves when both tracks are already identified —
+  // the incoming track's hash can still be missing this soon after it took
+  // over (analysis may still be running), and there is no later trigger that
+  // would fill it in for this specific transition, so the gap is surfaced
+  // rather than silently dropped.
+  if (pendingMixRating.toContentHash) {
+    void markExcellentPair(pendingMixRating.contentHash, pendingMixRating.toContentHash, pendingMixRating.entrySec).catch(
+      (err) => {
+        console.error('markExcellentPair failed', err)
+      },
+    )
+  } else {
+    useStore.getState().setNotice({
+      text: "Pair not saved — the other track hasn't finished analyzing yet.",
+      tone: 'info',
+      source: 'mixRating',
+    })
+  }
   const deck = decks[pendingMixRating.fromDeckId]
   if (deck.track?.contentHash === pendingMixRating.contentHash) {
     const rounded = Math.round(pendingMixRating.exitPointSec)

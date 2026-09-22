@@ -20,6 +20,14 @@ export interface MixMatch {
    * covers a track with no `contentHash` yet (see `unverifiedAgainstHistory`).
    */
   played?: boolean
+  /**
+   * v0.8.14: this candidate previously followed the reference track in a
+   * transition rated "excellent" — directional (see `MixContext.excellentPairs`).
+   * Carries the reference track's name (for the "after X: excellent" reason)
+   * and the entry second that transition used, so a click can replay it
+   * without a second lookup.
+   */
+  excellentPairAfter?: { fromName: string; entrySec: number }
 }
 
 /** Why `mixRecommendations` found nothing — so the UI can say so instead of rendering empty. */
@@ -45,6 +53,13 @@ export interface MixRecommendations {
 export interface MixContext {
   /** `contentHash` of every track loaded to a deck this session (`store.history`) */
   playedHashes?: ReadonlySet<string>
+  /**
+   * v0.8.14: `{fromHash}:{toHash}` → the outgoing track's name and the entry
+   * second that pairing used (`mix-pairs-idb`), flattened for every
+   * currently-playing deck's own track — directional, built fresh in
+   * `Library.tsx`'s memo alongside `playedHashes`.
+   */
+  excellentPairs?: ReadonlyMap<string, { fromName: string; entrySec: number }>
 }
 
 /** Just what the recommender needs from a deck — keeps it off per-frame state. */
@@ -56,6 +71,8 @@ export interface DeckMixState {
   trackId: string | null
   /** Camelot code of the loaded track, when its tags carried a key */
   camelot?: string | null
+  /** v0.8.14: for `MixContext.excellentPairs` lookups — undefined when not yet analyzed, same laziness as `Track.contentHash`. */
+  contentHash?: string | null
 }
 
 /** Camelot neighbours: same code, ±1 on the wheel, or the relative major/minor. */
@@ -98,6 +115,7 @@ export function mixRecommendations(
       bpm: d.bpm! * (1 + d.tempo * TEMPO_RANGE),
       trackId: d.trackId!,
       camelot: d.camelot ?? null,
+      contentHash: d.contentHash ?? null,
     }))
 
   const matches = new Map<string, MixMatch>()
@@ -161,6 +179,13 @@ export function mixRecommendations(
       refBpm: Math.round(best.bpm),
       trackBpm: Math.round(t.bpm),
     }
+    // v0.8.14: directional — only `best → t` is looked up, never the reverse.
+    // A pair recorded under a duplicate-hash file applies to every file
+    // sharing that hash, same as `played` below.
+    if (context?.excellentPairs && best.contentHash && t.contentHash) {
+      const info = context.excellentPairs.get(`${best.contentHash}:${t.contentHash}`)
+      if (info) match.excellentPairAfter = info
+    }
     // Two files with identical bytes share a hash, so both read as played —
     // deliberate: a duplicate of a track you already played is that track.
     if (checkHistory) {
@@ -205,6 +230,7 @@ export function matchReasons(match: MixMatch): string[] {
   }
   out.push(match.keyMatch === undefined ? 'key unknown' : match.keyMatch ? 'key compatible' : 'key clashes')
   if (match.played) out.push('already loaded this set')
+  if (match.excellentPairAfter) out.push(`excellent pair (after ${match.excellentPairAfter.fromName})`)
   return out
 }
 
@@ -243,4 +269,26 @@ export function orderMixList(
   if (opts.keepOrder) return shown
   const tier = (t: Track) => matchTier(matches.get(t.id)!)
   return [0, 1, 2].flatMap((n) => shown.filter((t) => tier(t) === n))
+}
+
+/**
+ * The fixed "Excellent matches" strip (v0.8.14): candidates with a recorded
+ * excellent pairing to whatever's playing now, in `tracks` order (stable,
+ * same as `orderMixList`'s own within-tier order), capped at `limit`. A
+ * separate display channel from the sorted table — never removes a track
+ * from `orderMixList`'s own output, and never reorders it.
+ */
+export function excellentPairSuggestions(
+  tracks: Track[],
+  matches: ReadonlyMap<string, MixMatch>,
+  limit = 3,
+): Track[] {
+  const out: Track[] = []
+  for (const t of tracks) {
+    if (matches.get(t.id)?.excellentPairAfter) {
+      out.push(t)
+      if (out.length >= limit) break
+    }
+  }
+  return out
 }

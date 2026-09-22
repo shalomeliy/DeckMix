@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  excellentPairSuggestions,
   keysCompatible,
   matchReasons,
   matchTier,
@@ -291,6 +292,73 @@ describe('mixRecommendations — set history (v0.8.10)', () => {
     const one = [...mixRecommendations(decks, lib, undefined, ctx).matches.keys()]
     const two = [...mixRecommendations(decks, lib, undefined, ctx).matches.keys()]
     expect(one).toEqual(two)
+  })
+})
+
+describe('mixRecommendations — excellent pairs (v0.8.14)', () => {
+  const hashed = (id: string, hash: string | undefined, bpm = 128): Track => ({ ...track(id, bpm), contentHash: hash })
+  const lib = [hashed('a', 'ha'), hashed('b', 'hb')]
+  const pairCtx = { excellentPairs: new Map([['ha:hb', { fromName: 'A track', entrySec: 42 }]]) }
+
+  it('without excellentPairs the result is what it was before', () => {
+    const before = mixRecommendations([deck('A', { bpm: 128, contentHash: 'ha' })], lib)
+    const without = mixRecommendations([deck('A', { bpm: 128, contentHash: 'ha' })], lib, undefined, {})
+    expect(without).toEqual(before)
+    for (const m of before.matches.values()) expect(m.excellentPairAfter).toBeUndefined()
+  })
+
+  it('flags the candidate that followed the playing deck\'s track in an excellent pairing', () => {
+    const recs = mixRecommendations([deck('A', { bpm: 128, contentHash: 'ha' })], lib, undefined, pairCtx)
+    expect(recs.matches.get('b')?.excellentPairAfter).toEqual({ fromName: 'A track', entrySec: 42 })
+    expect(recs.matches.get('a')?.excellentPairAfter).toBeUndefined()
+  })
+
+  it('is directional — the reverse pairing is not inferred', () => {
+    // Same pair data, but now hb is what's playing — nothing should say hb→ha.
+    const recs = mixRecommendations([deck('A', { bpm: 128, contentHash: 'hb' })], lib, undefined, pairCtx)
+    for (const m of recs.matches.values()) expect(m.excellentPairAfter).toBeUndefined()
+  })
+
+  it('does not change matchTier — no jump from an excellent pairing alone', () => {
+    const recs = mixRecommendations([deck('A', { bpm: 128, contentHash: 'ha' })], lib, undefined, pairCtx)
+    const b = recs.matches.get('b')!
+    expect(b.excellentPairAfter).toBeDefined()
+    expect(matchTier(b)).toBe(0) // strong, not played — same tier as without the pairing
+  })
+
+  it('a pair recorded for one hash applies to every file sharing that hash', () => {
+    const twins = [hashed('a', 'ha'), hashed('b1', 'hb'), hashed('b2', 'hb')]
+    const recs = mixRecommendations([deck('A', { bpm: 128, contentHash: 'ha' })], twins, undefined, pairCtx)
+    expect(recs.matches.get('b1')?.excellentPairAfter).toBeDefined()
+    expect(recs.matches.get('b2')?.excellentPairAfter).toBeDefined()
+  })
+
+  it('matchReasons appends the excellent-pair reason last', () => {
+    const recs = mixRecommendations([deck('A', { bpm: 128, contentHash: 'ha' })], lib, undefined, pairCtx)
+    const reasons = matchReasons(recs.matches.get('b')!)
+    expect(reasons.at(-1)).toBe('excellent pair (after A track)')
+  })
+})
+
+describe('excellentPairSuggestions (v0.8.14)', () => {
+  const tracks = ['a', 'b', 'c', 'd', 'e'].map((id) => track(id, 128))
+  const m = (excellentPairAfter?: { fromName: string; entrySec: number }): MixMatch => ({
+    strong: true, deck: 'A', multiplier: 1, refBpm: 128, trackBpm: 128, ...(excellentPairAfter ? { excellentPairAfter } : {}),
+  })
+  const info = { fromName: 'X', entrySec: 10 }
+
+  it('includes only tracks with an excellent pairing, in list order', () => {
+    const matches = new Map([['a', m(info)], ['b', m()], ['c', m(info)]])
+    expect(excellentPairSuggestions(tracks, matches).map((t) => t.id)).toEqual(['a', 'c'])
+  })
+
+  it('caps at the limit', () => {
+    const matches = new Map([['a', m(info)], ['b', m(info)], ['c', m(info)], ['d', m(info)]])
+    expect(excellentPairSuggestions(tracks, matches, 2).map((t) => t.id)).toEqual(['a', 'b'])
+  })
+
+  it('an empty matches map gives an empty strip', () => {
+    expect(excellentPairSuggestions(tracks, new Map())).toEqual([])
   })
 })
 
