@@ -20,7 +20,7 @@
   [`docs/handoff/v0.8.12.md`](docs/handoff/v0.8.12.md). `v0.8.5` סגירה רשמית
   ממתינה לקריטריון **איכות** מדיד (spec: `workshop-output/FEATURE_SPEC_SUGGEST.md`). |
 | **⚠ לקח 17/09** | "✅" לא מוכיח מיזוג — `git log origin/main..<branch>` כן (`v0.8.6`, PR #27). |
-| **branch** | branch `feat/v0.8.9-sampler-bank-recordings` (בנוי כ-v0.8.12) מעל `main`; לא ממוזג — `git log origin/main..HEAD`. |
+| **branch** | `main`, הכל ממוזג — v0.8.12 (`git log --oneline -1`). |
 | **גרסה נוכחית** | `v0.8.12` (`package.json`) — נסגרה. |
 | **`check`** | ירוק. |
 | **הבא בתור** | v0.8.13 (זיכרון זוגות שיר→שיר) או v0.7.1 (FX Bit Crusher + Roll). |
