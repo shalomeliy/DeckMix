@@ -12,21 +12,28 @@ const FX_EFFECT_LABEL: Record<FxEffect, string> = {
   echo: 'Echo',
   reverb: 'Reverb',
   filter: 'Filter',
+  bitcrusher: 'Crush',
+  roll: 'Roll',
+  flanger: 'Flanger',
+  phaser: 'Phaser',
 }
 
 const REVERB_INDEX = FX_EFFECTS.indexOf('reverb')
+const WORKLET_EFFECTS: ReadonlySet<FxEffect> = new Set(['bitcrusher', 'roll'])
 
 /**
- * Whether `rack` can actually select `effectIndex` right now. Every effect
- * except Reverb is unconditionally available; Reverb depends on its
- * procedurally-generated impulse response having built successfully
- * (`FxRack.reverbAvailable`) — read directly off the engine, not mirrored
- * into the store, because it settles once at construction (before React
- * ever renders) and never changes again, the same one-shot-read shape
- * `scratchAvailable` would use if it needed no store mirroring either.
+ * Whether `rack` can actually select `effectIndex` right now. Reverb depends
+ * on its procedurally-generated impulse response (`FxRack.reverbAvailable`)
+ * — read directly off the engine, not mirrored into the store, because it
+ * settles once at construction (before React ever renders) and never
+ * changes again. Bit Crusher/Roll depend on the FX worklet module, which
+ * resolves *after* first render, so that one **is** store-mirrored
+ * (`fxWorkletReady`) and passed in — reading it here directly off the
+ * engine would miss the moment it flips from unavailable to available.
  */
-function isFxEffectAvailable(rack: 0 | 1, effectIndex: number) {
+function isFxEffectAvailable(rack: 0 | 1, effectIndex: number, fxWorkletReady: boolean) {
   if (effectIndex === REVERB_INDEX) return engine.fx[rack].reverbAvailable
+  if (WORKLET_EFFECTS.has(FX_EFFECTS[effectIndex])) return fxWorkletReady
   return true
 }
 
@@ -34,10 +41,10 @@ function fxTimeLabel(beats: number) {
   return beats < 1 ? `1/${Math.round(1 / beats)}` : `${beats}`
 }
 
-function nextAvailableEffect(rack: 0 | 1, from: number) {
+function nextAvailableEffect(rack: 0 | 1, from: number, fxWorkletReady: boolean) {
   for (let i = 1; i <= FX_EFFECTS.length; i++) {
     const next = (from + i) % FX_EFFECTS.length
-    if (isFxEffectAvailable(rack, next)) return next
+    if (isFxEffectAvailable(rack, next, fxWorkletReady)) return next
   }
   return from
 }
@@ -57,6 +64,7 @@ function nextAvailableEffect(rack: 0 | 1, from: number) {
  */
 function FxStrip({ rack, deckId }: { rack: 0 | 1; deckId: DeckId }) {
   const state = useStore((s) => s.fx[rack])
+  const fxWorkletReady = useStore((s) => s.fxWorkletReady)
   const color = DECK_COLOR[deckId]
   return (
     <div className="flex flex-col items-center gap-1.5">
@@ -69,7 +77,7 @@ function FxStrip({ rack, deckId }: { rack: 0 | 1; deckId: DeckId }) {
           size="sm"
           tone={color}
           active
-          onClick={() => ctl.setFxEffect(rack, nextAvailableEffect(rack, state.effect))}
+          onClick={() => ctl.setFxEffect(rack, nextAvailableEffect(rack, state.effect, fxWorkletReady))}
           aria-label="FX effect"
         >
           {FX_EFFECT_LABEL[FX_EFFECTS[state.effect]]}

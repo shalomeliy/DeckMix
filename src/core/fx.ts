@@ -6,8 +6,22 @@
  * numbers that feed it.
  */
 
-/** The 4 effects in this version's FX rack, in the order `ROADMAP.md` lists them. Bit Crusher/Roll/Flanger/Phaser are v0.7.1. */
-export const FX_EFFECTS = ['delay', 'echo', 'reverb', 'filter'] as const
+/**
+ * The 8 effects in the FX rack, in the order `ROADMAP.md` lists them.
+ * `bitcrusher`/`roll`/`flanger`/`phaser` were added in v0.8.13 (planned as
+ * v0.7.1) — appended at the end, never inserted, because `fx-idb/store.ts`
+ * persists the active effect as a raw index into this array.
+ */
+export const FX_EFFECTS = [
+  'delay',
+  'echo',
+  'reverb',
+  'filter',
+  'bitcrusher',
+  'roll',
+  'flanger',
+  'phaser',
+] as const
 export type FxEffect = (typeof FX_EFFECTS)[number]
 
 /** Beat-synced time steps, in beats — the roadmap's own "1/4…4 beats" range. */
@@ -41,4 +55,33 @@ export function equalPowerMix(t: number): { dry: number; wet: number } {
     dry: Math.cos((c * Math.PI) / 2),
     wet: Math.cos(((1 - c) * Math.PI) / 2),
   }
+}
+
+/** Bit Crusher's bit depth — fixed, not user-adjustable, same "fixed DSP constant" role as Delay/Echo's `FEEDBACK_GAIN` in `platform/audio-webaudio/fx.ts`. 4 bits reads as clearly "crushed"/digital without going fully unmusical (1-bit territory). */
+export const BIT_CRUSH_BITS = 4
+
+/**
+ * Bit Crusher's fixed downsample target, in Hz — what actually gives the
+ * effect its dramatic, obviously-digital character. Measured live (2026-09-22,
+ * Shalom): bit-depth quantization alone, on real music, reads as a subtle
+ * loudness/grain change, not the "crunchy" sound this effect promises — real
+ * bitcrushers get most of their audible character from sample-rate reduction
+ * (the aliasing/stair-step artifacts downsampling produces), which
+ * `BIT_CRUSH_BITS` alone does not supply. Fixed rather than beat-synced —
+ * see `fx-processor.ts`'s header comment for why an earlier beat-synced
+ * version of this same knob was a magnitude error, not a style choice.
+ */
+export const BIT_CRUSH_HOLD_HZ = 2000
+
+/**
+ * Quantize a -1..1 sample to `2^bits` discrete levels — the per-sample math
+ * behind Bit Crusher, pure and AudioContext-free (same "extracted for real
+ * unit tests" move as `equalPowerMix`). `platform/audio-webaudio/
+ * fx-processor.ts`'s worklet calls this once per held sample; the real-time
+ * sample-and-hold timing itself is not extractable, it needs the live audio
+ * thread.
+ */
+export function crushSample(sample: number, bits: number): number {
+  const step = 2 / 2 ** bits
+  return Math.round(sample / step) * step
 }

@@ -303,6 +303,16 @@ export interface AppState {
   scratchReady: boolean
   scratchError: string | null
 
+  /**
+   * Whether the Bit Crusher/Roll worklet (v0.8.13, planned as v0.7.1) is
+   * available. Store-mirrored, unlike Reverb's `reverbAvailable` (read
+   * directly off the engine): this resolves asynchronously, possibly after
+   * React's first render, so the FX cycle-button must be reactive to it —
+   * see `Mixer.tsx`'s `isFxEffectAvailable`.
+   */
+  fxWorkletReady: boolean
+  fxWorkletError: string | null
+
   /** what this machine supports, resolved once at boot (v0.1.6) */
   capabilities: Capabilities
 
@@ -391,6 +401,8 @@ export const useStore = create<AppState>((set) => ({
   audioReady: false,
   scratchReady: false,
   scratchError: null,
+  fxWorkletReady: false,
+  fxWorkletError: null,
   capabilities: detectCapabilities(),
   notice: null,
   ai: {

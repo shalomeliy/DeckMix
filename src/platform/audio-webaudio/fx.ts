@@ -9,11 +9,25 @@ const FEEDBACK_GAIN = 0.35
 /** Reverb decay length is clamped to this range regardless of the computed beat time — a 1/4 beat at a fast BPM (~0.1s) would be too short to read as "reverb" at all, and nothing beyond 4s is worth the buffer size. */
 const REVERB_DECAY_RANGE: readonly [number, number] = [0.2, 4]
 
+/** Roll's loop length, clamped the same way Reverb's decay is — below 0.05s it wouldn't read as a loop, above 3s exceeds the worklet's fixed ring-buffer allocation (`RollProcessor.MAX_FRAMES` in `fx-processor.ts`). */
+const ROLL_LENGTH_RANGE: readonly [number, number] = [0.05, 3]
+
+/** Flanger's modulated delay, centered here with the LFO sweeping ±`FLANGER_DEPTH_SEC` around it — a few ms is the range that reads as "flanging" rather than a short slap-delay or nothing audible. */
+const FLANGER_BASE_DELAY_SEC = 0.005
+const FLANGER_DEPTH_SEC = 0.004
+/** Light feedback for resonance — same role as Delay/Echo's `FEEDBACK_GAIN`, lower because flanger feedback self-reinforces faster than a plain delay tap. */
+const FLANGER_FEEDBACK_GAIN = 0.3
+
+/** Phaser's allpass chain length — 4 stages is the common minimum that reads as "phasing" rather than a single notch. */
+const PHASER_STAGES = 4
+
 interface EffectEntry {
   input: AudioNode
   output: AudioNode
   /** Effects that interpret "time" as more than their input node's own delayTime (Filter's sweep rate, Reverb's decay length) register this instead of being special-cased in `setTime`. */
   onTime?: (sec: number) => void
+  /** Roll only — (re)captures a fresh loop. Fired by `setOn(true)` and by `setEffect` switching onto Roll while already on; see both call sites for why. */
+  onTrigger?: () => void
 }
 
 /**
@@ -25,11 +39,17 @@ interface EffectEntry {
  * by moving where `input`/`output` are connected. See `workshop-output/
  * PLAN.md` §3.6.
  *
- * All 4 effects use native Web Audio nodes only — no `AudioWorklet` in this
- * version (Bit Crusher/Roll, which do need one, are `v0.7.1`).
+ * Delay/Echo/Reverb/Filter use native Web Audio nodes only. Bit Crusher and
+ * Roll (v0.8.13, planned as v0.7.1) need an `AudioWorklet` and only build if
+ * `isWorkletAvailable()` says the module loaded — see `setEffect`'s guard,
+ * the same "never skip silently" shape as Reverb's `_reverbAvailable`, for a
+ * platform-level rather than per-effect failure. Flanger/Phaser (same
+ * version) are native nodes like the original 4.
  */
 export class FxRack {
   private ctx: AudioContext
+  /** `() => engine.fxWorkletAvailable` — a live callback, not a snapshot, because the worklet resolves asynchronously after this rack is constructed. */
+  private isWorkletAvailable: () => boolean
 
   readonly input: GainNode
   readonly output: GainNode
@@ -44,6 +64,8 @@ export class FxRack {
   private effectOutput: GainNode
   /** Built once per effect on first `setEffect`, then reused — native nodes are cheap, no need to tear down and rebuild. */
   private effectNodes = new Map<FxEffect, EffectEntry>()
+  /** Mirrors `onGain`'s target — `setOn`'s own `AudioParam` isn't synchronously readable, and Roll's trigger-on-activate logic needs to know now, not after a ramp settles. */
+  private isOn = false
 
   private currentBpm: number | null = null
   private currentFraction = 0.25
@@ -60,8 +82,9 @@ export class FxRack {
     return this._reverbAvailable
   }
 
-  constructor(ctx: AudioContext) {
+  constructor(ctx: AudioContext, isWorkletAvailable: () => boolean) {
     this.ctx = ctx
+    this.isWorkletAvailable = isWorkletAvailable
     this.input = ctx.createGain()
     this.output = ctx.createGain()
     this.dryGain = ctx.createGain()
@@ -163,6 +186,105 @@ export class FxRack {
         })
         break
       }
+      case 'bitcrusher': {
+        // Can't build without the worklet module — `setEffect`'s guard
+        // checks `isWorkletAvailable()` before this runs and returns `false`
+        // instead of ever reaching here with it unavailable; this stays a
+        // no-op (not a throw) so a future caller that skips the guard fails
+        // loud at the "FX effect failed to build" check instead of crashing.
+        if (!this.isWorkletAvailable()) break
+        const node = new AudioWorkletNode(this.ctx, 'bit-crusher', {
+          numberOfInputs: 1,
+          numberOfOutputs: 1,
+          outputChannelCount: [2],
+        })
+        // No `onTime`: the "crunch" is a fixed bit-depth quantizer, not
+        // beat-synced (see `fx-processor.ts`'s header comment for why an
+        // earlier beat-synced version was audibly wrong, not just untuned).
+        // The rack's Time button is a no-op for this effect.
+        this.effectNodes.set(effect, { input: node, output: node })
+        break
+      }
+      case 'roll': {
+        if (!this.isWorkletAvailable()) break
+        const node = new AudioWorkletNode(this.ctx, 'roll', {
+          numberOfInputs: 1,
+          numberOfOutputs: 1,
+          outputChannelCount: [2],
+        })
+        this.effectNodes.set(effect, {
+          input: node,
+          output: node,
+          // No onTime: a length change while already looping must not
+          // reshape a buffer already captured (see `fx-processor.ts`'s
+          // header comment) — `onTrigger` reads `currentFraction`/
+          // `currentBpm` fresh at the moment it actually fires instead.
+          onTrigger: () => {
+            const sec = beatFractionToSeconds(this.currentBpm, this.currentFraction)
+            const clamped = Math.max(ROLL_LENGTH_RANGE[0], Math.min(ROLL_LENGTH_RANGE[1], sec))
+            node.port.postMessage({ type: 'trigger', lengthSec: clamped })
+          },
+        })
+        break
+      }
+      case 'flanger': {
+        // Same recipe as Delay/Echo (short delay + feedback), just modulated
+        // by an LFO like Filter's sweep — the rack's own dry/wet blend
+        // outside this effect is what turns "modulated delay alone" into
+        // the classic flanger comb-filter sound, same as Delay needs no
+        // internal dry mix either.
+        const delay = this.ctx.createDelay(FLANGER_BASE_DELAY_SEC + FLANGER_DEPTH_SEC)
+        delay.delayTime.value = FLANGER_BASE_DELAY_SEC
+        const feedback = this.ctx.createGain()
+        feedback.gain.value = FLANGER_FEEDBACK_GAIN
+        delay.connect(feedback)
+        feedback.connect(delay)
+        const lfo = this.ctx.createOscillator()
+        lfo.type = 'sine'
+        lfo.frequency.value = 1 / startSec
+        const depth = this.ctx.createGain()
+        depth.gain.value = FLANGER_DEPTH_SEC
+        lfo.connect(depth)
+        depth.connect(delay.delayTime)
+        lfo.start()
+        this.effectNodes.set(effect, {
+          input: delay,
+          output: delay,
+          onTime: (sec) => lfo.frequency.setTargetAtTime(1 / sec, this.ctx.currentTime, 0.01),
+        })
+        break
+      }
+      case 'phaser': {
+        // A chain of allpass filters, LFO-swept together — same LFO->depth
+        // ->AudioParam shape as Filter's sweep, applied to `frequency` on
+        // every stage at once instead of a single lowpass's cutoff.
+        const input = this.ctx.createGain()
+        let node: AudioNode = input
+        const stages: BiquadFilterNode[] = []
+        for (let i = 0; i < PHASER_STAGES; i++) {
+          const ap = this.ctx.createBiquadFilter()
+          ap.type = 'allpass'
+          ap.frequency.value = 800
+          ap.Q.value = 1
+          node.connect(ap)
+          node = ap
+          stages.push(ap)
+        }
+        const lfo = this.ctx.createOscillator()
+        lfo.type = 'sine'
+        lfo.frequency.value = 1 / startSec
+        const depth = this.ctx.createGain()
+        depth.gain.value = 600 // sweep range ~200-1400Hz around the 800Hz center
+        lfo.connect(depth)
+        for (const stage of stages) depth.connect(stage.frequency)
+        lfo.start()
+        this.effectNodes.set(effect, {
+          input,
+          output: node,
+          onTime: (sec) => lfo.frequency.setTargetAtTime(1 / sec, this.ctx.currentTime, 0.01),
+        })
+        break
+      }
     }
   }
 
@@ -212,6 +334,13 @@ export class FxRack {
     if (!effect) throw new Error(`invalid FX effect index ${index}`)
     this.buildEffect(effect)
     if (effect === 'reverb' && !this._reverbAvailable) return false
+    // Checked independently of build success, unlike Reverb: Reverb's node
+    // always constructs and only its buffer can fail post-hoc, so its guard
+    // above inspects what `buildEffect` produced. A worklet effect can't
+    // construct a node at all when the module never loaded — `buildEffect`
+    // silently no-ops for it — so this checks the precondition directly
+    // instead of the (in that case, absent) result.
+    if ((effect === 'bitcrusher' || effect === 'roll') && !this.isWorkletAvailable()) return false
     const next = this.effectNodes.get(effect)
     if (!next) throw new Error(`FX effect '${effect}' failed to build`)
 
@@ -226,6 +355,12 @@ export class FxRack {
     next.output.connect(this.effectOutput)
     this.activeEffect = effect
     this.setTime(this.currentFraction, this.currentBpm)
+    // Selecting Roll while the rack is already on must (re)capture
+    // immediately — otherwise it sits selected but silent until the next
+    // explicit on/off toggle, exactly the state-vs-reality gap this
+    // project's central rule forbids. `setOn(true)` covers the other path
+    // (Roll already selected, rack switched on).
+    if (effect === 'roll' && this.isOn) next.onTrigger?.()
     return true
   }
 
@@ -250,7 +385,11 @@ export class FxRack {
   }
 
   setOn(on: boolean) {
+    this.isOn = on
     const now = this.ctx.currentTime
     this.onGain.gain.setTargetAtTime(on ? 1 : 0, now, DECLICK_SEC)
+    // Turning FX on while Roll is selected (re)captures fresh — the other
+    // half of the trigger contract `setEffect` documents above.
+    if (on && this.activeEffect === 'roll') this.effectNodes.get('roll')?.onTrigger?.()
   }
 }

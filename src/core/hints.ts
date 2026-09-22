@@ -76,9 +76,9 @@ const HINT_BASE = {
   },
   'mixer.samplerCue': { text: 'Send the sampler channel to the headphone cue mix.' },
 
-  // — FX (v0.7.0) —
+  // — FX (v0.7.0, extended in v0.8.13) —
   'fx.effect': {
-    text: 'Choose this rack’s effect: Delay, Echo, Reverb, or an auto filter-sweep. Separate from the static Filter knob on each channel.',
+    text: 'Choose this rack’s effect: Delay, Echo, Reverb, an auto filter-sweep, Bit Crusher, Roll, Flanger or Phaser. Separate from the static Filter knob on each channel.',
     action: 'fxEffect',
   },
   'fx.wetDry': { text: 'Blend between the dry signal and the effect.', action: 'fxWetDry' },

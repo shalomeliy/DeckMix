@@ -151,6 +151,7 @@ export async function initAudio() {
     }
     useStore.setState({ audioReady: true })
     syncScratchState()
+    syncFxWorkletState()
     void restoreSamplerBankMeta()
     // A recorded slot (v0.7.5) has no library file to wait for — unlike a
     // contentHash-linked slot, it doesn't need `Library.tsx`'s scan to
@@ -177,6 +178,20 @@ function syncScratchState() {
 // on the first initialisation is not wired at all if audio was already running
 // — which is the same one-shot mistake that left the pill dead in the first place.
 engine.onScratchStateChange = syncScratchState
+
+/**
+ * Copy the engine's Bit Crusher/Roll worklet availability into the store, so
+ * `Mixer.tsx`'s FX cycle-button can react to it — a one-shot call after
+ * `engine.resume()` (which already awaits `ensureFxWorklet`), not a
+ * persistent subscription like `syncScratchState`: no post-boot failure path
+ * for this worklet has been identified, so there is nothing later to react to.
+ */
+function syncFxWorkletState() {
+  useStore.setState({
+    fxWorkletReady: engine.fxWorkletAvailable,
+    fxWorkletError: engine.fxWorkletError,
+  })
+}
 
 // ————————————————————————————————————————————————————————————————
 // Mix Assist (v0.4.6), build step 9 — the 30s "don't suggest it right back"

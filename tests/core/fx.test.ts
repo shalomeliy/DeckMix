@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { beatFractionToSeconds, equalPowerMix, FX_EFFECTS, FX_TIME_STEPS } from '@/core/fx'
+import { beatFractionToSeconds, BIT_CRUSH_BITS, crushSample, equalPowerMix, FX_EFFECTS, FX_TIME_STEPS } from '@/core/fx'
 
 describe('beatFractionToSeconds', () => {
   // 128 BPM => 60/128 = 0.46875 sec/beat, exact values a wrong formula would miss.
@@ -78,11 +78,52 @@ describe('equalPowerMix', () => {
 })
 
 describe('FX_EFFECTS / FX_TIME_STEPS', () => {
-  it('lists the 4 in-scope effects for this version, in ROADMAP.md order', () => {
-    expect(FX_EFFECTS).toEqual(['delay', 'echo', 'reverb', 'filter'])
+  it('lists all 8 roadmap effects, in ROADMAP.md order, worklet effects appended at the end', () => {
+    expect(FX_EFFECTS).toEqual([
+      'delay',
+      'echo',
+      'reverb',
+      'filter',
+      'bitcrusher',
+      'roll',
+      'flanger',
+      'phaser',
+    ])
   })
 
   it('covers the roadmap\'s 1/4..4 beat range', () => {
     expect(FX_TIME_STEPS).toEqual([0.25, 0.5, 1, 2, 4])
+  })
+})
+
+describe('crushSample', () => {
+  it.each([
+    [0, 16, 0],
+    [0.9, 1, 1],
+    [-0.9, 1, -1],
+    [0.05, 1, 0],
+  ])('quantizes %s at %s bits to %s', (sample, bits, expected) => {
+    expect(crushSample(sample, bits)).toBeCloseTo(expected, 6)
+  })
+
+  it('never returns a value outside -1..1 for in-range input', () => {
+    for (const sample of [-1, -0.5, -0.001, 0, 0.001, 0.5, 1]) {
+      for (const bits of [1, 2, 4, 8, 16]) {
+        const v = crushSample(sample, bits)
+        expect(v).toBeGreaterThanOrEqual(-1 - Number.EPSILON)
+        expect(v).toBeLessThanOrEqual(1 + Number.EPSILON)
+      }
+    }
+  })
+
+  it('higher bit depth is monotonically closer to the original sample (finer steps)', () => {
+    const sample = 0.37
+    const err = (bits: number) => Math.abs(crushSample(sample, bits) - sample)
+    expect(err(8)).toBeLessThanOrEqual(err(4))
+    expect(err(16)).toBeLessThanOrEqual(err(8))
+  })
+
+  it('BIT_CRUSH_BITS is a small, fixed, musically-crushed depth', () => {
+    expect(BIT_CRUSH_BITS).toBe(4)
   })
 })

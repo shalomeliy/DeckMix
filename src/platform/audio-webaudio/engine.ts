@@ -9,6 +9,7 @@ import { RecorderTap } from '@/platform/audio-webaudio/recorder-tap'
 // transitive DOM-touching import turns into an opaque addModule rejection.
 import scratchProcessorUrl from '@/platform/audio-webaudio/scratch-processor?worker&url'
 import recorderProcessorUrl from '@/platform/audio-webaudio/recorder-processor?worker&url'
+import fxProcessorUrl from '@/platform/audio-webaudio/fx-processor?worker&url'
 import type { DeckId } from '@/core/types'
 
 interface AudioContextWithSink extends AudioContext {
@@ -63,7 +64,10 @@ export class AudioEngine {
       A: new Deck(this.ctx, 'A'),
       B: new Deck(this.ctx, 'B'),
     }
-    this.fx = [new FxRack(this.ctx), new FxRack(this.ctx)]
+    this.fx = [
+      new FxRack(this.ctx, () => this.fxWorkletReady),
+      new FxRack(this.ctx, () => this.fxWorkletReady),
+    ]
     // Sampler channel (v0.6.0): its own bus, same master/cue split as a deck
     // (`faderGain`/`cueGain`), but connected straight to `masterBus` — the
     // crossfader is an A/B control and has no meaning for a sample bank.
@@ -247,6 +251,56 @@ export class AudioEngine {
   async resume() {
     if (this.ctx.state !== 'running') await this.ctx.resume()
     await this.ensureScratchEngine()
+    await this.ensureFxWorklet()
+  }
+
+  /**
+   * Loads the Bit Crusher/Roll worklet, once — same `addModule` +
+   * throwaway-probe shape as `ensureScratchEngine`. Both processors share one
+   * module load: if the module fails to register at all, neither effect can
+   * work, so one boolean covers both rather than tracking per-effect state
+   * for a platform-level failure that either affects both or neither.
+   */
+  private fxWorkletLoad: Promise<boolean> | null = null
+  private fxWorkletReady = false
+  fxWorkletError: string | null = null
+
+  async ensureFxWorklet(): Promise<boolean> {
+    if (!this.fxWorkletLoad) {
+      this.fxWorkletLoad = (async () => {
+        if (typeof AudioWorkletNode === 'undefined') {
+          this.fxWorkletError = 'this browser has no AudioWorklet'
+          return false
+        }
+        try {
+          await this.ctx.audioWorklet.addModule(fxProcessorUrl)
+          // addModule resolving is not proof either processor registered —
+          // same lesson `ensureScratchEngine` already documents. Probe both.
+          const crusherProbe = new AudioWorkletNode(this.ctx, 'bit-crusher', {
+            numberOfInputs: 1,
+            numberOfOutputs: 1,
+            outputChannelCount: [2],
+          })
+          crusherProbe.disconnect()
+          const rollProbe = new AudioWorkletNode(this.ctx, 'roll', {
+            numberOfInputs: 1,
+            numberOfOutputs: 1,
+            outputChannelCount: [2],
+          })
+          rollProbe.disconnect()
+          this.fxWorkletReady = true
+          return true
+        } catch (err) {
+          this.fxWorkletError = err instanceof Error ? err.message : String(err)
+          return false
+        }
+      })()
+    }
+    return this.fxWorkletLoad
+  }
+
+  get fxWorkletAvailable() {
+    return this.fxWorkletReady
   }
 
   async listOutputs(): Promise<MediaDeviceInfo[]> {
