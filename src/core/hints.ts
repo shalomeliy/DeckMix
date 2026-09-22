@@ -123,7 +123,9 @@ const HINT_BASE = {
   // — library —
   'library.folder': { text: 'Pick the folder SoundGrid scans for tracks.' },
   'library.addFiles': { text: 'Add individual track files without scanning a whole folder.' },
-  'library.mixOnly': { text: 'Show only tracks that mix well with what’s currently playing.' },
+  'library.mixOnly': {
+    text: 'Show only tracks that mix well with what’s currently playing. Filled dot = tight match, ring = looser, ✓ = already loaded this set. Unless you sort by a column, tight matches come first, then looser ones, then the ✓ ones. Select a row to see why it was suggested.',
+  },
   'library.played': {
     text: 'Suggested tracks you already loaded to a deck this session sit at the bottom, marked ✓. Click to hide them, click again to show them.',
   },

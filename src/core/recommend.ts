@@ -182,14 +182,56 @@ export function mixRecommendations(
 }
 
 /**
- * The Mix Only list: suggested tracks only, already-played ones pushed below
- * the fresh ones (or dropped when `hidePlayed`). Never hides silently — the
- * caller shows `playedCount` either way.
+ * Why a track was suggested, as short phrases in a fixed order — the one
+ * source for the row's tooltip, its screen-reader text and the selected-row
+ * line, so the three cannot drift apart.
+ *
+ * A track with no key gets "key unknown", never "key clashes": nothing was
+ * compared, so nothing can be said to clash.
+ */
+export function matchReasons(match: MixMatch): string[] {
+  const out: string[] = []
+  if (match.multiplier === 2) out.push(`half-time (${match.trackBpm}→${match.refBpm})`)
+  else if (match.multiplier === 0.5) out.push(`double-time (${match.trackBpm}→${match.refBpm})`)
+  else {
+    // The track's tempo relative to the deck, so "+2" reads as "2 BPM faster
+    // than what's playing" — the reverse subtraction read as "needs +2".
+    const delta = match.trackBpm - match.refBpm
+    out.push(
+      delta === 0
+        ? `same tempo as deck ${match.deck}`
+        : `${delta > 0 ? '+' : '−'}${Math.abs(delta)} BPM vs deck ${match.deck}`,
+    )
+  }
+  out.push(match.keyMatch === undefined ? 'key unknown' : match.keyMatch ? 'key compatible' : 'key clashes')
+  if (match.played) out.push('already loaded this set')
+  return out
+}
+
+/**
+ * Where a suggestion sits in the Mix Only list: tight and fresh first, loose
+ * and fresh next, anything already loaded last. Played beats strong — a track
+ * you already used is not the best next pick however well it fits.
+ *
+ * Deliberately no finer ordering by tempo distance: `refBpm` follows the
+ * deck's live tempo fader, so sorting on it would make rows jump while the
+ * owner rides the fader. A tier only flips at the 3% line, which the dot
+ * already does.
+ */
+export function matchTier(match: MixMatch): 0 | 1 | 2 {
+  if (match.played) return 2
+  return match.strong ? 0 : 1
+}
+
+/**
+ * The Mix Only list: suggested tracks only, in `matchTier` order (or with
+ * played tracks dropped when `hidePlayed`). Never hides silently — the caller
+ * shows `playedCount` either way.
  *
  * `keepOrder` is set when the owner picked a column sort themselves; that
- * choice wins, so played tracks keep their place in it and are only marked.
- * Otherwise this is a stable partition, so the order within each group is
- * whatever `tracks` already had.
+ * choice wins, so nothing is re-ranked and played tracks are only marked.
+ * Otherwise the sort is stable: within a tier the order is whatever `tracks`
+ * already had.
  */
 export function orderMixList(
   tracks: Track[],
@@ -197,8 +239,8 @@ export function orderMixList(
   opts: { hidePlayed: boolean; keepOrder: boolean },
 ): Track[] {
   const suggested = tracks.filter((t) => matches.has(t.id))
-  const isPlayed = (t: Track) => matches.get(t.id)?.played === true
-  const shown = opts.hidePlayed ? suggested.filter((t) => !isPlayed(t)) : suggested
+  const shown = opts.hidePlayed ? suggested.filter((t) => matches.get(t.id)?.played !== true) : suggested
   if (opts.keepOrder) return shown
-  return [...shown.filter((t) => !isPlayed(t)), ...shown.filter(isPlayed)]
+  const tier = (t: Track) => matchTier(matches.get(t.id)!)
+  return [0, 1, 2].flatMap((n) => shown.filter((t) => tier(t) === n))
 }
