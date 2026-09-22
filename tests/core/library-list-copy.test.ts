@@ -85,3 +85,18 @@ describe('libraryEmptyCopy', () => {
     expect(copy.title).toBe('No tracks in "Trance"')
   })
 })
+
+describe('libraryEmptyCopy — played tracks hidden (v0.8.10)', () => {
+  it('says every suggestion was played, instead of claiming nothing mixes', () => {
+    const copy = libraryEmptyCopy('', true, 12, null, false, null, true)
+    expect(copy.title).toBe('Every mixable track was already played this set')
+    expect(copy.title).not.toBe('No tracks currently mix with what’s playing')
+    // Turning Mix Only off would not bring the hidden ones back — the badge does.
+    expect(copy.offerMixOnlyReset).toBe(false)
+  })
+
+  it('is ignored when Mix Only is off', () => {
+    const copy = libraryEmptyCopy('', false, 0, null, false, null, true)
+    expect(copy.title).toBe('No audio files found')
+  })
+})

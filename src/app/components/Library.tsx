@@ -19,7 +19,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { bootCopy, bootFor, bootForScanError } from '@/core/library-boot'
 import { findSimilarTracks } from '@/core/embedding-search'
 import { libraryEmptyCopy } from '@/core/library-list-copy'
-import { mixRecommendations, type MixMatch } from '@/core/recommend'
+import { mixRecommendations, orderMixList, type MixMatch } from '@/core/recommend'
 import { settings } from '@/platform/settings-idb/store'
 import { useSettings } from '@/app/hooks/useSettings'
 import { useStore } from '@/app/state/store'
@@ -93,6 +93,9 @@ export function Library() {
   const setLibrary = useStore((s) => s.setLibrary)
   const crates = useStore((s) => s.crates)
   const [mixOnly, setMixOnly] = useState(false)
+  // v0.8.10: drop already-played suggestions instead of ranking them last.
+  // Same local-state shape as `mixOnly` — a view choice, not a setting.
+  const [hidePlayed, setHidePlayed] = useState(false)
   // "More like this" (v0.8.5 M3): a seed track id, or null when not active.
   // Same local-state shape as `mixOnly` — a view filter, not something any
   // other part of the app needs to know about.
@@ -148,6 +151,10 @@ export function Library() {
   // would re-render the entire table 60×/s the same way subscribing to `s.decks`
   // wholesale would (v0.8.2's "now playing" contentHash fields below are safe
   // because a load/eject is the only thing that changes them).
+  // Only the length: `history` is read whole, once, inside the memo below —
+  // see the note on `history` in store.ts about why it never sits in a
+  // selector next to a frame-rate field.
+  const historyLen = useStore((s) => s.history.length)
   const [aP, aB, aT, aId, aK, bP, bB, bT, bId, bK, aHash, bHash] = useStore(
     useShallow((s) => [
       s.decks.A.playing, s.decks.A.bpm, s.decks.A.tempo, s.decks.A.track?.id ?? null,
@@ -177,9 +184,10 @@ export function Library() {
         ],
         library.tracks,
         ctl.recentlyRemovedTrackIds(),
+        { playedHashes: new Set(useStore.getState().history.map((h) => h.contentHash)) },
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- recentlyRemovedTick only forces a recheck of the time-based exclusion set, its value is never read
-    [aP, aB, aT, aId, aK, bP, bB, bT, bId, bK, library.tracks, recentlyRemovedTick],
+    [aP, aB, aT, aId, aK, bP, bB, bT, bId, bK, library.tracks, recentlyRemovedTick, historyLen],
   )
   const recs = recommendations.matches
   const anyPlaying = aP || bP
@@ -587,8 +595,18 @@ export function Library() {
         .filter((t) => similarScoreById.has(t.id))
         .sort((a, b) => (similarScoreById.get(b.id) ?? -Infinity) - (similarScoreById.get(a.id) ?? -Infinity))
     : mixOnly
-      ? preMixList.filter((t) => recs.has(t.id))
+      ? orderMixList(preMixList, recs, { hidePlayed, keepOrder: library.sortKey != null })
       : preMixList
+  // Decided from what this view would show, not from library-wide counts: a
+  // crate or text filter can leave a view whose suggestions are all played
+  // while others exist elsewhere (or the reverse), and the message has to
+  // describe the table the owner is actually looking at.
+  const allSuggestionsPlayedHidden =
+    mixOnly &&
+    !similarTo &&
+    hidePlayed &&
+    list.length === 0 &&
+    orderMixList(preMixList, recs, { hidePlayed: false, keepOrder: true }).length > 0
   const activeCrate = library.activeCrateId ? (crates.get(library.activeCrateId) ?? null) : null
   const emptyCopy = libraryEmptyCopy(
     library.query,
@@ -597,6 +615,7 @@ export function Library() {
     activeCrate?.name ?? null,
     queuedTotal > 0,
     similarToTrack ? (similarToTrack.title ?? similarToTrack.name) : null,
+    allSuggestionsPlayedHidden,
   )
   // Only a manual crate's membership can be edited from here — a smart
   // crate's contents are entirely rule-derived (`refreshSmartCrate`), so
@@ -726,6 +745,42 @@ export function Library() {
         {/* Tracks the scan excluded from suggestions for carrying no BPM tag
             at all — counted, not just silently absent from the list above.
             Same shape as the library-wide "skipped" badge further down. */}
+        {/* v0.8.10: suggested tracks already loaded this session. Shown only
+            when there is something to say — a "0 played" badge on a fresh
+            session would read as a fault. It is also the way back: hidden
+            tracks are named and counted here, never just gone. */}
+        {anyPlaying && mixOnly && !similarTo && recommendations.playedCount > 0 && (
+          // Mix Only only: that is the one list it reorders/hides, so outside
+          // it the badge would report a state the table doesn't show.
+          <span className="relative inline-flex">
+            <Button
+              variant="toggle"
+              size="sm"
+              active={hidePlayed}
+              tone="var(--color-live)"
+              aria-pressed={hidePlayed}
+              onClick={() => setHidePlayed((v) => !v)}
+              title={
+                hidePlayed
+                  ? 'Played tracks are hidden from the suggestions — click to show them again.'
+                  : 'These suggestions were already loaded to a deck this session, so they sit at the bottom of Mix Only. Click to hide them.'
+              }
+            >
+              {recommendations.playedCount} {hidePlayed ? 'hidden' : 'played'}
+            </Button>
+            <HintIcon id="library.played" className="absolute -right-1.5 -top-1.5" />
+          </span>
+        )}
+        {/* A hash is filled in lazily, so a track never loaded or analyzed
+            cannot be matched against the set history. Named, not assumed. */}
+        {anyPlaying && historyLen > 0 && recommendations.unverifiedAgainstHistory > 0 && (
+          <span
+            className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-grid-muted"
+            title="These suggestions have no content hash yet (they are hashed when loaded or analyzed), so they could not be checked against what you already played this session."
+          >
+            {recommendations.unverifiedAgainstHistory} not checked against set history
+          </span>
+        )}
         {anyPlaying && recommendations.noBpmSkipped > 0 && (
           <span
             className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-grid-muted"
@@ -1145,7 +1200,8 @@ function Row({
   const matchTitle = match
     ? `Mixes with deck ${match.deck}${match.strong ? '' : ' (loose)'}` +
       (chipLabel ? ` · ${match.trackBpm}→${match.refBpm} ${chipLabel}` : '') +
-      (match.keyMatch === undefined ? '' : match.keyMatch ? ' · key compatible' : ' · key clashes')
+      (match.keyMatch === undefined ? '' : match.keyMatch ? ' · key compatible' : ' · key clashes') +
+      (match.played ? ' · already loaded this set' : '')
     : undefined
   // aria-describedby's value is parsed as a whitespace-separated list of
   // IDREFs — track.id is a scan-relative file path, and any space in a
@@ -1217,6 +1273,19 @@ function Row({
               }
               title={matchTitle}
             />
+          )}
+          {match?.played && (
+            // v0.8.10: a mark, not a faded row — opacity alone was already
+            // measured unreadable at this screen's physical scale (see the
+            // ring-vs-fill note above), so this is a glyph in a box like the
+            // A/B letters below.
+            <span
+              aria-label="Already loaded this set"
+              title="Already loaded to a deck this session"
+              className="grid h-4 w-4 shrink-0 place-items-center rounded-[var(--radius-xs)] bg-surface-2 text-[10px] font-bold leading-none text-grid-muted"
+            >
+              ✓
+            </span>
           )}
           {match && (
             <span id={matchDescId} className="sr-only">

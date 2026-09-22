@@ -14,6 +14,12 @@ export interface MixMatch {
   refBpm: number
   /** the candidate track's own tagged bpm, for display only */
   trackBpm: number
+  /**
+   * v0.8.10: this track was already loaded to a deck this session. Only ever
+   * `true` or absent — absent means "not known to be played", which also
+   * covers a track with no `contentHash` yet (see `unverifiedAgainstHistory`).
+   */
+  played?: boolean
 }
 
 /** Why `mixRecommendations` found nothing — so the UI can say so instead of rendering empty. */
@@ -25,6 +31,20 @@ export interface MixRecommendations {
   noBpmSkipped: number
   /** set only when `matches` is empty */
   reason?: NoMatchReason
+  /** matches flagged `played` — 0 when no `context` was given */
+  playedCount: number
+  /**
+   * matches we could not check against the set history because they carry no
+   * `contentHash` yet (it is filled in lazily, at load or analysis time).
+   * Counted so the UI can say so instead of quietly treating them as unplayed.
+   */
+  unverifiedAgainstHistory: number
+}
+
+/** What the recommender may know beyond the decks and the library. */
+export interface MixContext {
+  /** `contentHash` of every track loaded to a deck this session (`store.history`) */
+  playedHashes?: ReadonlySet<string>
 }
 
 /** Just what the recommender needs from a deck — keeps it off per-frame state. */
@@ -67,6 +87,8 @@ export function mixRecommendations(
   /** Mix Assist (v0.4.6): ids to leave out regardless of tempo/key fit — a
    * track that just came off a deck, still inside its 30s cooldown. */
   excludeIds?: ReadonlySet<string>,
+  /** v0.8.10: without it (or with an empty set) the result is what it was before. */
+  context?: MixContext,
 ): MixRecommendations {
   const anyPlaying = decks.some((d) => d.playing)
   const refs = decks
@@ -84,10 +106,19 @@ export function mixRecommendations(
       matches,
       noBpmSkipped: 0,
       reason: anyPlaying ? 'no-bpm-on-playing-deck' : undefined,
+      playedCount: 0,
+      unverifiedAgainstHistory: 0,
     }
   }
 
   const onDeck = new Set(refs.map((r) => r.trackId))
+  const playedHashes = context?.playedHashes
+  // An empty history says nothing about any track, so it must not start
+  // counting hash-less tracks as "unverified" — that badge would show on a
+  // fresh session, before anything has been loaded.
+  const checkHistory = playedHashes != null && playedHashes.size > 0
+  let playedCount = 0
+  let unverifiedAgainstHistory = 0
   let noBpmSkipped = 0
   for (const t of tracks) {
     if (onDeck.has(t.id) || excludeIds?.has(t.id)) continue
@@ -122,18 +153,52 @@ export function mixRecommendations(
     const keyMatch = bothKeyed ? keysCompatible(best.camelot!, t.camelot!) : undefined
     // with keys known, a clash demotes an otherwise tight tempo match to loose
     const strong = bestErr <= 0.03 && keyMatch !== false
-    matches.set(t.id, {
+    const match: MixMatch = {
       strong,
       deck: best.deck,
       keyMatch,
       multiplier: bestMult,
       refBpm: Math.round(best.bpm),
       trackBpm: Math.round(t.bpm),
-    })
+    }
+    // Two files with identical bytes share a hash, so both read as played —
+    // deliberate: a duplicate of a track you already played is that track.
+    if (checkHistory) {
+      if (t.contentHash == null) unverifiedAgainstHistory++
+      else if (playedHashes.has(t.contentHash)) {
+        match.played = true
+        playedCount++
+      }
+    }
+    matches.set(t.id, match)
   }
   return {
     matches,
     noBpmSkipped,
     reason: matches.size === 0 ? 'none-in-range' : undefined,
+    playedCount,
+    unverifiedAgainstHistory,
   }
+}
+
+/**
+ * The Mix Only list: suggested tracks only, already-played ones pushed below
+ * the fresh ones (or dropped when `hidePlayed`). Never hides silently — the
+ * caller shows `playedCount` either way.
+ *
+ * `keepOrder` is set when the owner picked a column sort themselves; that
+ * choice wins, so played tracks keep their place in it and are only marked.
+ * Otherwise this is a stable partition, so the order within each group is
+ * whatever `tracks` already had.
+ */
+export function orderMixList(
+  tracks: Track[],
+  matches: ReadonlyMap<string, MixMatch>,
+  opts: { hidePlayed: boolean; keepOrder: boolean },
+): Track[] {
+  const suggested = tracks.filter((t) => matches.has(t.id))
+  const isPlayed = (t: Track) => matches.get(t.id)?.played === true
+  const shown = opts.hidePlayed ? suggested.filter((t) => !isPlayed(t)) : suggested
+  if (opts.keepOrder) return shown
+  return [...shown.filter((t) => !isPlayed(t)), ...shown.filter(isPlayed)]
 }
