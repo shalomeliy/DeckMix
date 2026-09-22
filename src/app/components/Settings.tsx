@@ -327,7 +327,13 @@ function JogMeasure() {
  * above — no local result state to manage here.
  */
 function SamplerBankIO() {
-  const [busy, setBusy] = useState<'export' | 'import' | null>(null)
+  const [busy, setBusy] = useState<'export' | 'import' | 'exportFolder' | 'importFolder' | null>(null)
+  const caps = useStore((s) => s.capabilities)
+  // v0.8.9: the plain export leaves a recorded slot's audio out entirely
+  // (it isn't portable in a JSON file) — this count is what decides whether
+  // "Export bank + recordings" has anything to do, shown on the button
+  // itself, before the folder dialog even opens.
+  const recordedCount = useStore((s) => s.sampler.slots.filter((sl) => sl.recordingId).length)
 
   async function run(kind: 'export' | 'import') {
     setBusy(kind)
@@ -338,20 +344,47 @@ function SamplerBankIO() {
     }
   }
 
+  async function runFolder(kind: 'exportFolder' | 'importFolder') {
+    setBusy(kind)
+    try {
+      await (kind === 'exportFolder'
+        ? ctl.exportSamplerBankWithRecordingsToFolder()
+        : ctl.importSamplerBankWithRecordingsFromFolder())
+    } finally {
+      setBusy(null)
+    }
+  }
+
   return (
     <div className="rounded-[var(--radius-sm)] border border-hairline bg-surface-1 px-3 py-2.5">
       <div className="text-xs font-semibold text-grid-text">Sampler bank</div>
       <div className="text-2xs text-grid-dim">
         Save the 16 sampler slots to a file, or load a bank saved earlier. Importing replaces
-        every slot.
+        every slot. A live-recorded pad's audio only travels with "+ recordings", into a folder.
       </div>
-      <div className="mt-2 flex items-center gap-2">
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => void run('export')}>
           {busy === 'export' ? 'Saving…' : 'Export bank'}
         </Button>
         <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => void run('import')}>
           {busy === 'import' ? 'Loading…' : 'Import bank'}
         </Button>
+        {caps.fsAccess && (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy !== null || recordedCount === 0}
+              title={recordedCount === 0 ? 'No recordings in this bank — export as file instead.' : undefined}
+              onClick={() => void runFolder('exportFolder')}
+            >
+              {busy === 'exportFolder' ? 'Saving…' : `Export bank + recordings${recordedCount > 0 ? ` (${recordedCount})` : ''}`}
+            </Button>
+            <Button variant="ghost" size="sm" disabled={busy !== null} onClick={() => void runFolder('importFolder')}>
+              {busy === 'importFolder' ? 'Loading…' : 'Import from folder'}
+            </Button>
+          </>
+        )}
       </div>
     </div>
   )

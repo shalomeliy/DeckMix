@@ -85,3 +85,20 @@ export function samplerSyncRate(
   const rate = masterBpm / slotBpm
   return isFinite(rate) && rate > 0 ? rate : 1
 }
+
+/**
+ * The file names a "collect and copy" bank export (v0.8.9,
+ * `platform/sampler-bank-fsaccess/store.ts`) writes: one JSON manifest plus
+ * one WAV per recorded slot, all sharing an owner-chosen base name. Pure and
+ * DOM-free on purpose, same reasoning as `core/recording.ts`'s
+ * `segmentFileNames` — the platform layer's export (writing them) and import
+ * (looking for them) both derive from this one function, so the two can
+ * never name things differently, and it stays testable without a real
+ * file system.
+ */
+export function manifestFileNames(base: string, recordingIds: string[]): { jsonName: string; wavNames: string[] } {
+  return {
+    jsonName: `${base}.json`,
+    wavNames: recordingIds.map((id) => `${base}-rec-${id}.wav`),
+  }
+}
