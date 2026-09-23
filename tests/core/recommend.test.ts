@@ -432,8 +432,10 @@ describe('orderMixList (v0.8.10)', () => {
 })
 
 describe('matchReasons / matchTier (v0.8.11)', () => {
+  // soundScore: measured but not in the top three, so it adds no reason of its
+  // own (v0.8.18) and the cases below keep testing only what they name.
   const m = (over: Partial<MixMatch> = {}): MixMatch => ({
-    strong: true, deck: 'A', multiplier: 1, refBpm: 128, trackBpm: 128, keyMatch: true, ...over,
+    strong: true, deck: 'A', multiplier: 1, refBpm: 128, trackBpm: 128, keyMatch: true, soundScore: 0.5, ...over,
   })
 
   it('says the track is faster/slower than the deck, with an explicit sign', () => {
@@ -522,3 +524,67 @@ describe('excellentStripHint (v0.8.17)', () => {
   })
 })
 
+
+describe('sound similarity in suggestions (v0.8.18)', () => {
+  const vec = (...v: number[]) => new Float32Array(v)
+  const withEmb = (id: string, bpm: number, emb?: Float32Array, over: Partial<Track> = {}): Track =>
+    ({ ...track(id, bpm), embedding: emb, ...over }) as Track
+  const onDeck = withEmb('onDeck', 128, vec(1, 0))
+
+  it('scores each match against the deck it matched, by sound', () => {
+    const r = mixRecommendations([deck('A')], [onDeck, withEmb('near', 128, vec(1, 0.1)), withEmb('far', 128, vec(0, 1))])
+    expect(r.matches.get('near')!.soundScore!).toBeGreaterThan(r.matches.get('far')!.soundScore!)
+  })
+
+  it('leaves the score absent — not 0 — when either side has no embedding', () => {
+    const noSeed = mixRecommendations([deck('A')], [withEmb('onDeck', 128), withEmb('x', 128, vec(1, 0))])
+    expect(noSeed.matches.get('x')!.soundScore).toBeUndefined()
+    // the deck is what's missing, so the reason says so — not every row's fault
+    expect(matchReasons(noSeed.matches.get('x')!)).toContain("deck A's track not analyzed for sound yet")
+    expect(matchReasons(noSeed.matches.get('x')!)).not.toContain('sound not analyzed yet')
+    const noCand = mixRecommendations([deck('A')], [onDeck, withEmb('x', 128)])
+    expect(noCand.matches.get('x')!.soundScore).toBeUndefined()
+    expect(matchReasons(noCand.matches.get('x')!)).toContain('sound not analyzed yet')
+  })
+
+  it('leaves the score absent when the embeddings come from different model versions', () => {
+    const r = mixRecommendations([deck('A')], [onDeck, withEmb('x', 128, vec(1, 0, 0))])
+    expect(r.matches.get('x')!.soundScore).toBeUndefined()
+  })
+
+  it('marks exactly the three closest-sounding fresh suggestions', () => {
+    const tracks = [onDeck, ...[0.1, 0.2, 0.3, 0.9, 2].map((y, i) => withEmb(`t${i}`, 128, vec(1, y)))]
+    const r = mixRecommendations([deck('A')], tracks)
+    const top = [...r.matches].filter(([, m]) => m.soundTop).map(([id]) => id)
+    expect(top).toEqual(['t0', 't1', 't2'])
+    expect(matchReasons(r.matches.get('t0')!)).toContain('sounds closest to deck A')
+  })
+
+  it('never spends a mark on an already-played track', () => {
+    const tracks = [onDeck, withEmb('played', 128, vec(1, 0), { contentHash: 'p' }), withEmb('fresh', 128, vec(0, 1), { contentHash: 'f' })]
+    const r = mixRecommendations([deck('A')], tracks, undefined, { playedHashes: new Set(['p']) })
+    expect(r.matches.get('played')!.soundTop).toBeUndefined()
+    expect(r.matches.get('fresh')!.soundTop).toBe(true)
+  })
+
+  it('orders by sound within a tier, never across one', () => {
+    // 'loose-near' sounds closest but is 5% off tempo; 'strong-far' is a tight fit.
+    const tracks = [
+      onDeck,
+      withEmb('strong-far', 128, vec(0, 1)),
+      withEmb('unmeasured', 128),
+      withEmb('strong-near', 128, vec(1, 0.2)),
+      withEmb('loose-near', 134.4, vec(1, 0)),
+    ]
+    const r = mixRecommendations([deck('A')], tracks)
+    expect(orderMixList(tracks, r.matches, { hidePlayed: false, keepOrder: false }).map((t) => t.id)).toEqual([
+      'strong-near', 'strong-far', 'unmeasured', 'loose-near',
+    ])
+  })
+
+  it('an owner-chosen column sort still wins over sound', () => {
+    const tracks = [onDeck, withEmb('far', 128, vec(0, 1)), withEmb('near', 128, vec(1, 0))]
+    const r = mixRecommendations([deck('A')], tracks)
+    expect(orderMixList(tracks, r.matches, { hidePlayed: false, keepOrder: true }).map((t) => t.id)).toEqual(['far', 'near'])
+  })
+})

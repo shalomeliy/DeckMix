@@ -24,6 +24,7 @@ import {
   excellentStripHint,
   type ExcellentPairInfo,
   matchReasons,
+  SOUND_TOP_COUNT,
   mixRecommendations,
   orderMixList,
   type MixMatch,
@@ -1425,6 +1426,20 @@ function Row({
               className="grid h-4 w-4 shrink-0 place-items-center rounded-[var(--radius-xs)] bg-surface-2 text-[10px] font-bold leading-none text-grid-muted"
             >
               ✓
+            </span>
+          )}
+          {match?.soundTop && (
+            // v0.8.18: the same boxed-glyph shape as ✓ above, in the deck's
+            // colour — boxed so it doesn't read as the row's "more like this"
+            // ≈ button, which is bare text at the far right of the row.
+            <span
+              role="img"
+              aria-label={`Sounds closest to deck ${match.deck}`}
+              title={`One of the ${SOUND_TOP_COUNT} suggestions that sound closest to deck ${match.deck}'s track`}
+              className="grid h-4 w-4 shrink-0 place-items-center rounded-[var(--radius-xs)] bg-surface-2 text-[11px] font-bold leading-none"
+              style={{ color: DECK_COLOR[match.deck] }}
+            >
+              ≈
             </span>
           )}
           {match && (

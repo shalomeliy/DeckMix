@@ -1,4 +1,5 @@
 import { TEMPO_RANGE } from '@/core/constants'
+import { cosineSimilarity } from '@/core/embedding-search'
 import type { DeckId, Track } from '@/core/types'
 
 /**
@@ -43,7 +44,32 @@ export interface MixMatch {
    * without a second lookup.
    */
   excellentPairAfter?: ExcellentPairInfo
+  /**
+   * v0.8.18: how close this track *sounds* to the deck it matched — cosine on
+   * the same embeddings "more like this" uses (v0.8.5). Absent when either
+   * side has no embedding yet; `matchReasons` says so rather than leaving the
+   * row looking as if it had been compared and lost.
+   */
+  soundScore?: number
+  /**
+   * v0.8.18: one of the `SOUND_TOP_COUNT` closest-sounding fresh suggestions —
+   * the row's ≈ mark. With both decks playing the three are picked from one
+   * pool, so one deck can take all three; the mark's colour and tooltip name
+   * the deck, so it never claims the wrong one.
+   */
+  soundTop?: boolean
+  /** v0.8.18: set when the playing deck's own track has no embedding — then no row can be compared, and the reason names the deck, not the row. */
+  deckSoundUnanalyzed?: boolean
 }
+
+/**
+ * How many suggestions get the ≈ mark. A fixed count, not a cosine
+ * threshold: averaged MFCC/chroma embeddings sit close together across a
+ * whole library, so any absolute cut-off would mark nearly everything or
+ * nearly nothing depending on the library. "The closest three" means the
+ * same thing in every library.
+ */
+export const SOUND_TOP_COUNT = 3
 
 /** Why `mixRecommendations` found nothing — so the UI can say so instead of rendering empty. */
 export type NoMatchReason = 'no-bpm-on-playing-deck' | 'none-in-range'
@@ -134,6 +160,8 @@ export function mixRecommendations(
     }))
 
   const matches = new Map<string, MixMatch>()
+  const embeddingById = new Map<string, Float32Array>()
+  for (const t of tracks) if (t.embedding) embeddingById.set(t.id, t.embedding)
   if (refs.length === 0) {
     return {
       matches,
@@ -194,6 +222,10 @@ export function mixRecommendations(
       refBpm: Math.round(best.bpm),
       trackBpm: Math.round(t.bpm),
     }
+    const refEmbedding = embeddingById.get(best.trackId)
+    const soundScore = soundSimilarity(refEmbedding, t.embedding)
+    if (soundScore !== undefined) match.soundScore = soundScore
+    else if (!refEmbedding) match.deckSoundUnanalyzed = true
     // v0.8.14: directional — only `best → t` is looked up, never the reverse.
     // A pair recorded under a duplicate-hash file applies to every file
     // sharing that hash, same as `played` below.
@@ -212,6 +244,13 @@ export function mixRecommendations(
     }
     matches.set(t.id, match)
   }
+  // Played tracks sit last whatever they sound like, so a ≈ on one would
+  // spend one of the three marks on a row the owner is told not to pick.
+  ;[...matches.values()]
+    .filter((m) => m.soundScore !== undefined && !m.played)
+    .sort((a, b) => b.soundScore! - a.soundScore!)
+    .slice(0, SOUND_TOP_COUNT)
+    .forEach((m) => (m.soundTop = true))
   return {
     matches,
     noBpmSkipped,
@@ -219,6 +258,18 @@ export function mixRecommendations(
     playedCount,
     unverifiedAgainstHistory,
   }
+}
+
+/**
+ * `undefined`, never 0, when it can't be measured: a missing embedding, or
+ * two from different model versions (the cache upgrades them in the
+ * background, so a mixed library is a normal state, not an error). A zero
+ * would rank the track as "sounds nothing alike", which nobody measured.
+ */
+function soundSimilarity(a: Float32Array | undefined, b: Float32Array | undefined): number | undefined {
+  if (!a || !b || a.length !== b.length) return undefined
+  const score = cosineSimilarity(a, b)
+  return Number.isNaN(score) ? undefined : score
 }
 
 /**
@@ -244,6 +295,11 @@ export function matchReasons(match: MixMatch): string[] {
     )
   }
   out.push(match.keyMatch === undefined ? 'key unknown' : match.keyMatch ? 'key compatible' : 'key clashes')
+  // v0.8.18: next to tempo and key — sound is the third musical reason; what
+  // follows (played, excellent pair) is about this set's history, not the music.
+  if (match.soundTop) out.push(`sounds closest to deck ${match.deck}`)
+  else if (match.deckSoundUnanalyzed) out.push(`deck ${match.deck}'s track not analyzed for sound yet`)
+  else if (match.soundScore === undefined) out.push('sound not analyzed yet')
   if (match.played) out.push('already loaded this set')
   if (match.excellentPairAfter) out.push(`excellent pair (after ${match.excellentPairAfter.fromName})`)
   return out
@@ -271,8 +327,8 @@ export function matchTier(match: MixMatch): 0 | 1 | 2 {
  *
  * `keepOrder` is set when the owner picked a column sort themselves; that
  * choice wins, so nothing is re-ranked and played tracks are only marked.
- * Otherwise the sort is stable: within a tier the order is whatever `tracks`
- * already had.
+ * Otherwise, within a tier, the closest-sounding come first (v0.8.18); rows
+ * with no sound score keep the order `tracks` already had, after them.
  */
 export function orderMixList(
   tracks: Track[],
@@ -283,7 +339,18 @@ export function orderMixList(
   const shown = opts.hidePlayed ? suggested.filter((t) => matches.get(t.id)?.played !== true) : suggested
   if (opts.keepOrder) return shown
   const tier = (t: Track) => matchTier(matches.get(t.id)!)
-  return [0, 1, 2].flatMap((n) => shown.filter((t) => tier(t) === n))
+  // v0.8.18: sound orders *within* a tier, never across one — a tempo or key
+  // fit is what makes a mix possible at all; sounding alike only picks
+  // between mixes that already work. Unlike tempo distance (see `matchTier`),
+  // the score doesn't move with the fader, so rows don't jump while riding it.
+  // Unmeasured rows keep their place after the measured ones (stable sort).
+  const bySound = (a: Track, b: Track) => {
+    const sa = matches.get(a.id)!.soundScore
+    const sb = matches.get(b.id)!.soundScore
+    if (sa === undefined || sb === undefined) return Number(sa === undefined) - Number(sb === undefined)
+    return sb - sa
+  }
+  return [0, 1, 2].flatMap((n) => shown.filter((t) => tier(t) === n).sort(bySound))
 }
 
 /** One button on the "Excellent matches" strip. */
