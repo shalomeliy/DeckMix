@@ -203,11 +203,12 @@ export interface AppState {
      * v0.5.4: the outgoing deck's own next candidate point ahead of where it
      * started the transition (`nextCandidateFrom`, `core/structure.ts`) —
      * shown on the outgoing deck (`Deck.tsx`) as a suggested exit point,
-     * transparently, the moment the transition begins. `null` means the
-     * heuristic genuinely found nothing ahead (a short track, or no analysis
-     * yet) — shown as such, never guessed.
+     * transparently, the moment the transition begins. Fixed 23/09: used to
+     * be `null` when the heuristic found nothing ahead, which silently
+     * skipped the rating prompt too (`controls.ts`'s `finishTransition`) —
+     * now falls back to the live position, so it's always a real number.
      */
-    exitPointSec: number | null
+    exitPointSec: number
     /**
      * v0.8.14: clicked, but still waiting for the outgoing deck's next yellow
      * (bar) line before the incoming deck starts — up to one bar. Shown by

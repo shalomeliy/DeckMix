@@ -54,9 +54,9 @@ export function Deck({ deckId }: { deckId: DeckId }) {
   // v0.5.4: this deck's own suggested exit point, shown the moment it becomes
   // the outgoing side of a running transition — transparently, per the
   // owner's own request, not tucked away until the transition finishes.
-  // `null` covers both "no transition running on this deck" and "one is, but
-  // the heuristic found nothing ahead" (`AppState.activeTransition`'s own doc
-  // comment) — both render nothing here, on purpose.
+  // `null` here only means "no transition running on this deck" — the
+  // heuristic-found-nothing case no longer exists (`AppState.activeTransition`'s
+  // own doc comment, fixed 23/09).
   const exitPointSec = activeTransition?.fromDeckId === deckId ? activeTransition.exitPointSec : null
   const exitPointKnownGood = exitPointSec != null && deck.excellentMixPoints.includes(Math.round(exitPointSec))
   const [dropActive, setDropActive] = useState(false)

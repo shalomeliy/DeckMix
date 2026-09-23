@@ -38,7 +38,7 @@ import {
   shiftGrid,
 } from '@/core/beatgrid'
 import { crossfadeProgress, phaseAlignedEntrySec } from '@/core/transition'
-import { findTransitionCandidates, nextCandidateFrom } from '@/core/structure'
+import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
 import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
 import {
   setLastPlayed as persistLastPlayedByHash,
@@ -2647,8 +2647,8 @@ interface ActiveTransition {
   toPreState: { positionSec: number; playing: boolean }
   /** The one live clock subscription — the bar-line wait before the join, then the crossfade after it. Swapped at the join, so `cancelTransition` always stops whichever is running. */
   unsubscribe: () => void
-  /** v0.5.4: the outgoing deck's own suggested exit point — see `AppState.activeTransition`'s own doc comment. Carried here too so `finishTransition` can raise the rating prompt without recomputing it. */
-  exitPointSec: number | null
+  /** v0.5.4: the outgoing deck's own exit point — see `AppState.activeTransition`'s own doc comment. Carried here too so `finishTransition` can raise the rating prompt without recomputing it. Always a number (23/09) — see the fallback at its computation site. */
+  exitPointSec: number
   /** v0.8.14: the raw `entrySec` this transition was called with, before `phaseAlignedEntrySec` re-aligns it — carried through to `pendingMixRating` for `markExcellentPair`, same split as `exitPointSec` above. */
   entrySec: number
 }
@@ -2767,10 +2767,11 @@ export function startAutoTransition(fromDeckId: DeckId, toDeckId: DeckId, entryS
   // at 120 BPM). The transition is already "active" during the wait, so the
   // Cancel button is there from the click and `Mixer.tsx` says it's waiting.
   // v0.5.4: the outgoing deck's own next candidate point, shown as a
-  // suggested exit — `null` when there's no analysis yet or nothing left
-  // ahead, never a guess (`nextCandidateFrom`, `core/structure.ts`).
+  // suggested exit (`resolveExitPointSec`, `core/structure.ts` — its own doc
+  // comment has the 23/09 fix: this used to be able to fall back to `null`,
+  // which silently skipped the rating prompt too).
   const exitCandidates = from.bands ? findTransitionCandidates(from.bands, from.durationSec, from.beatGrid) : []
-  const exitPointSec = from.bands ? (nextCandidateFrom(exitCandidates, fromEngine.position)?.sec ?? null) : null
+  const exitPointSec = resolveExitPointSec(exitCandidates, fromEngine.position)
 
   const join = (fromGrid: BeatGrid, toGrid: BeatGrid) => {
     // v0.4.10: `fromEngine.position` is read as late as possible — right next
@@ -2871,11 +2872,18 @@ export function startAutoTransition(fromDeckId: DeckId, toDeckId: DeckId, entryS
  * `activeTransition` clearing) is the only signal the transition ended.
  *
  * v0.5.4: also raises the rating prompt (`App.tsx`'s `TransitionRatingPrompt`)
- * for the exit point this transition actually used — only when one was found
- * (`exitPointSec` non-null) and the outgoing track carries a `contentHash` to
- * key a rating against. A cancelled transition (`cancelTransition` below)
- * never reaches here, so backing out of a mix never triggers a rating for
- * one that didn't happen.
+ * for the exit point this transition actually used, when the outgoing track
+ * carries a `contentHash` to key a rating against (`exitPointSec` is always a
+ * number since 23/09 — see its computation in `startAutoTransition`). A
+ * cancelled transition (`cancelTransition` below) never reaches here, so
+ * backing out of a mix never triggers a rating for one that didn't happen.
+ *
+ * 23/09 (Shalom, running app): the outgoing deck used to keep "playing"
+ * silently at the crossfader's extreme — audibly gone, but still marked
+ * playing, so nothing on screen said which deck was actually live. `pause`
+ * is the same function PAUSE calls by hand; called after the transition's
+ * own guards (`activeTransition`/`blockStopOfOutgoingDeck`) are already
+ * cleared above, so it runs as a plain pause, not a cancel.
  */
 function finishTransition() {
   const t = activeTransition
@@ -2884,9 +2892,10 @@ function finishTransition() {
   t.unsubscribe()
   useStore.setState({ activeTransition: null })
   setMasterDeck(t.toDeckId)
+  pause(t.fromDeckId)
 
   const fromTrack = useStore.getState().decks[t.fromDeckId].track
-  if (t.exitPointSec != null && fromTrack) {
+  if (fromTrack) {
     const toTrack = useStore.getState().decks[t.toDeckId].track
     useStore.setState({
       pendingMixRating: {

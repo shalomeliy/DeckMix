@@ -264,6 +264,20 @@ export function nextCandidateFrom(
 }
 
 /**
+ * What `startAutoTransition` (`controls.ts`) rates and labels an "exit
+ * point" — `nextCandidateFrom`'s pick when it found one, otherwise the live
+ * position itself. Fixed 23/09: this used to be `nextCandidateFrom(...) ??
+ * null`, and a transition started late in a track (past every candidate)
+ * silently produced `null` — which in turn skipped the rating prompt
+ * entirely in `finishTransition`, with no explanation on screen. Always a
+ * real number now: whether or not the structural heuristic had a
+ * recommendation, the transition still exited from *somewhere*.
+ */
+export function resolveExitPointSec(candidates: StructureCandidate[], positionSec: number): number {
+  return nextCandidateFrom(candidates, positionSec)?.sec ?? positionSec
+}
+
+/**
  * How a candidate mix-in point (in the *incoming* track) compares to the
  * *outgoing* deck's energy right now — v0.4.7. Both levels are read from
  * each track's own contour and normalized to that track's own near-peak

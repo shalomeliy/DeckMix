@@ -4,6 +4,7 @@ import {
   energyProximity,
   findTransitionCandidates,
   nextCandidateFrom,
+  resolveExitPointSec,
   type EnergyProfile,
   type StructureCandidate,
 } from '@/core/structure'
@@ -153,6 +154,28 @@ describe('nextCandidateFrom', () => {
 
   it('returns null for an empty candidate list', () => {
     expect(nextCandidateFrom([], 0)).toBeNull()
+  })
+})
+
+describe('resolveExitPointSec (v0.8.15, regression pin)', () => {
+  const candidates: StructureCandidate[] = [
+    { sec: 10, reason: 'energy-builds' },
+    { sec: 40, reason: 'quiet-passage' },
+  ]
+
+  it('uses the next candidate when one exists ahead', () => {
+    expect(resolveExitPointSec(candidates, 20)).toBe(40)
+  })
+
+  // The bug: a transition started past every candidate used to compute
+  // `exitPointSec` as `null` here, which silently skipped the rating prompt
+  // in `finishTransition` (controls.ts) — found live, 23/09.
+  it('falls back to the live position — never null — when nothing is left ahead', () => {
+    expect(resolveExitPointSec(candidates, 71)).toBe(71)
+  })
+
+  it('falls back to the live position for an empty candidate list too', () => {
+    expect(resolveExitPointSec([], 33.5)).toBe(33.5)
   })
 })
 
