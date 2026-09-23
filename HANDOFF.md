@@ -21,7 +21,7 @@
   [`workshop-output/PLAN_SUGGEST_0814.md`](workshop-output/PLAN_SUGGEST_0814.md).
   `npm run check` ירוק, `change-reviewer` עבר. **לא מאומת ב-Chrome האמיתי** —
   צריך את שלום. **23/09:** מיקס אוטומטי מחכה לקו הצהוב הבא ומיישר bar-phase
-  (`core/beatgrid.ts`); blocker לופ-אינסופי תוקן. רעיונות (bass swap, phrase) ממתינים. `v0.8.5` סגירה רשמית ממתינה
+  (`core/beatgrid.ts`); blocker לופ-אינסופי תוקן; פד Mix in נשמר רק ב-Excellent. רעיונות (bass swap, phrase) ממתינים. `v0.8.5` סגירה רשמית ממתינה
   לקריטריון **איכות** מדיד (spec: `workshop-output/FEATURE_SPEC_SUGGEST.md`). |
 | **⚠ לקח 17/09** | "✅" לא מוכיח מיזוג — `git log origin/main..<branch>` כן (`v0.8.6`, PR #27). |
 | **branch** | `main` מקומי, v0.8.14 עוד לא נדחף (`git log origin/main..HEAD --oneline`). |
