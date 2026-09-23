@@ -70,8 +70,7 @@
       "WebFetch(domain:oxc.rs)",
       "WebFetch(domain:www.typescriptlang.org)",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:raw.githubusercontent.com)",
-      "mcp__codegraph__*"
+      "WebFetch(domain:raw.githubusercontent.com)"
     ],
     "deny": [
       "Read(**/.env)",
@@ -97,18 +96,6 @@
       "Bash(pwsh:*)",
       "Bash(npm install:*)",
       "Bash(npm i:*)"
-    ]
-  },
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "codegraph prompt-hook"
-          }
-        ]
-      }
     ]
   }
 }
