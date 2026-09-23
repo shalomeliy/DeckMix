@@ -1,4 +1,4 @@
-import { phaseDeltaSec } from '@/core/beatgrid'
+import { BEATS_PER_BAR, barPhaseDeltaSec } from '@/core/beatgrid'
 import type { BeatGrid } from '@/core/types'
 
 /**
@@ -47,9 +47,16 @@ export function crossfadeProgress(elapsedSec: number, durationSec: number): numb
  * start — its constants are tuned for small continuous drift, not a fresh
  * join (see `HANDOFF.md`'s note on `MAX_SYNC_BEND` being unmeasured for this).
  *
- * Reuses `phaseDeltaSec` as-is: that function already returns the smallest
- * signed move (never more than half a beat) to bring one position onto
- * another grid's phase, which is exactly what a one-shot seek offset needs.
+ * Aligned to the *bar*, not just the beat (v0.8.14, owner review 23/09):
+ * `barPhaseDeltaSec` moves the entry at most half a bar so the incoming
+ * deck's yellow line lands on the master's. Beat-only alignment (what this
+ * was until then) kept every white line matched while the yellow lines could
+ * sit one to three beats apart — a mix that is "in time" and still starts
+ * on the wrong beat of the bar. Paired with `startAutoTransition` waiting for
+ * the master's next yellow line, the join lands yellow-on-yellow.
+ *
+ * A result before the track's start is pushed one bar later — seeking to a
+ * negative time would silently clamp to 0 and lose the alignment.
  */
 export function phaseAlignedEntrySec(
   entrySec: number,
@@ -57,5 +64,6 @@ export function phaseAlignedEntrySec(
   masterPositionSec: number,
   masterGrid: BeatGrid,
 ): number {
-  return entrySec + phaseDeltaSec(entrySec, incomingGrid, masterPositionSec, masterGrid)
+  const sec = entrySec + barPhaseDeltaSec(entrySec, incomingGrid, masterPositionSec, masterGrid)
+  return sec < 0 ? sec + (60 / incomingGrid.bpm) * BEATS_PER_BAR : sec
 }

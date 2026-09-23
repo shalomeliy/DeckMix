@@ -208,6 +208,13 @@ export interface AppState {
      * yet) — shown as such, never guessed.
      */
     exitPointSec: number | null
+    /**
+     * v0.8.14: clicked, but still waiting for the outgoing deck's next yellow
+     * (bar) line before the incoming deck starts — up to one bar. Shown by
+     * `Mixer.tsx`, so a mix that hasn't audibly started yet doesn't look like
+     * a click that did nothing.
+     */
+    waitingForBar: boolean
   } | null
 
   /**

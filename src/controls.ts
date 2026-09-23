@@ -29,6 +29,8 @@ import { beatJumpTargetSec, loopRollReturnSec, LOOP_BEATS_STEPS } from '@/core/p
 import {
   bpmFromTaps,
   doubleGrid,
+  barLineCrossed,
+  BEATS_PER_BAR,
   halveGrid,
   phaseDeltaSec,
   quantizeToGrid,
@@ -521,7 +523,8 @@ export function loadSuggestionToDeck(track: Track, awayFromDeck: DeckId) {
  * await of analysis (so its promise resolving already means "beatGrid is
  * ready or failed"), and `startAutoTransition` unchanged.
  *
- * Shalom's explicit call (22/09): starts immediately on click, no waiting for
+ * Shalom's explicit call (22/09): starts on click (since 23/09, on the
+ * outgoing deck's next yellow line — `startAutoTransition`), no waiting for
  * the live outgoing deck to reach the exit point it used last time — only the
  * *entry* point is replayed, the exit point is still `startAutoTransition`'s
  * own live "next candidate ahead" heuristic, same as a manual transition.
@@ -584,7 +587,9 @@ function maybeAutoMaster(deckId: DeckId) {
 function blockStopOfOutgoingDeck(deckId: DeckId): boolean {
   if (!activeTransition || deckId !== activeTransition.fromDeckId) return false
   useStore.getState().setNotice({
-    text: `Deck ${deckId} is fading out in a transition — press CANCEL TRANSITION to stop it, or wait for it to finish.`,
+    text: useStore.getState().activeTransition?.waitingForBar
+      ? `Deck ${deckId} is about to mix out on its next bar line — press CANCEL TRANSITION to stop it.`
+      : `Deck ${deckId} is fading out in a transition — press CANCEL TRANSITION to stop it, or wait for it to finish.`,
     tone: 'warn',
     source: 'sync',
   })
@@ -603,7 +608,12 @@ export function togglePlay(deckId: DeckId) {
   // runs normally.
   const wasIncomingDeckOfTransition = activeTransition?.toDeckId === deckId
   cancelTransitionIfEitherDeckTouched(deckId)
-  if (wasIncomingDeckOfTransition) return
+  if (wasIncomingDeckOfTransition) {
+    // The Cancel button just vanished and the deck may still be silent (a
+    // play press during the bar-line wait) — say what happened.
+    useStore.getState().setNotice({ text: `Transition cancelled — deck ${deckId} was touched by hand.`, tone: 'info', source: 'sync' })
+    return
+  }
   deck.togglePlay()
   useStore.getState().patchDeck(deckId, { playing: deck.playing })
   if (deck.playing) maybeAutoMaster(deckId)
@@ -2627,7 +2637,7 @@ interface ActiveTransition {
   toDeckId: DeckId
   /** what the incoming deck looked like right before this transition touched it — what `cancelTransition` restores. */
   toPreState: { positionSec: number; playing: boolean }
-  startedAtSec: number
+  /** The one live clock subscription — the bar-line wait before the join, then the crossfade after it. Swapped at the join, so `cancelTransition` always stops whichever is running. */
   unsubscribe: () => void
   /** v0.5.4: the outgoing deck's own suggested exit point — see `AppState.activeTransition`'s own doc comment. Carried here too so `finishTransition` can raise the rating prompt without recomputing it. */
   exitPointSec: number | null
@@ -2742,68 +2752,109 @@ export function startAutoTransition(fromDeckId: DeckId, toDeckId: DeckId, entryS
   const startExtreme = crossfaderExtremeFor(fromDeckId)
   engine.setCrossfader(startExtreme)
 
-  // v0.4.10: `fromEngine.position` is read as late as possible — right next
-  // to the seek it feeds — with no store write between the two. A `patchMixer`/
-  // `patchDeck` call here is a synchronous Zustand notify to every listening
-  // React component, at a cost that varies with whatever's on screen; with
-  // `enterSec` computed *before* that write (the old order), `fromDeckId` kept
-  // playing through the unpredictable delay and the join landed on a phase
-  // that had already moved on. Measured on the real library (v0.4.6): 65.85ms
-  // average, 280ms worst-case. The store writes below move after the seek/play
-  // that actually needs the fresh position — `engine.setCrossfader` stays
-  // before them, audio-graph-only, so the incoming deck is still silent when
-  // it lands.
-  const enterSec = phaseAlignedEntrySec(entrySec, to.beatGrid, fromEngine.position, from.beatGrid)
-  toEngine.seek(enterSec)
-  toEngine.play()
-  useStore.getState().patchMixer({ crossfader: startExtreme })
-  useStore.getState().patchDeck(toDeckId, { playing: true, positionSec: enterSec })
-  // The reference this transition is built on is `fromDeckId`, regardless of
-  // whatever `masterDeckId` happened to hold before — asserted explicitly so
-  // `syncDeck`'s "already master" no-op branch (only reachable if `toDeckId`
-  // happened to be a stale master from something it played earlier) can
-  // never silently skip the handoff and leave phase drift uncorrected for
-  // the rest of the fade.
-  if (useStore.getState().masterDeckId !== fromDeckId) {
-    useStore.setState({ masterDeckId: fromDeckId })
-  }
-  syncDeck(toDeckId)
-
-  const startedAtSec = engine.currentTime
-  const unsubscribe = clock.subscribe((t) => {
-    const progress = crossfadeProgress(t - startedAtSec, TRANSITION_CROSSFADE_SEC)
-    // engine.setCrossfader's own domain is -1 (A only) .. +1 (B only); this
-    // maps `progress` onto whichever half of that range moves *away* from
-    // `fromDeckId`, in either direction.
-    const x = fromDeckId === 'A' ? -1 + 2 * progress : 1 - 2 * progress
-    engine.setCrossfader(x)
-    useStore.getState().patchMixer({ crossfader: x })
-    if (progress >= 1) finishTransition()
-  })
-
+  // v0.8.14 (owner review 23/09): the join waits for the outgoing deck's next
+  // yellow (bar) line instead of firing on the click — a DJ drops the new
+  // track "on the one", and a join at an arbitrary beat of the bar is
+  // audibly wrong even when every beat matches. Up to one bar of wait (~2s
+  // at 120 BPM). The transition is already "active" during the wait, so the
+  // Cancel button is there from the click and `Mixer.tsx` says it's waiting.
   // v0.5.4: the outgoing deck's own next candidate point, shown as a
-  // suggested exit — the same heuristic `TransitionPointsPanel` already uses
-  // for the *incoming* side, just read for whichever track is now playing
-  // out. `null` when there's no analysis yet or nothing left ahead, never a
-  // guess (`nextCandidateFrom`'s own doc comment, `core/structure.ts`).
-  // `fromEngine.position`, not the `from.positionSec` store snapshot taken
-  // at function entry — same freshness reason as `enterSec` two lines
-  // above: candidates are 20s+ apart (`MIN_GAP_SEC`), so it would rarely
-  // matter, but there is no reason to reintroduce the staleness that
-  // comment already measured just to save one property read.
+  // suggested exit — `null` when there's no analysis yet or nothing left
+  // ahead, never a guess (`nextCandidateFrom`, `core/structure.ts`).
   const exitCandidates = from.bands ? findTransitionCandidates(from.bands, from.durationSec, from.beatGrid) : []
   const exitPointSec = from.bands ? (nextCandidateFrom(exitCandidates, fromEngine.position)?.sec ?? null) : null
+
+  const join = (fromGrid: BeatGrid, toGrid: BeatGrid) => {
+    // v0.4.10: `fromEngine.position` is read as late as possible — right next
+    // to the seek it feeds — with no store write between the two. A `patchMixer`/
+    // `patchDeck` call here is a synchronous Zustand notify to every listening
+    // React component, at a cost that varies with whatever's on screen; with
+    // `enterSec` computed *before* that write (the old order), `fromDeckId` kept
+    // playing through the unpredictable delay and the join landed on a phase
+    // that had already moved on. Measured on the real library (v0.4.6): 65.85ms
+    // average, 280ms worst-case. The store writes below move after the seek/play
+    // that actually needs the fresh position — `engine.setCrossfader` stays
+    // before them, audio-graph-only, so the incoming deck is still silent when
+    // it lands. The frame this runs on is a few ms past the bar line;
+    // `phaseAlignedEntrySec` is bar-phase math, so the incoming deck lands
+    // exactly that same fraction past its own yellow line.
+    const enterSec = phaseAlignedEntrySec(entrySec, toGrid, fromEngine.position, fromGrid)
+    toEngine.seek(enterSec)
+    toEngine.play()
+    useStore.getState().patchMixer({ crossfader: startExtreme })
+    useStore.getState().patchDeck(toDeckId, { playing: true, positionSec: enterSec })
+    // The reference this transition is built on is `fromDeckId`, regardless of
+    // whatever `masterDeckId` happened to hold before — asserted explicitly so
+    // `syncDeck`'s "already master" no-op branch (only reachable if `toDeckId`
+    // happened to be a stale master from something it played earlier) can
+    // never silently skip the handoff and leave phase drift uncorrected for
+    // the rest of the fade.
+    if (useStore.getState().masterDeckId !== fromDeckId) {
+      useStore.setState({ masterDeckId: fromDeckId })
+    }
+    syncDeck(toDeckId)
+
+    const startedAtSec = engine.currentTime
+    const unsubscribeFade = clock.subscribe((t) => {
+      const progress = crossfadeProgress(t - startedAtSec, TRANSITION_CROSSFADE_SEC)
+      // engine.setCrossfader's own domain is -1 (A only) .. +1 (B only); this
+      // maps `progress` onto whichever half of that range moves *away* from
+      // `fromDeckId`, in either direction.
+      const x = fromDeckId === 'A' ? -1 + 2 * progress : 1 - 2 * progress
+      engine.setCrossfader(x)
+      useStore.getState().patchMixer({ crossfader: x })
+      if (progress >= 1) finishTransition()
+    })
+    if (activeTransition) activeTransition.unsubscribe = unsubscribeFade
+    useStore.setState({ activeTransition: { fromDeckId, toDeckId, exitPointSec, waitingForBar: false } })
+  }
+
+  const giveUp = (text: string) => {
+    cancelTransition()
+    useStore.getState().setNotice({ text, tone: 'warn', source: 'sync' })
+  }
+  let lastPos = fromEngine.position
+  const waitStartedAt = engine.currentTime
+  const unsubscribeWait = clock.subscribe((t) => {
+    // Grids read fresh every frame, not captured at the click: a grid nudge
+    // or "set downbeat here" during the wait moves the yellow lines, and
+    // the join must land on the lines the owner is looking at now.
+    const { decks: now } = useStore.getState()
+    const fromGrid = now[fromDeckId].beatGrid
+    const toGrid = now[toDeckId].beatGrid
+    if (!fromGrid || !toGrid) {
+      giveUp(`Deck ${!fromGrid ? fromDeckId : toDeckId} lost its beat grid — transition not started.`)
+      return
+    }
+    if (!fromEngine.playing) {
+      giveUp(`Deck ${fromDeckId} stopped before its next bar line — transition not started.`)
+      return
+    }
+    const pos = fromEngine.position
+    const crossed = barLineCrossed(lastPos, pos, fromGrid)
+    lastPos = pos
+    if (!crossed) {
+      // A loop shorter than a bar that holds no yellow line never crosses
+      // one. Two bars of waiting (at the tempo the grid says) is past any
+      // real wait, so it's that — say so instead of waiting forever.
+      if (t - waitStartedAt > 2 * BEATS_PER_BAR * (60 / fromGrid.bpm)) {
+        giveUp(`Deck ${fromDeckId} never reached a bar line (a loop without one?) — transition not started.`)
+      }
+      return
+    }
+    unsubscribeWait()
+    join(fromGrid, toGrid)
+  })
 
   activeTransition = {
     fromDeckId,
     toDeckId,
     toPreState: { positionSec: to.positionSec, playing: to.playing },
-    startedAtSec,
-    unsubscribe,
+    unsubscribe: unsubscribeWait,
     exitPointSec,
     entrySec,
   }
-  useStore.setState({ activeTransition: { fromDeckId, toDeckId, exitPointSec } })
+  useStore.setState({ activeTransition: { fromDeckId, toDeckId, exitPointSec, waitingForBar: true } })
 }
 
 /**

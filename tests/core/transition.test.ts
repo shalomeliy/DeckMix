@@ -71,3 +71,44 @@ describe('phaseAlignedEntrySec', () => {
     expect(Number.isFinite(seek)).toBe(true)
   })
 })
+
+// v0.8.14 owner review (23/09): the yellow lines on both decks must meet.
+// Beat-only alignment returned 2.5s in the first case below — a white line
+// matched, the yellow line one beat off — so these fail against it.
+describe('phaseAlignedEntrySec lands yellow line on yellow line', () => {
+  const grid: BeatGrid = { bpm: 120, offsetSec: 0 } // beat 0.5s, bar 2.0s
+
+  it('master exactly on its bar line → incoming lands exactly on its nearest bar line', () => {
+    // entry 2.5s is beat 2 of the bar starting at 2.0s; master is on a bar line
+    expect(phaseAlignedEntrySec(2.5, grid, 10.0, grid)).toBeCloseTo(2.0, 10)
+    expect(phaseAlignedEntrySec(3.5, grid, 10.0, grid)).toBeCloseTo(4.0, 10)
+  })
+
+  it('master a few ms past its bar line (one frame late) → incoming the same fraction past its own', () => {
+    const seek = phaseAlignedEntrySec(2.5, grid, 10.016, grid)
+    expect(seek).toBeCloseTo(2.016, 10)
+  })
+
+  it('never moves the entry by more than half a bar', () => {
+    for (const entry of [2.1, 2.9, 3.4, 3.99]) {
+      const seek = phaseAlignedEntrySec(entry, grid, 10.0, grid)
+      expect(Math.abs(seek - entry)).toBeLessThanOrEqual(1.0 + 1e-9)
+    }
+  })
+
+  it('different tempos: phase inside the bar matches as a fraction', () => {
+    const incoming: BeatGrid = { bpm: 128, offsetSec: 0.1 } // bar 1.875s
+    const master: BeatGrid = { bpm: 124, offsetSec: 0.3 }
+    const masterBarSec = (60 / 124) * 4
+    const masterPos = 0.3 + 7 * masterBarSec + 0.25 * masterBarSec // quarter into a bar
+    const seek = phaseAlignedEntrySec(30, incoming, masterPos, master)
+    const incomingFrac = (((seek - 0.1) / 1.875) % 1 + 1) % 1
+    expect(incomingFrac).toBeCloseTo(0.25, 9)
+  })
+
+  it('never returns a negative seek', () => {
+    const seek = phaseAlignedEntrySec(0.2, grid, 11.5, grid) // would be -0.3 before the fix
+    expect(seek).toBeGreaterThanOrEqual(0)
+    expect(seek).toBeCloseTo(1.5, 10)
+  })
+})

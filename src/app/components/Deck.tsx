@@ -47,7 +47,10 @@ export function Deck({ deckId }: { deckId: DeckId }) {
   // one's decode finishes and patches everything atomically — without this
   // check, loading a new track over an already-eligible deck would keep
   // showing the outgoing track's candidate points during that window.
-  const showTransitionPoints = loaded && !deck.loading && !deck.playing && otherPlaying
+  // `!activeTransition`: since v0.8.14 a transition waits up to a bar with this
+  // deck still paused — without it, the panel stayed clickable and each
+  // extra click saved another "Mix in" pad.
+  const showTransitionPoints = loaded && !deck.loading && !deck.playing && otherPlaying && !activeTransition
   // v0.5.4: this deck's own suggested exit point, shown the moment it becomes
   // the outgoing side of a running transition — transparently, per the
   // owner's own request, not tucked away until the transition finishes.
@@ -212,7 +215,7 @@ export function Deck({ deckId }: { deckId: DeckId }) {
               otherAnalysisFailed={otherAnalysisFailed}
               onSelect={(sec) => {
                 // Both calls act on the same chosen point: the transition
-                // starts immediately (unchanged since v0.4.6), and the point
+                // starts on the other deck's next yellow line (v0.8.14), and the point
                 // is also saved as a hot cue so it's there next time this
                 // track loads (v0.4.7) — approved together, not sequenced.
                 ctl.startAutoTransition(otherDeckId, deckId, sec)

@@ -3,6 +3,8 @@ import {
   bpmFromTaps,
   doubleGrid,
   estimateBeatGrid,
+  nextBarLineSec,
+  barLineCrossed,
   halveGrid,
   phaseDeltaSec,
   quantizeToGrid,
@@ -211,5 +213,42 @@ describe('bpmFromTaps', () => {
     const bpm = bpmFromTaps(taps)
     expect(bpm).not.toBeNull()
     expect(Math.abs(bpm! - 120)).toBeLessThan(5)
+  })
+})
+
+describe('nextBarLineSec', () => {
+  const grid = { bpm: 120, offsetSec: 0.3 } // bar 2.0s → lines at 0.3, 2.3, 4.3 …
+
+  it('returns the next yellow line strictly ahead', () => {
+    expect(nextBarLineSec(1.0, grid)).toBeCloseTo(2.3, 10)
+    expect(nextBarLineSec(2.29, grid)).toBeCloseTo(2.3, 10)
+  })
+
+  it('sitting exactly on a line waits for the next one, not the one already passed', () => {
+    expect(nextBarLineSec(2.3, grid)).toBeCloseTo(4.3, 10)
+  })
+
+  it('before the grid offset, the first line is the offset itself', () => {
+    expect(nextBarLineSec(0, grid)).toBeCloseTo(0.3, 10)
+  })
+})
+
+// v0.8.14 review: a looping deck used to wait for "the next bar line" forever.
+describe('barLineCrossed', () => {
+  const grid = { bpm: 120, offsetSec: 0 } // bar lines at 0, 2, 4 …
+
+  it('moving forward across a line counts, short of it does not', () => {
+    expect(barLineCrossed(1.98, 2.01, grid)).toBe(true)
+    expect(barLineCrossed(1.9, 1.98, grid)).toBe(false)
+  })
+
+  it('a 4-beat loop starting on a yellow line wraps back onto it — counts as crossing', () => {
+    // loop 2.0–4.0: the frame before the wrap is at 3.99, the next at 2.006
+    expect(barLineCrossed(3.99, 2.006, grid)).toBe(true)
+  })
+
+  it('a short loop with no yellow line inside never counts', () => {
+    // loop 2.5–3.5, wrapping 3.49 → 2.51
+    expect(barLineCrossed(3.49, 2.51, grid)).toBe(false)
   })
 })

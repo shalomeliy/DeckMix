@@ -205,6 +205,68 @@ export function phaseDeltaSec(
   return diff * deckBeatSec
 }
 
+/**
+ * Beats per bar — the yellow line the waveform draws (`Waveform.tsx`) sits on
+ * every `BEATS_PER_BAR`-th beat counted from `offsetSec`. One constant so the
+ * line the owner sees and the line an automatic mix lands on can't disagree.
+ */
+export const BEATS_PER_BAR = 4
+
+/**
+ * `phaseDeltaSec`, but over a whole bar instead of a single beat: the
+ * smallest signed move (never more than half a bar) that puts
+ * `deckPositionSec` at the same place *within its bar* as the master is in
+ * its own. Beat phase alone lets the two yellow lines land one to three
+ * beats apart while every white line still matches — which is exactly what
+ * the owner heard on 23/09 and asked to be gone. Only the one-shot join
+ * uses this; the continuous SYNC loop stays on beat phase, whose half-beat
+ * nudges can never push a bar-aligned join off by a whole beat.
+ */
+export function barPhaseDeltaSec(
+  deckPositionSec: number,
+  deckGrid: BeatGrid,
+  masterPositionSec: number,
+  masterGrid: BeatGrid,
+): number {
+  const deckBarSec = (60 / deckGrid.bpm) * BEATS_PER_BAR
+  const masterBarSec = (60 / masterGrid.bpm) * BEATS_PER_BAR
+  const deckPhase = frac01((deckPositionSec - deckGrid.offsetSec) / deckBarSec)
+  const masterPhase = frac01((masterPositionSec - masterGrid.offsetSec) / masterBarSec)
+  let diff = masterPhase - deckPhase
+  diff -= Math.round(diff)
+  return diff * deckBarSec
+}
+
+/**
+ * How far past a loop's start a wrapped position can land and still count as
+ * having just crossed the bar line the loop starts on — one audio frame is
+ * ~16ms, a slow one several times that.
+ */
+const WRAP_CROSS_TOLERANCE_SEC = 0.1
+
+/**
+ * Did the deck pass a yellow (bar) line between two consecutive frames?
+ * Moving forward: any line in (prevSec, posSec]. Jumping back (a loop wrap):
+ * a 4-beat loop that starts on a yellow line *ends* on the next one, so the
+ * position wraps just before ever reaching it — the line it musically hit is
+ * the loop start it landed on, so a line just behind the new position
+ * counts. Without this, waiting for "the next bar line" on a looping deck
+ * never ended (v0.8.14 review).
+ */
+export function barLineCrossed(prevSec: number, posSec: number, grid: BeatGrid): boolean {
+  if (posSec >= prevSec) return nextBarLineSec(prevSec, grid) <= posSec + 1e-9
+  return nextBarLineSec(posSec - WRAP_CROSS_TOLERANCE_SEC, grid) <= posSec + 1e-9
+}
+
+/** First yellow (bar) line strictly after `positionSec` on `grid`. */
+export function nextBarLineSec(positionSec: number, grid: BeatGrid): number {
+  const barSec = (60 / grid.bpm) * BEATS_PER_BAR
+  const barIndex = Math.floor((positionSec - grid.offsetSec) / barSec) + 1
+  const line = grid.offsetSec + barIndex * barSec
+  // (2.3 - 0.3) / 2 floors to 0.999… → the line just passed; step past it.
+  return line <= positionSec + 1e-9 ? line + barSec : line
+}
+
 /** Corrects an octave-low BPM guess (the detector locked onto every other beat). */
 export function halveGrid(grid: BeatGrid): BeatGrid {
   return { bpm: grid.bpm / 2, offsetSec: grid.offsetSec }

@@ -19,9 +19,9 @@
   זוגות שיר→שיר שדורגו "מצוין" (שלב 3 מ-`FEATURE_SPEC_SUGGEST.md`, תוכנן כ-v0.8.12,
   הוזז ל-v0.8.14). תוכנית מלאה + 3 החלטות מוצר שאושרו איתו באותה שיחה:
   [`workshop-output/PLAN_SUGGEST_0814.md`](workshop-output/PLAN_SUGGEST_0814.md).
-  `npm run check` ירוק, `change-reviewer` עבר (PASS, תיקון קטן אחד יושם —
-  `if (!fromHash) return` שקט הוחלף בהודעה). **לא עדיין מאומת ב-Chrome האמיתי** —
-  צריך את שלום כדי לנגן מעבר אמיתי ולראות את הפס. `v0.8.5` סגירה רשמית ממתינה
+  `npm run check` ירוק, `change-reviewer` עבר. **לא מאומת ב-Chrome האמיתי** —
+  צריך את שלום. **23/09:** מיקס אוטומטי מחכה לקו הצהוב הבא ומיישר bar-phase
+  (`core/beatgrid.ts`); blocker לופ-אינסופי תוקן. רעיונות (bass swap, phrase) ממתינים. `v0.8.5` סגירה רשמית ממתינה
   לקריטריון **איכות** מדיד (spec: `workshop-output/FEATURE_SPEC_SUGGEST.md`). |
 | **⚠ לקח 17/09** | "✅" לא מוכיח מיזוג — `git log origin/main..<branch>` כן (`v0.8.6`, PR #27). |
 | **branch** | `main` מקומי, v0.8.14 עוד לא נדחף (`git log origin/main..HEAD --oneline`). |

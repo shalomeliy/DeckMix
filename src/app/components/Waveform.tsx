@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSettings } from '@/app/hooks/useSettings'
 import { HintIcon } from '@/app/components/controls'
+import { BEATS_PER_BAR } from '@/core/beatgrid'
 import type { DeckId, HotCue } from '@/core/types'
 
 interface Props {
@@ -214,7 +215,7 @@ export function Waveform({
         const beatTimeSec = b * beatSec + offsetSec
         if (beatTimeSec < 0) continue
         const x = Math.round(w / 2 + (beatTimeSec - positionSec) * PX_PER_SEC)
-        if (b % 4 === 0) {
+        if (b % BEATS_PER_BAR === 0) {
           ctx.fillStyle = 'rgba(255,196,46,0.95)'
           ctx.fillRect(x - 1, 0, 3, h)
           ctx.beginPath()
