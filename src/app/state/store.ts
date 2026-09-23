@@ -234,6 +234,13 @@ export interface AppState {
    * recent wins, nothing silently drops a *feature*" tradeoff `notice`
    * already makes for its own single slot.
    */
+  /**
+   * v0.8.17: bumped when `markExcellentPair` has saved. The strip's pair list
+   * (`Library.tsx`) reloads when a deck's track changes; without this, a pair
+   * rated while both tracks stay loaded didn't show until one was swapped.
+   */
+  excellentPairsRev: number
+
   pendingMixRating: {
     fromDeckId: DeckId
     contentHash: string | undefined
@@ -241,6 +248,8 @@ export interface AppState {
     exitPointSec: number
     /** v0.8.14: the incoming deck's own track, for `markExcellentPair` — undefined when it hadn't been analyzed yet at rating time (see `mix-pairs-idb`'s doc comment). */
     toContentHash: string | undefined
+    /** v0.8.17: the incoming track's library id, saved with the pair — see `ExcellentFollowUp.toTrackId`. */
+    toTrackId: string | undefined
     /** v0.8.14: the raw entry second `startAutoTransition` was called with (pre phase-alignment) — what a later "excellent match" replay seeks the incoming track to. */
     entrySec: number
     /** v0.8.16: where the outgoing deck actually was at the join — what a replay waits for. Not `exitPointSec`, which is a structure guess made at the click. */
@@ -385,6 +394,7 @@ export const useStore = create<AppState>((set) => ({
   shiftHeld: false,
   activeTransition: null,
   pendingMixRating: null,
+  excellentPairsRev: 0,
   mixer: {
     crossfader: 0,
     masterVolume: 0.85,

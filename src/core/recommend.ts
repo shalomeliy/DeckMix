@@ -10,6 +10,10 @@ export interface ExcellentPairInfo {
   fromName: string
   entrySec: number
   exitSec?: number
+  /** the follow-up's content hash — the identity the pair was rated with */
+  toHash: string
+  /** v0.8.17: its library id at rating time, for a follow-up not yet hashed this session */
+  toTrackId?: string
 }
 
 export interface MixMatch {
@@ -282,23 +286,54 @@ export function orderMixList(
   return [0, 1, 2].flatMap((n) => shown.filter((t) => tier(t) === n))
 }
 
+/** One button on the "Excellent matches" strip. */
+export interface ExcellentStripEntry {
+  track: Track
+  /** the playing deck the remembered mix starts from */
+  fromDeck: DeckId
+  info: ExcellentPairInfo
+}
+
 /**
- * The fixed "Excellent matches" strip (v0.8.14): candidates with a recorded
- * excellent pairing to whatever's playing now, in `tracks` order (stable,
- * same as `orderMixList`'s own within-tier order), capped at `limit`. A
- * separate display channel from the sorted table — never removes a track
- * from `orderMixList`'s own output, and never reorders it.
+ * The strip's own lookup (v0.8.17), independent of `mixRecommendations`.
+ *
+ * It used to be a view over the recommender's matches, so everything that
+ * hides a *suggestion* hid a pair Shalom had already proven: a track that
+ * left a deck under 30s ago (he loaded a random track over it, then pressed
+ * PLAY, and the strip stayed empty), a tempo outside the ±8% window, a search
+ * or a crate. None of those says anything about a mix he rated Excellent, so
+ * the only things excluded here are the ones a click could not use: a track
+ * already on a playing deck, and a pair whose track isn't in this library.
+ *
+ * `library` is the whole scanned library, not the filtered view. `pairs` is
+ * keyed `fromHash:toHash`, the same map `MixContext.excellentPairs` takes.
+ * Two files with one hash (duplicates) show once, the first in library order.
  */
-export function excellentPairSuggestions(
-  tracks: Track[],
-  matches: ReadonlyMap<string, MixMatch>,
+export function excellentStripEntries(
+  library: readonly Track[],
+  playing: readonly { deck: DeckId; contentHash: string | null | undefined; trackId: string | null | undefined }[],
+  pairs: ReadonlyMap<string, ExcellentPairInfo>,
   limit = 3,
-): Track[] {
-  const out: Track[] = []
-  for (const t of tracks) {
-    if (matches.get(t.id)?.excellentPairAfter) {
-      out.push(t)
-      if (out.length >= limit) break
+): ExcellentStripEntry[] {
+  const onPlayingDeck = new Set(playing.map((p) => p.trackId).filter(Boolean))
+  const out: ExcellentStripEntry[] = []
+  const seenHashes = new Set<string>()
+  for (const p of playing) {
+    if (!p.contentHash) continue
+    const prefix = `${p.contentHash}:`
+    const fromThis = [...pairs].filter(([k]) => k.startsWith(prefix)).map(([, v]) => v)
+    if (fromThis.length === 0) continue
+    // A track not hashed yet this session (the lazy queue hasn't reached it)
+    // is matched by the id it had when the pair was rated; the load hashes
+    // it, and `startExcellentPairTransition` refuses if it isn't that file.
+    const byId = new Map(fromThis.filter((i) => i.toTrackId).map((i) => [i.toTrackId!, i]))
+    for (const t of library) {
+      if (out.length >= limit) return out
+      if (onPlayingDeck.has(t.id)) continue
+      const info = t.contentHash ? pairs.get(prefix + t.contentHash) : byId.get(t.id)
+      if (!info || seenHashes.has(info.toHash)) continue
+      seenHashes.add(info.toHash)
+      out.push({ track: t, fromDeck: p.deck, info })
     }
   }
   return out
@@ -310,11 +345,11 @@ export function excellentPairSuggestions(
  * knowing it only appears while a track plays — and only for pairs that
  * *start* from that track. `null` when the strip has something to show.
  *
- * `pairsFromPlaying` counts remembered pairs whose outgoing track is playing
- * now. When that is above zero and nothing is shown, the pairs exist but the
- * recommender dropped them (tempo out of range) or the library view hides
- * them (search, crate) — said as one sentence, since telling those apart
- * would need a second pass through the recommender for a hint line.
+ * With the strip no longer filtered by the recommender, a remembered pair
+ * that still doesn't show has three causes left: its track is already
+ * playing on the other deck, it isn't in this folder, or — for a pair rated
+ * before v0.8.17 saved the track's id — it hasn't been identified yet this
+ * session.
  */
 export function excellentStripHint(input: {
   anyPlaying: boolean
@@ -332,9 +367,5 @@ export function excellentStripHint(input: {
     return 'No mix rated Excellent starts from the playing track yet.'
   }
   const n = input.pairsFromPlaying
-  // Every reason the recommender or the view can drop one, not a guess at
-  // the likeliest — naming only "the search or crate" sent the owner looking
-  // for a filter that wasn't there when the pair's track was simply on a deck.
-  return `${n} excellent mix${n === 1 ? '' : 'es'} after the playing track, not in the list right now: tempo too far, filtered out, already on a deck, or not in this folder.`
+  return `${n} excellent mix${n === 1 ? '' : 'es'} after the playing track, not available: already playing on the other deck, not identified yet (the library scan is still running), or not in this folder.`
 }
-

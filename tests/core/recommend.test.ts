@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  excellentPairSuggestions,
+  excellentStripEntries,
   keysCompatible,
   matchReasons,
   matchTier,
@@ -297,7 +297,7 @@ describe('mixRecommendations — set history (v0.8.10)', () => {
 describe('mixRecommendations — excellent pairs (v0.8.14)', () => {
   const hashed = (id: string, hash: string | undefined, bpm = 128): Track => ({ ...track(id, bpm), contentHash: hash })
   const lib = [hashed('a', 'ha'), hashed('b', 'hb')]
-  const pairCtx = { excellentPairs: new Map([['ha:hb', { fromName: 'A track', entrySec: 42 }]]) }
+  const pairCtx = { excellentPairs: new Map([['ha:hb', { fromName: 'A track', entrySec: 42, toHash: 'hb' }]]) }
 
   it('without excellentPairs the result is what it was before', () => {
     const before = mixRecommendations([deck('A', { bpm: 128, contentHash: 'ha' })], lib)
@@ -308,7 +308,7 @@ describe('mixRecommendations — excellent pairs (v0.8.14)', () => {
 
   it('flags the candidate that followed the playing deck\'s track in an excellent pairing', () => {
     const recs = mixRecommendations([deck('A', { bpm: 128, contentHash: 'ha' })], lib, undefined, pairCtx)
-    expect(recs.matches.get('b')?.excellentPairAfter).toEqual({ fromName: 'A track', entrySec: 42 })
+    expect(recs.matches.get('b')?.excellentPairAfter).toEqual({ fromName: 'A track', entrySec: 42, toHash: 'hb' })
     expect(recs.matches.get('a')?.excellentPairAfter).toBeUndefined()
   })
 
@@ -339,25 +339,69 @@ describe('mixRecommendations — excellent pairs (v0.8.14)', () => {
   })
 })
 
-describe('excellentPairSuggestions (v0.8.14)', () => {
-  const tracks = ['a', 'b', 'c', 'd', 'e'].map((id) => track(id, 128))
-  const m = (excellentPairAfter?: { fromName: string; entrySec: number }): MixMatch => ({
-    strong: true, deck: 'A', multiplier: 1, refBpm: 128, trackBpm: 128, ...(excellentPairAfter ? { excellentPairAfter } : {}),
-  })
-  const info = { fromName: 'X', entrySec: 10 }
+describe('excellentStripEntries (v0.8.17)', () => {
+  const withHash = (id: string, hash: string, bpm = 128) => ({ ...track(id, bpm), contentHash: hash })
+  const info = { fromName: 'X', entrySec: 10, exitSec: 180, toHash: 'hy' }
+  const playingA = [{ deck: 'A' as const, contentHash: 'hx', trackId: 'x' }]
 
-  it('includes only tracks with an excellent pairing, in list order', () => {
-    const matches = new Map([['a', m(info)], ['b', m()], ['c', m(info)]])
-    expect(excellentPairSuggestions(tracks, matches).map((t) => t.id)).toEqual(['a', 'c'])
+  it('finds the remembered follow-up for the playing track', () => {
+    const lib = [withHash('x', 'hx'), withHash('y', 'hy'), withHash('z', 'hz')]
+    const out = excellentStripEntries(lib, playingA, new Map([['hx:hy', info]]))
+    expect(out.map((e) => [e.track.id, e.fromDeck])).toEqual([['y', 'A']])
+    expect(out[0].info.exitSec).toBe(180)
+  })
+
+  it("ignores everything that only hides a *suggestion* — Shalom's 23/09 case", () => {
+    // Far outside the ±8% tempo window, and the recommender's inputs (search,
+    // crate, "just left a deck") are simply not consulted here.
+    const lib = [withHash('x', 'hx'), withHash('y', 'hy', 90)]
+    expect(excellentStripEntries(lib, playingA, new Map([['hx:hy', info]])).map((e) => e.track.id)).toEqual(['y'])
+  })
+
+  it('skips a follow-up that is already playing on the other deck', () => {
+    const lib = [withHash('x', 'hx'), withHash('y', 'hy')]
+    const playingBoth = [...playingA, { deck: 'B' as const, contentHash: 'hy', trackId: 'y' }]
+    expect(excellentStripEntries(lib, playingBoth, new Map([['hx:hy', info]]))).toEqual([])
+  })
+
+  it('is directional — the reverse pair does not count', () => {
+    const lib = [withHash('x', 'hx'), withHash('y', 'hy')]
+    expect(excellentStripEntries(lib, playingA, new Map([['hy:hx', info]]))).toEqual([])
+  })
+
+  it('shows two copies of one file once', () => {
+    const lib = [withHash('x', 'hx'), withHash('y1', 'hy'), withHash('y2', 'hy')]
+    expect(excellentStripEntries(lib, playingA, new Map([['hx:hy', info]])).map((e) => e.track.id)).toEqual(['y1'])
+  })
+
+  it('nothing playing, or a playing track without a hash, gives nothing', () => {
+    const lib = [withHash('x', 'hx'), withHash('y', 'hy')]
+    const pairs = new Map([['hx:hy', info]])
+    expect(excellentStripEntries(lib, [], pairs)).toEqual([])
+    expect(excellentStripEntries(lib, [{ deck: 'A', contentHash: undefined, trackId: 'x' }], pairs)).toEqual([])
+  })
+
+  it('finds a follow-up not hashed yet this session by the id it was rated with', () => {
+    // Fresh folder open: the lazy queue hasn't reached y, so it has no hash.
+    const lib = [withHash('x', 'hx'), track('y', 128)]
+    const out = excellentStripEntries(lib, playingA, new Map([['hx:hy', { ...info, toTrackId: 'y' }]]))
+    expect(out.map((e) => e.track.id)).toEqual(['y'])
+  })
+
+  it('a pair saved without an id (before v0.8.17) still needs the hash', () => {
+    const lib = [withHash('x', 'hx'), track('y', 128)]
+    expect(excellentStripEntries(lib, playingA, new Map([['hx:hy', info]]))).toEqual([])
+  })
+
+  it('once hashed, a track is matched by hash only — a new file at the old path does not match', () => {
+    const lib = [withHash('x', 'hx'), withHash('y', 'h-other')]
+    expect(excellentStripEntries(lib, playingA, new Map([['hx:hy', { ...info, toTrackId: 'y' }]]))).toEqual([])
   })
 
   it('caps at the limit', () => {
-    const matches = new Map([['a', m(info)], ['b', m(info)], ['c', m(info)], ['d', m(info)]])
-    expect(excellentPairSuggestions(tracks, matches, 2).map((t) => t.id)).toEqual(['a', 'b'])
-  })
-
-  it('an empty matches map gives an empty strip', () => {
-    expect(excellentPairSuggestions(tracks, new Map())).toEqual([])
+    const lib = [withHash('x', 'hx'), ...['a', 'b', 'c', 'd'].map((id) => withHash(id, `h${id}`))]
+    const pairs = new Map(['a', 'b', 'c', 'd'].map((id) => [`hx:h${id}`, { ...info, toHash: `h${id}` }] as const))
+    expect(excellentStripEntries(lib, playingA, pairs, 2).map((e) => e.track.id)).toEqual(['a', 'b'])
   })
 })
 

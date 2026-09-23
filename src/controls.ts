@@ -608,6 +608,7 @@ export async function startExcellentPairTransition(
   fromDeckId: DeckId,
   fromHashAtClick: string,
   toTrack: Track,
+  toHash: string,
   entrySec: number,
   exitSec: number | undefined,
 ) {
@@ -644,7 +645,23 @@ export async function startExcellentPairTransition(
     })
     return
   }
-  await loadTrackToDeck(target, toTrack)
+  // Already on the target deck (paused): reloading it would only re-decode
+  // the same file and drop its cues-in-progress for nothing.
+  const alreadyThere = !!toTrack.contentHash && decks[target].track?.contentHash === toTrack.contentHash
+  if (!alreadyThere) await loadTrackToDeck(target, toTrack)
+  // The strip can match a not-yet-identified track by its path (v0.8.17), so
+  // the identity is only certain now that the load hashed it.
+  const loadedHash = useStore.getState().decks[target].track?.contentHash
+  if (loadedHash !== toHash) {
+    useStore.getState().setNotice({
+      text: loadedHash
+        ? `${toTrack.title ?? toTrack.name} is not the same file that was rated Excellent (it changed or was replaced) — mix not started.`
+        : `${toTrack.title ?? toTrack.name} couldn't be identified after loading — mix not started.`,
+      tone: 'warn',
+      source: 'mixRating',
+    })
+    return
+  }
   if (useStore.getState().decks[fromDeckId].track?.contentHash !== fromHashAtClick) {
     useStore.getState().setNotice({
       text: `Deck ${fromDeckId} is playing a different track now — mix not started.`,
@@ -3097,6 +3114,7 @@ function finishTransition() {
         trackName: fromTrack.name,
         exitPointSec: t.exitPointSec,
         toContentHash: toTrack?.contentHash,
+        toTrackId: toTrack?.id,
         entrySec: t.entrySec,
         // `join` always runs before the fade that reaches here, so this is set;
         // the fallback only keeps the type honest.
@@ -3169,9 +3187,12 @@ export function rateMixTransition(rating: 'bad' | 'needs-work' | 'excellent') {
       pendingMixRating.toContentHash,
       pendingMixRating.entrySec,
       pendingMixRating.joinedFromSec,
-    ).catch((err) => {
-      console.error('markExcellentPair failed', err)
-    })
+      pendingMixRating.toTrackId,
+    )
+      .then(() => useStore.setState((s) => ({ excellentPairsRev: s.excellentPairsRev + 1 })))
+      .catch((err) => {
+        console.error('markExcellentPair failed', err)
+      })
   } else {
     useStore.getState().setNotice({
       text: "Pair not saved — the other track hasn't finished analyzing yet.",

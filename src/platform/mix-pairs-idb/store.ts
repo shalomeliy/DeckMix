@@ -27,6 +27,14 @@ export interface ExcellentFollowUp {
    * replay says so rather than guessing one.
    */
   exitSec?: number
+  /**
+   * v0.8.17: the follow-up's scan-relative path at rating time. A library
+   * track's content hash is filled in lazily, so right after the folder is
+   * opened the follow-up usually has none yet and a hash-only lookup can't
+   * see it. The id lets the strip find it at once; the hash is still checked
+   * after the load, so a different file at the same path is caught.
+   */
+  toTrackId?: string
 }
 
 /**
@@ -52,8 +60,9 @@ export async function markExcellentPair(
   toHash: string,
   entrySec: number,
   exitSec: number,
+  toTrackId: string | undefined,
 ): Promise<void> {
   const existing = await getExcellentFollowUps(fromHash)
   const withoutThisPair = existing.filter((p) => p.toHash !== toHash)
-  await set(KEY_PREFIX + fromHash, [...withoutThisPair, { toHash, entrySec, exitSec }])
+  await set(KEY_PREFIX + fromHash, [...withoutThisPair, { toHash, entrySec, exitSec, toTrackId }])
 }

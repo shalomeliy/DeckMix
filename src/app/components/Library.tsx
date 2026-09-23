@@ -20,7 +20,7 @@ import { bootCopy, bootFor, bootForScanError } from '@/core/library-boot'
 import { findSimilarTracks } from '@/core/embedding-search'
 import { libraryEmptyCopy } from '@/core/library-list-copy'
 import {
-  excellentPairSuggestions,
+  excellentStripEntries,
   excellentStripHint,
   type ExcellentPairInfo,
   matchReasons,
@@ -164,6 +164,7 @@ export function Library() {
   // see the note on `history` in store.ts about why it never sits in a
   // selector next to a frame-rate field.
   const historyLen = useStore((s) => s.history.length)
+  const excellentPairsRev = useStore((s) => s.excellentPairsRev)
   const [aP, aB, aT, aId, aK, bP, bB, bT, bId, bK, aHash, bHash] = useStore(
     useShallow((s) => [
       s.decks.A.playing, s.decks.A.bpm, s.decks.A.tempo, s.decks.A.track?.id ?? null,
@@ -197,11 +198,15 @@ export function Library() {
       for (const track of [decks.A.track, decks.B.track]) {
         if (!track?.contentHash) continue
         const followUps = await getExcellentFollowUps(track.contentHash)
-        for (const f of followUps) map.set(`${track.contentHash}:${f.toHash}`, {
+        for (const f of followUps) {
+          map.set(`${track.contentHash}:${f.toHash}`, {
             fromName: track.name,
             entrySec: f.entrySec,
             exitSec: f.exitSec,
+            toHash: f.toHash,
+            toTrackId: f.toTrackId,
           })
+        }
       }
       if (!cancelled) setExcellentPairs(map)
     }
@@ -209,7 +214,7 @@ export function Library() {
     return () => {
       cancelled = true
     }
-  }, [aHash, bHash])
+  }, [aHash, bHash, excellentPairsRev])
   const recommendations = useMemo(
     () =>
       mixRecommendations(
@@ -646,10 +651,18 @@ export function Library() {
     : mixOnly
       ? orderMixList(preMixList, recs, { hidePlayed, keepOrder: library.sortKey != null })
       : preMixList
-  // v0.8.14: a fixed strip above the table, never a reordering of `list` —
-  // `preMixList` (search/crate filters, not `mixOnly`/`similarTo`) so it's
-  // available regardless of which view the table itself is showing.
-  const excellentMatches = anyPlaying ? excellentPairSuggestions(preMixList, recs, 3) : []
+  // v0.8.14: a fixed strip above the table, never a reordering of `list`.
+  // Since v0.8.17 it reads the whole library, not `preMixList`: a search or a
+  // crate hides rows from the table, not a mix the owner already proved.
+  const excellentMatches = excellentStripEntries(
+    library.tracks,
+    [
+      ...(aP ? [{ deck: 'A' as const, contentHash: aHash, trackId: aId }] : []),
+      ...(bP ? [{ deck: 'B' as const, contentHash: bHash, trackId: bId }] : []),
+    ],
+    excellentPairs,
+    3,
+  )
   const playingHashes = [aP ? aHash : null, bP ? bHash : null].filter((h): h is string => !!h)
   const excellentHint = excellentStripHint({
     anyPlaying,
@@ -964,29 +977,26 @@ export function Library() {
             <HintIcon id="library.excellentMatches" className="absolute -right-3 -top-1.5" />
           </span>
           <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto">
-            {excellentMatches.map((t) => {
-              const match = recs.get(t.id)
-              const info = match?.excellentPairAfter
-              if (!match || !info) return null
-              const fromHash = match.deck === 'A' ? aHash : bHash
+            {excellentMatches.map(({ track: t, fromDeck, info }) => {
+              const fromHash = fromDeck === 'A' ? aHash : bHash
               return (
                 <button
                   key={t.id}
                   type="button"
                   onClick={() => {
-                    // Not reachable in practice — a track only gets `excellentPairAfter`
-                    // when `best.contentHash` (the deck this row is keyed on) was
-                    // already non-null in the same render — but named rather than a
-                    // bare no-op, per this project's "nothing drops silently" rule.
+                    // Not reachable in practice — an entry exists only when this
+                    // deck's hash matched a remembered pair in the same render —
+                    // but named rather than a bare no-op, per this project's
+                    // "nothing drops silently" rule.
                     if (!fromHash) {
                       useStore.getState().setNotice({
-                        text: `Deck ${match.deck}'s track isn't identified yet — try again in a moment.`,
+                        text: `Deck ${fromDeck}'s track isn't identified yet — try again in a moment.`,
                         tone: 'warn',
                         source: 'mixRating',
                       })
                       return
                     }
-                    void ctl.startExcellentPairTransition(match.deck, fromHash, t, info.entrySec, info.exitSec)
+                    void ctl.startExcellentPairTransition(fromDeck, fromHash, t, info.toHash, info.entrySec, info.exitSec)
                   }}
                   className="shrink-0 rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-left text-2xs hover:bg-surface-3"
                   title={
