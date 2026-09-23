@@ -187,6 +187,25 @@ export function Deck({ deckId }: { deckId: DeckId }) {
                 <span className={remain <= 30 && remain > 0 ? 'text-warn' : 'text-grid-dim'}>
                   −{fmt(remain)}
                 </span>
+                {/* v0.8.17: disabled, not hidden, while playing — the button
+                    stays where the owner learned it is, and the title says
+                    why it won't press. */}
+                <button
+                  type="button"
+                  onClick={() => ctl.ejectDeck(deckId)}
+                  disabled={deck.playing || deck.loading}
+                  aria-label={`Eject deck ${deckId}`}
+                  title={
+                    deck.playing
+                      ? 'Pause the deck to eject its track'
+                      : deck.loading
+                        ? 'Wait for the track to finish loading'
+                        : `Eject — empty deck ${deckId}`
+                  }
+                  className="ms-1 rounded-[var(--radius-sm)] px-1.5 text-sm leading-none text-grid-muted hover:bg-surface-3 hover:text-grid-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                >
+                  ⏏
+                </button>
               </>
             )}
           </div>

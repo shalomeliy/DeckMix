@@ -511,13 +511,71 @@ export function loadSuggestionToDeck(track: Track, awayFromDeck: DeckId) {
   const { decks, setNotice } = useStore.getState()
   if (decks[target].track) {
     setNotice({
-      text: `Deck ${target} already has a track loaded — unload it before loading a suggestion there.`,
+      text: `Deck ${target} already has a track loaded — eject it (⏏ next to its time) before loading a suggestion there.`,
       tone: 'warn',
       source: 'load',
     })
     return
   }
   void loadTrackToDeck(target, track)
+}
+
+/**
+ * v0.8.17: empty a deck. Until now nothing could — two notices told the
+ * owner to "unload" a deck, and the only way was reloading the page.
+ *
+ * Refuses a playing deck, a deck mid-load, and either deck of a running
+ * transition, each with a notice: ejecting any of those cuts live audio or
+ * pulls a buffer out from under something still using it. What belongs to
+ * the *track* is cleared (grid, cues, waveform, loop); what belongs to the
+ * *deck* stays (tempo fader, vinyl mode, pad mode, loop length), since the
+ * next track goes into the same physical deck.
+ */
+export function ejectDeck(deckId: DeckId) {
+  const { decks, setNotice, patchDeck, masterDeckId } = useStore.getState()
+  const st = decks[deckId]
+  if (!st.track) return
+  const refuse = (text: string) => setNotice({ text, tone: 'warn', source: 'load' })
+  if (st.playing) return refuse(`Deck ${deckId} is playing — pause it before ejecting.`)
+  if (st.loading) return refuse(`Deck ${deckId} is still loading — try again in a moment.`)
+  if (activeTransition && (activeTransition.fromDeckId === deckId || activeTransition.toDeckId === deckId)) {
+    return refuse(`Deck ${deckId} is part of a running transition — cancel it before ejecting.`)
+  }
+  // The tempo save is debounced 400ms and reads `deck.track` when it fires —
+  // after an eject that is null, and a fader nudge just before ⏏ would be
+  // dropped. Flushed now, while the track is still on the deck.
+  window.clearTimeout(persistTempoTimers[deckId])
+  void persistTempoForDeck(deckId)
+  // Same "just left a deck" treatment `loadTrackToDeck` gives a replaced
+  // track, so it doesn't pop straight back up as a suggestion.
+  markRecentlyRemoved(st.track.id)
+  const deck = engine.decks[deckId]
+  deck.clearLoop()
+  deck.unload()
+  patchDeck(deckId, {
+    track: null,
+    positionSec: 0,
+    durationSec: 0,
+    bpm: null,
+    beatGrid: null,
+    beatGridConfirmed: true,
+    syncActive: false,
+    peaks: null,
+    bands: null,
+    hotCues: [],
+    cuePointSec: 0,
+    loopActive: false,
+    scratching: false,
+    excellentMixPoints: [],
+  })
+  // A master with no track is a reference to nothing. The other deck's SYNC
+  // is switched off with it: left lit, it would claim a lock it no longer
+  // has, then start nudging toward whatever gets loaded here next.
+  if (masterDeckId === deckId) {
+    useStore.setState({ masterDeckId: null })
+    const other: DeckId = deckId === 'A' ? 'B' : 'A'
+    if (decks[other].syncActive) patchDeck(other, { syncActive: false })
+  }
 }
 
 /**
@@ -567,9 +625,20 @@ export async function startExcellentPairTransition(
     setNotice({ text: passedExitText(fromDeckId, exitSec), tone: 'warn', source: 'mixRating' })
     return
   }
-  if (decks[target].track) {
+  // v0.8.17 (Shalom): a loaded but idle track on the other deck is replaced —
+  // it's a less-fitting pick, and the strip exists to swap in the better one.
+  // A *playing* track is still refused: replacing it cuts live music.
+  if (decks[target].playing) {
     setNotice({
-      text: `Deck ${target} already has a track loaded — unload it before starting an excellent-match mix there.`,
+      text: `Deck ${target} is playing — an excellent-match mix can't replace a track that's live. Pause it or let it finish first.`,
+      tone: 'warn',
+      source: 'mixRating',
+    })
+    return
+  }
+  if (decks[target].loading) {
+    setNotice({
+      text: `Deck ${target} is still loading a track — try again in a moment.`,
       tone: 'warn',
       source: 'mixRating',
     })

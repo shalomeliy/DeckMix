@@ -21,6 +21,7 @@ import { findSimilarTracks } from '@/core/embedding-search'
 import { libraryEmptyCopy } from '@/core/library-list-copy'
 import {
   excellentPairSuggestions,
+  excellentStripHint,
   type ExcellentPairInfo,
   matchReasons,
   mixRecommendations,
@@ -649,6 +650,14 @@ export function Library() {
   // `preMixList` (search/crate filters, not `mixOnly`/`similarTo`) so it's
   // available regardless of which view the table itself is showing.
   const excellentMatches = anyPlaying ? excellentPairSuggestions(preMixList, recs, 3) : []
+  const playingHashes = [aP ? aHash : null, bP ? bHash : null].filter((h): h is string => !!h)
+  const excellentHint = excellentStripHint({
+    anyPlaying,
+    playingUnidentified: (aP && !aHash) || (bP && !bHash),
+    pairsFromPlaying: [...excellentPairs.keys()].filter((k) => playingHashes.some((h) => k.startsWith(`${h}:`)))
+      .length,
+    shown: excellentMatches.length,
+  })
   // Decided from what this view would show, not from library-wide counts: a
   // crate or text filter can leave a view whose suggestions are all played
   // while others exist elsewhere (or the reverse), and the message has to
@@ -935,6 +944,14 @@ export function Library() {
         table below (it runs the whole mix on click, not just a load), so
         that difference is spelled out in text, not left to a color/icon.
       */}
+      {excellentHint && (
+        // v0.8.17: the strip's own slot, so the owner looks in one place
+        // whether there is something to click or a reason there isn't.
+        <div className="flex items-center gap-2 border-b border-hairline bg-surface-1 px-2 py-1 text-2xs text-grid-dim">
+          <span className="label font-bold text-live/60">Excellent matches</span>
+          <span className="truncate">{excellentHint}</span>
+        </div>
+      )}
       {excellentMatches.length > 0 && (
         <div className="flex items-center gap-2 border-b border-hairline bg-surface-1 px-2 py-1.5">
           <span className="relative inline-flex shrink-0">

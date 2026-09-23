@@ -65,3 +65,61 @@ describe('sortTracks', () => {
     expect(tracks).toEqual(original)
   })
 })
+
+describe('sortTracks tie-breaks (v0.8.17)', () => {
+  it('ties on the main column break by artist A→Z', () => {
+    const tracks = [
+      track('1', { bpm: 128, artist: 'Zedd' }),
+      track('2', { bpm: 128, artist: 'Avicii' }),
+      track('3', { bpm: 128, artist: 'Martin Garrix' }),
+    ]
+    expect(sortTracks(tracks, 'bpm', 'asc').map((t) => t.id)).toEqual(['2', '3', '1'])
+  })
+
+  it('then by title A→Z when the artist is the same too', () => {
+    const tracks = [
+      track('1', { bpm: 128, artist: 'Avicii', title: 'Wake Me Up' }),
+      track('2', { bpm: 128, artist: 'Avicii', title: 'Levels' }),
+    ]
+    expect(sortTracks(tracks, 'bpm', 'asc').map((t) => t.id)).toEqual(['2', '1'])
+  })
+
+  it('tie-breaks stay A→Z when the main column is descending', () => {
+    const tracks = [
+      track('1', { bpm: 128, artist: 'Zedd' }),
+      track('2', { bpm: 140, artist: 'Zedd' }),
+      track('3', { bpm: 128, artist: 'Avicii' }),
+    ]
+    expect(sortTracks(tracks, 'bpm', 'desc').map((t) => t.id)).toEqual(['2', '3', '1'])
+  })
+
+  it('a track with no artist goes after the named ones in its tie', () => {
+    const tracks = [track('1', { bpm: 128 }), track('2', { bpm: 128, artist: 'Zedd' })]
+    expect(sortTracks(tracks, 'bpm', 'asc').map((t) => t.id)).toEqual(['2', '1'])
+  })
+
+  it('tracks missing the main value still go last, ordered by artist among themselves', () => {
+    const tracks = [
+      track('1', { artist: 'Zedd' }),
+      track('2', { bpm: 100, artist: 'Zedd' }),
+      track('3', { artist: 'Avicii' }),
+    ]
+    expect(sortTracks(tracks, 'bpm', 'desc').map((t) => t.id)).toEqual(['2', '3', '1'])
+  })
+
+  it('falls back to the file name when a track has no title tag', () => {
+    const tracks = [
+      track('b-song.mp3', { bpm: 128, artist: 'Avicii' }),
+      track('a-song.mp3', { bpm: 128, artist: 'Avicii' }),
+    ]
+    expect(sortTracks(tracks, 'bpm', 'asc').map((t) => t.id)).toEqual(['a-song.mp3', 'b-song.mp3'])
+  })
+
+  it('ignores letter case and orders numbers naturally', () => {
+    const tracks = [
+      track('1', { bpm: 128, artist: 'avicii', title: 'Track 10' }),
+      track('2', { bpm: 128, artist: 'Avicii', title: 'Track 2' }),
+    ]
+    expect(sortTracks(tracks, 'bpm', 'asc').map((t) => t.id)).toEqual(['2', '1'])
+  })
+})

@@ -303,3 +303,38 @@ export function excellentPairSuggestions(
   }
   return out
 }
+
+/**
+ * Why the "Excellent matches" strip is empty (v0.8.17). It used to simply not
+ * render, and Shalom went looking for it with deck A paused at 0:00, not
+ * knowing it only appears while a track plays — and only for pairs that
+ * *start* from that track. `null` when the strip has something to show.
+ *
+ * `pairsFromPlaying` counts remembered pairs whose outgoing track is playing
+ * now. When that is above zero and nothing is shown, the pairs exist but the
+ * recommender dropped them (tempo out of range) or the library view hides
+ * them (search, crate) — said as one sentence, since telling those apart
+ * would need a second pass through the recommender for a hint line.
+ */
+export function excellentStripHint(input: {
+  anyPlaying: boolean
+  /** a playing deck's track has no content hash yet, so its pairs can't be looked up */
+  playingUnidentified: boolean
+  pairsFromPlaying: number
+  shown: number
+}): string | null {
+  if (input.shown > 0) return null
+  if (!input.anyPlaying) return 'Play a track to see the mixes you rated Excellent after it.'
+  if (input.pairsFromPlaying === 0) {
+    // No "in a moment": a hash that failed stays missing for good, and a
+    // promise the app can't keep is its own small lie.
+    if (input.playingUnidentified) return "The playing track isn't identified yet, so its excellent mixes can't be looked up."
+    return 'No mix rated Excellent starts from the playing track yet.'
+  }
+  const n = input.pairsFromPlaying
+  // Every reason the recommender or the view can drop one, not a guess at
+  // the likeliest — naming only "the search or crate" sent the owner looking
+  // for a filter that wasn't there when the pair's track was simply on a deck.
+  return `${n} excellent mix${n === 1 ? '' : 'es'} after the playing track, not in the list right now: tempo too far, filtered out, already on a deck, or not in this folder.`
+}
+

@@ -7,8 +7,7 @@ import {
   mixRecommendations,
   orderMixList,
   type DeckMixState,
-  type MixMatch,
-} from '@/core/recommend'
+  type MixMatch, excellentStripHint } from '@/core/recommend'
 import type { Track } from '@/core/types'
 
 /** Nothing here reads `handle` — it exists only to satisfy `Track`. */
@@ -453,3 +452,29 @@ describe('orderMixList tiers (v0.8.11)', () => {
     expect(ids(orderMixList(t, matches, { hidePlayed: false, keepOrder: true }))).toEqual(['a', 'b', 'c', 'd'])
   })
 })
+
+describe('excellentStripHint (v0.8.17)', () => {
+  const base = { anyPlaying: true, playingUnidentified: false, pairsFromPlaying: 0, shown: 0 }
+
+  it('says nothing when the strip has suggestions', () => {
+    expect(excellentStripHint({ ...base, pairsFromPlaying: 2, shown: 1 })).toBeNull()
+  })
+
+  it('tells the owner to play a track when nothing plays — the 23/09 confusion', () => {
+    expect(excellentStripHint({ ...base, anyPlaying: false })).toMatch(/Play a track/)
+  })
+
+  it('names a playing track with no pairs from it', () => {
+    expect(excellentStripHint(base)).toMatch(/No mix rated Excellent starts from the playing track/)
+  })
+
+  it('says the track is still being identified rather than "no pairs"', () => {
+    expect(excellentStripHint({ ...base, playingUnidentified: true })).toMatch(/isn't identified yet/)
+  })
+
+  it('counts pairs that exist but are not shown', () => {
+    expect(excellentStripHint({ ...base, pairsFromPlaying: 1 })).toMatch(/^1 excellent mix after/)
+    expect(excellentStripHint({ ...base, pairsFromPlaying: 3 })).toMatch(/^3 excellent mixes after/)
+  })
+})
+

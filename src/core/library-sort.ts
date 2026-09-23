@@ -40,6 +40,12 @@ function sortValue(t: Track, key: SortKey): string | number | undefined {
  * behaviour). A track missing the sorted value always sorts last, in
  * *both* directions — a track with no BPM is not "the fastest" just
  * because the column is sorted descending.
+ *
+ * Ties break by artist, then title (Shalom, 23/09). Without that, 20 tracks
+ * at 128 BPM sat in scan order, which reads as no order at all. Both
+ * tie-breaks are always A→Z, whatever the main column's direction, because
+ * they are there to help find a name, not to rank one. A missing artist goes
+ * last, the same rule as a missing main value.
  */
 export function sortTracks(tracks: Track[], sortKey: SortKey | null, sortDir: SortDir): Track[] {
   if (!sortKey) return tracks
@@ -47,11 +53,35 @@ export function sortTracks(tracks: Track[], sortKey: SortKey | null, sortDir: So
   return [...tracks].sort((a, b) => {
     const av = sortValue(a, sortKey)
     const bv = sortValue(b, sortKey)
-    if (av == null && bv == null) return 0
-    if (av == null) return 1
-    if (bv == null) return -1
-    if (av < bv) return -1 * dir
-    if (av > bv) return 1 * dir
-    return 0
+    if (av == null && bv != null) return 1
+    if (bv == null && av != null) return -1
+    if (av != null && bv != null) {
+      // Text columns use the tie-breaks' own comparison, so "Track 2" sorts
+      // before "Track 10" whether the title is the main column or a tie-break.
+      const c =
+        typeof av === 'string' && typeof bv === 'string'
+          ? av.localeCompare(bv, undefined, { sensitivity: 'base', numeric: true })
+          : av < bv
+            ? -1
+            : av > bv
+              ? 1
+              : 0
+      if (c !== 0) return c * dir
+    }
+    return compareNames(a.artist, b.artist) || compareNames(a.title ?? a.name, b.title ?? b.name)
   })
+}
+
+/**
+ * `localeCompare` rather than `<`: the library mixes Hebrew and English
+ * names, and "base" sensitivity lets "Avicii" and "avicii" tie instead of
+ * splitting on case. `numeric` puts "Track 2" before "Track 10".
+ */
+function compareNames(a: string | undefined, b: string | undefined): number {
+  const x = a?.trim() || undefined
+  const y = b?.trim() || undefined
+  if (x == null && y == null) return 0
+  if (x == null) return 1
+  if (y == null) return -1
+  return x.localeCompare(y, undefined, { sensitivity: 'base', numeric: true })
 }
