@@ -126,6 +126,11 @@ def verdict(turns: int, mb: float) -> tuple[str, str, str]:
 
 
 def main() -> int:
+    # A Windows console defaults to cp1252, which cannot print the 🟢/🟡/🔴
+    # verdict: the script died with UnicodeEncodeError on the owner's machine
+    # (23/09) before saying anything — a measurement that silently isn't taken.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     path, how = find_transcript()
     if path is None:
         # Visible degradation, not a zero: a missing measurement must never be
