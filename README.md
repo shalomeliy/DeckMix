@@ -1,4 +1,6 @@
-# SoundGrid
+# DeckMix
+
+*(Called SoundGrid until v0.8.19.)*
 
 A browser-based DJ system — Serato-style two-deck mixing that plays the music
 already on your computer and is driven by a hardware controller such as the
@@ -29,7 +31,7 @@ rekordbox, or any other commercial product.
 - **Chrome or Edge on desktop** — Web MIDI, File System Access, and per-device
   audio output (`setSinkId`) are Chromium-only today
 - For the FLX4: install Pioneer's driver so Windows exposes its multi-channel
-  USB audio device, then select it as the SoundGrid output
+  USB audio device, then select it as the DeckMix output
 
 ## Develop
 

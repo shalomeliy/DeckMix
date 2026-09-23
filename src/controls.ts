@@ -2371,7 +2371,7 @@ export async function saveRecordedMaster(): Promise<'ok' | 'cancelled' | 'empty'
       boundaries.length === 0
         ? await saveMasterRecording(
             encodeWav(channels, masterRecordingSampleRate),
-            `soundgrid-recording-${new Date().toISOString().replace(/[:.]/g, '-')}.wav`,
+            `deckmix-recording-${new Date().toISOString().replace(/[:.]/g, '-')}.wav`,
           )
         : await saveSplitRecording(channels, boundaries)
     if (result === 'ok') {
@@ -2408,7 +2408,7 @@ export async function exportSetHistory(): Promise<'ok' | 'cancelled' | 'empty'> 
   if (entries.length === 0) return 'empty'
   const text = formatSetHistory(entries, new Date())
   try {
-    const result = await saveSetHistoryText(text, `soundgrid-setlist-${new Date().toISOString().slice(0, 10)}.txt`)
+    const result = await saveSetHistoryText(text, `deckmix-setlist-${new Date().toISOString().slice(0, 10)}.txt`)
     if (result === 'ok') {
       useStore.getState().setNotice({ text: 'Setlist saved.', tone: 'info', source: 'history' })
     }

@@ -111,7 +111,7 @@ export function bootCopy(
     case 'unsupported':
       return {
         title: 'Local library needs Chrome or Edge',
-        body: 'SoundGrid reads audio straight from a folder on your disk using the File System Access API. Open it in a Chromium desktop browser to scan your collection.',
+        body: 'DeckMix reads audio straight from a folder on your disk using the File System Access API. Open it in a Chromium desktop browser to scan your collection.',
       }
     case 'new':
       return {
@@ -122,7 +122,7 @@ export function bootCopy(
     case 'unusable':
       return {
         title: 'The saved folder cannot be reopened',
-        body: 'SoundGrid remembers a folder from an earlier version of itself, and this build cannot revive it. Picking it again fixes it for good — nothing was lost.',
+        body: 'DeckMix remembers a folder from an earlier version of itself, and this build cannot revive it. Picking it again fixes it for good — nothing was lost.',
         cta: 'Pick the folder again',
       }
     case 'restoring':
@@ -136,13 +136,13 @@ export function bootCopy(
     case 'blocked':
       return {
         title: `Chrome is blocking access to ${folder}`,
-        body: 'Folder access was refused for this site. Pick the folder again to grant it — and if the dialog offers "Allow on every visit", taking it is what lets SoundGrid open the folder by itself.',
+        body: 'Folder access was refused for this site. Pick the folder again to grant it — and if the dialog offers "Allow on every visit", taking it is what lets DeckMix open the folder by itself.',
         cta: 'Pick the folder again',
       }
     case 'missing':
       return {
         title: `${folder} is no longer there`,
-        body: 'It was moved, renamed or deleted since the last session. Nothing was lost here — SoundGrid only ever reads.',
+        body: 'It was moved, renamed or deleted since the last session. Nothing was lost here — DeckMix only ever reads.',
         cta: 'Pick the folder again',
       }
     case 'failed':

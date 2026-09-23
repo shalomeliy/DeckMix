@@ -10,7 +10,7 @@ import type { HistoryEntry } from '@/core/types'
  * shape `buildCueSheet` (`core/recording.ts`) uses for `sampleRate`.
  */
 export function formatSetHistory(entries: HistoryEntry[], setDate: Date): string {
-  const header = `SoundGrid set — ${setDate.toISOString().slice(0, 10)}`
+  const header = `DeckMix set — ${setDate.toISOString().slice(0, 10)}`
   const lines = entries.map((e, i) => `${i + 1}. ${e.artist ? `${e.artist} — ` : ''}${e.name}`)
   return [header, ...lines].join('\n') + '\n'
 }

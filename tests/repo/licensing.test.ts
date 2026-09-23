@@ -11,7 +11,7 @@ import { read } from './repo.ts'
  * three places that make the same claim, and any one of them contradicting
  * the others would be the lie.
  */
-describe('SoundGrid is proprietary — all rights reserved', () => {
+describe('DeckMix is proprietary — all rights reserved', () => {
   it('LICENSE reserves all rights and grants no open-source permission', () => {
     const license = read('LICENSE')
     expect(license).toContain('All rights reserved')

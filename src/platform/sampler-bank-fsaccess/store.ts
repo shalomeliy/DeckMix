@@ -22,7 +22,13 @@
 import { manifestFileNames } from '@/core/sampler'
 import type { StoredSamplerBank } from '@/platform/sampler-idb/store'
 
-const BASE_NAME = 'soundgrid-sampler-bank'
+const BASE_NAME = 'deckmix-sampler-bank'
+// v0.8.18 and earlier exported under the old product name. Import takes a
+// folder's single `.json` whatever it is called, so a new export saved next to
+// an old one would leave two, and that folder would stop importing. So the old
+// name counts as a clash too. "Overwrite" then really overwrites the old file
+// instead of writing a second one beside it.
+const LEGACY_BASE_NAME = 'soundgrid-sampler-bank'
 
 interface BankManifest {
   version: 2
@@ -81,14 +87,21 @@ export async function exportSamplerBankWithRecordings(
   // eslint-disable-next-line no-constant-condition -- exits via return, not the condition
   while (true) {
     const { jsonName, wavNames } = manifestFileNames(base, recordingIds)
-    const collision = (await fileExists(dir, jsonName))
-      ? jsonName
-      : (await Promise.all(wavNames.map(async (n) => ((await fileExists(dir, n)) ? n : null)))).find((n) => n)
+    const legacyJson = manifestFileNames(LEGACY_BASE_NAME, []).jsonName
+    const legacyClash = base === BASE_NAME && (await fileExists(dir, legacyJson))
+    const collision = legacyClash
+      ? legacyJson
+      : (await fileExists(dir, jsonName))
+        ? jsonName
+        : (await Promise.all(wavNames.map(async (n) => ((await fileExists(dir, n)) ? n : null)))).find((n) => n)
     if (!collision) break
     const overwrite = window.confirm(
       `A file named "${collision}" already exists in this folder. Overwrite it? Click Cancel to pick a different name instead.`,
     )
-    if (overwrite) break
+    if (overwrite) {
+      if (legacyClash) base = LEGACY_BASE_NAME
+      break
+    }
     const next = window.prompt('Pick a different name:', base)
     if (!next || !next.trim()) return { kind: 'cancelled' }
     base = next.trim()
@@ -166,7 +179,7 @@ export async function importSamplerBankWithRecordings(
   const file = await jsonHandle.getFile()
   const parsed = JSON.parse(await file.text()) as Partial<BankManifest>
   if (parsed.version !== 2 || !Array.isArray(parsed.bank) || !Array.isArray(parsed.recordings)) {
-    throw new Error(`"${file.name}" is not a SoundGrid sampler bank + recordings export`)
+    throw new Error(`"${file.name}" is not a DeckMix sampler bank + recordings export`)
   }
 
   let recordingsFound = 0

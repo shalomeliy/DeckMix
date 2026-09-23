@@ -254,7 +254,7 @@ function CrateRow({
       {missing > 0 && analysisCatchingUp && (
         <div
           className="mt-0.5 text-2xs text-grid-muted"
-          title="The library is still analyzing tracks after a scan — these will match again once it catches up. If they still don't after that, they were moved or deleted outside SoundGrid."
+          title="The library is still analyzing tracks after a scan — these will match again once it catches up. If they still don't after that, they were moved or deleted outside DeckMix."
         >
           {missing} checking…
         </div>
@@ -262,7 +262,7 @@ function CrateRow({
       {missing > 0 && !analysisCatchingUp && (
         <div
           className="mt-0.5 text-2xs text-warn"
-          title="These tracks are no longer in the library — moved or deleted outside SoundGrid."
+          title="These tracks are no longer in the library — moved or deleted outside DeckMix."
         >
           {missing} not found
         </div>

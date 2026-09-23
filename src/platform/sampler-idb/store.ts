@@ -15,7 +15,7 @@ import type { SamplerMode } from '@/core/sampler'
 
 const KEY = 'soundgrid:sampler:bank'
 const FILE_TYPES = [
-  { description: 'SoundGrid sampler bank', accept: { 'application/json': ['.json'] } },
+  { description: 'DeckMix sampler bank', accept: { 'application/json': ['.json'] } },
 ]
 
 export interface StoredSamplerSlot {
@@ -68,7 +68,7 @@ export async function exportSamplerBankToFile(bank: StoredSamplerBank): Promise<
   if (typeof picker !== 'function') throw new Error('this browser has no file save dialog')
   let handle: FileSystemFileHandle
   try {
-    handle = await picker({ suggestedName: 'soundgrid-sampler-bank.json', types: FILE_TYPES })
+    handle = await picker({ suggestedName: 'deckmix-sampler-bank.json', types: FILE_TYPES })
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') return 'cancelled'
     throw err
@@ -99,6 +99,6 @@ export async function importSamplerBankFromFile(): Promise<StoredSamplerBank | '
   }
   const file = await handles[0].getFile()
   const parsed = JSON.parse(await file.text()) as { version?: number; bank?: unknown }
-  if (!Array.isArray(parsed.bank)) throw new Error(`"${file.name}" is not a SoundGrid sampler bank file`)
+  if (!Array.isArray(parsed.bank)) throw new Error(`"${file.name}" is not a DeckMix sampler bank file`)
   return parsed.bank as StoredSamplerBank
 }

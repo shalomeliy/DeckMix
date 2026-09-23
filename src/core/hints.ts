@@ -104,7 +104,7 @@ const HINT_BASE = {
   'topbar.startEngine': {
     text: 'Starts the audio engine. Browsers require a click before any sound can play.',
   },
-  'topbar.output': { text: 'Which sound card SoundGrid plays through.' },
+  'topbar.output': { text: 'Which sound card DeckMix plays through.' },
   'topbar.quantize': { text: 'Snap cue points and loops to the nearest beat on the grid.' },
   'topbar.connectMidi': { text: 'Reconnect to the DDJ-FLX4 if it was plugged in after the page loaded.' },
   'topbar.settings': {
@@ -121,7 +121,7 @@ const HINT_BASE = {
   },
 
   // — library —
-  'library.folder': { text: 'Pick the folder SoundGrid scans for tracks.' },
+  'library.folder': { text: 'Pick the folder DeckMix scans for tracks.' },
   'library.addFiles': { text: 'Add individual track files without scanning a whole folder.' },
   'library.mixOnly': {
     text: 'Show only tracks that mix well with what’s currently playing. Filled dot = tight match, ring = looser, ✓ = already loaded this set. Unless you sort by a column, tight matches come first, then looser ones, then the ✓ ones. Select a row to see why it was suggested.',

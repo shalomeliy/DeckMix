@@ -85,7 +85,7 @@ export function TopBar({
   return (
     <header className="flex items-center gap-4 border-b border-hairline bg-surface-1 px-4 py-2.5">
       <h1 className="text-sm font-bold tracking-tight">
-        Sound<span className="text-accent">Grid</span>
+        Deck<span className="text-accent">Mix</span>
       </h1>
 
       {!audioReady ? (

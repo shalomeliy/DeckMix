@@ -38,7 +38,7 @@ const GROUPS: { id: Group; label: string; blurb: string }[] = [
   { id: 'display', label: 'Display', blurb: 'What is drawn, and how often.' },
   { id: 'library', label: 'Library', blurb: 'The track list and how keys are named.' },
   { id: 'help', label: 'Help', blurb: 'Explain every control before you touch it.' },
-  { id: 'system', label: 'System', blurb: 'What this machine supports, and what SoundGrid does with it.' },
+  { id: 'system', label: 'System', blurb: 'What this machine supports, and what DeckMix does with it.' },
   { id: 'legal', label: 'Privacy & Terms', blurb: 'What leaves this computer (nothing), and what you agree to by using this.' },
 ]
 
@@ -391,7 +391,7 @@ function SamplerBankIO() {
 }
 
 /**
- * What this machine supports, what SoundGrid will not do, and the keyboard.
+ * What this machine supports, what DeckMix will not do, and the keyboard.
  *
  * The capability list is `Capabilities` made visible in one place. It was
  * already resolved at boot and only partly surfaced, so a missing feature could
@@ -414,7 +414,7 @@ function SystemPanel() {
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-2xs text-grid-dim">SoundGrid v{__APP_VERSION__}</p>
+      <p className="text-2xs text-grid-dim">DeckMix v{__APP_VERSION__}</p>
 
       <div className="rounded-[var(--radius-sm)] border border-hairline bg-surface-1 px-3 py-2.5">
         <div className="mb-1.5 text-xs font-semibold text-grid-text">This machine</div>
@@ -469,13 +469,13 @@ function SystemPanel() {
       </div>
 
       {/* Stated, not omitted. Two of the things a DJ tool is most often asked
-          about are things SoundGrid does not do, and a settings screen that
+          about are things DeckMix does not do, and a settings screen that
           simply lacked the toggles would leave the user guessing. Points at
           the full Privacy & Terms tab (v0.8.7) rather than repeating the
           claim here — one place to keep accurate instead of two that can
           drift apart. */}
       <div className="rounded-[var(--radius-sm)] border border-hairline bg-surface-1 px-3 py-2.5">
-        <div className="mb-1.5 text-xs font-semibold text-grid-text">What SoundGrid does not do</div>
+        <div className="mb-1.5 text-xs font-semibold text-grid-text">What DeckMix does not do</div>
         <ul className="flex list-disc flex-col gap-1 pl-4 text-2xs text-grid-dim">
           <li>
             <b className="text-grid-muted">Never writes to your music files.</b> Tags are read in
@@ -487,7 +487,7 @@ function SystemPanel() {
             telemetry, so there is nothing to opt out of.
           </li>
           <li>
-            <b className="text-grid-muted">No streaming services.</b> SoundGrid plays the files on
+            <b className="text-grid-muted">No streaming services.</b> DeckMix plays the files on
             this computer.
           </li>
         </ul>
@@ -524,7 +524,7 @@ function LegalPanel() {
         </ul>
         <div className="mb-1.5 text-2xs text-grid-dim">
           Named here because these are the questions most apps get asked — none of them apply to
-          SoundGrid:
+          DeckMix:
         </div>
         <ul className="flex list-disc flex-col gap-1 pl-4 text-2xs text-grid-dim">
           {PRIVACY_NOT_APPLICABLE.map((line) => (
@@ -555,7 +555,7 @@ function LegalPanel() {
       <div className="rounded-[var(--radius-sm)] border border-hairline bg-surface-1 px-3 py-2.5">
         <div className="mb-1.5 text-xs font-semibold text-grid-text">License</div>
         <p className="text-2xs text-grid-dim">
-          SoundGrid&apos;s own code is © 2026 ARTPEACE all rights reserved — see the{' '}
+          DeckMix&apos;s own code is © 2026 ARTPEACE all rights reserved — see the{' '}
           <code>LICENSE</code> file. It is built with open-source libraries, each under its own license.
         </p>
         <details className="mt-2">

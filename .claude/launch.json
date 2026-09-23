@@ -2,7 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "soundgrid-dev",
+      "name": "deckmix-dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "run",

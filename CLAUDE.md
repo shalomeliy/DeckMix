@@ -1,4 +1,11 @@
-# SoundGrid — project instructions
+# DeckMix — project instructions
+
+**The app was called SoundGrid until v0.8.19 (23/09).** That name is very likely a Waves
+Audio trademark in audio software. Shalom picked DeckMix after a WIPO Global Brand
+Database search found nothing registered under it. Older docs and commits still say
+SoundGrid; they mean this app. The `soundgrid:` storage keys keep the old name **on
+purpose**. Renaming them would make every saved setting, cue and rating look lost.
+`tests/repo/product-name.test.ts` pins both halves of this.
 
 A Hebrew copy of this file lives at [`CLAUDE-HE.md`](CLAUDE-HE.md), for the project
 owner, who is not a programmer. **This file is the authoritative one** — it is what gets
@@ -60,7 +67,7 @@ project's own `CLAUDE.md`.)
 
 1. **Read `HANDOFF.md` first** — current version, next step, open decisions, known debt.
    Then the relevant version section of `ROADMAP.md`, then `git log --oneline -5`.
-2. **Start the dev server before anything else**: `preview_start` with `soundgrid-dev`
+2. **Start the dev server before anything else**: `preview_start` with `deckmix-dev`
    from `.claude/launch.json`. Never `npm run dev` through Bash — that server does not
    survive and the browser tools cannot reach it. The user tests the running app in
    their own Chrome in parallel, so a session that starts without a server costs them
@@ -343,7 +350,7 @@ never read as a green one. The thresholds are this repo's, calibrated on 2026-09
 if the old global copy still exists somewhere with different numbers, reconcile them
 here rather than there.
 
-Dev server: `preview_start` with `soundgrid-dev` (port 5173) — **not** Bash.
+Dev server: `preview_start` with `deckmix-dev` (port 5173) — **not** Bash.
 
 There is no formatter and no CI in this repo — don't assume anything checks the branch.
 `npm run check` is the whole gate, and it only runs when someone runs it.
