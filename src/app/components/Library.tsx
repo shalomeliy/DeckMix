@@ -935,7 +935,12 @@ export function Library() {
       {excellentMatches.length > 0 && (
         <div className="flex items-center gap-2 border-b border-hairline bg-surface-1 px-2 py-1.5">
           <span className="relative inline-flex shrink-0">
-            <span className="label text-2xs text-grid-muted">Excellent matches</span>
+            {/* Shalom (23/09): the strip read as decoration, not something to click —
+                the same bright "excellent" accent the rating prompt's own button uses
+                (`TransitionRatingPrompt.tsx`'s `text-live`), bold, a size up from the
+                other muted toolbar labels around it, so it reads as the header of an
+                action, not a passive status line. */}
+            <span className="label text-xs font-bold text-live">Excellent matches</span>
             <HintIcon id="library.excellentMatches" className="absolute -right-3 -top-1.5" />
           </span>
           <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto">
