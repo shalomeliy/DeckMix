@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { customTextOf, isOrdinalLabel, moveHotCue, pickHotCueSlot, shouldTriggerMixEntry } from '@/core/hotcues'
+import { customTextOf, hasMixEntryNear, isOrdinalLabel, mixEntryLabel, moveHotCue, pickHotCueSlot, shouldTriggerMixEntry } from '@/core/hotcues'
 import type { HotCue } from '@/core/types'
 
 function cue(index: number, overrides: Partial<HotCue> = {}): HotCue {
@@ -159,5 +159,22 @@ describe('customTextOf', () => {
 
   it('returns a label with no recognizable timestamp suffix as-is', () => {
     expect(customTextOf(cue(2, { label: 'Vocal drop' }))).toBe('Vocal drop')
+  })
+})
+
+describe('mixEntryLabel / hasMixEntryNear (v0.8.14)', () => {
+  it('labels with the point time, same shape customTextOf reads', () => {
+    expect(mixEntryLabel(95.7)).toBe('Mix in · 1:35')
+    expect(mixEntryLabel(-3)).toBe('Mix in · 0:00')
+  })
+
+  it('a second Excellent on the same point does not add a copy', () => {
+    const cues: HotCue[] = [
+      { index: 0, positionSec: 64.2, label: 'Mix in · 1:04', color: '#fff', createdAt: 1, kind: 'mixEntry' },
+      { index: 1, positionSec: 120, label: '2', color: '#fff', createdAt: 2 },
+    ]
+    expect(hasMixEntryNear(cues, 64.0)).toBe(true)
+    expect(hasMixEntryNear(cues, 120)).toBe(false) // a plain pad there is not a mix-in pad
+    expect(hasMixEntryNear(cues, 70)).toBe(false)
   })
 })

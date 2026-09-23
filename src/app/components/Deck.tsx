@@ -214,20 +214,10 @@ export function Deck({ deckId }: { deckId: DeckId }) {
               otherPositionBucketSec={otherPositionBucketSec}
               otherAnalysisFailed={otherAnalysisFailed}
               onSelect={(sec) => {
-                // Both calls act on the same chosen point: the transition
-                // starts on the other deck's next yellow line (v0.8.14), and the point
-                // is also saved as a hot cue so it's there next time this
-                // track loads (v0.4.7) — approved together, not sequenced.
+                // Starts on the other deck's next yellow line (v0.8.14). No
+                // "Mix in" pad here any more — it's saved only if the mix is
+                // then rated Excellent (`rateMixTransition`).
                 ctl.startAutoTransition(otherDeckId, deckId, sec)
-                // The label carries the point's own track time (`fmt`) so
-                // several saved mix-in pads on the same deck read as
-                // distinct points instead of all showing the same "Mix in"
-                // text — the owner's own report after saving more than one.
-                // Same "<text> · m:ss" shape `renameHotCue` uses (v0.5.3) —
-                // one label format in the whole codebase, not two, so
-                // `customTextOf` can recover "Mix in" cleanly if this pad is
-                // later renamed instead of gluing a second timestamp on.
-                ctl.saveMixEntryHotCue(deckId, sec, `Mix in · ${fmt(sec)}`)
               }}
             />
           )}

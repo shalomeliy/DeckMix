@@ -106,3 +106,22 @@ export function pickHotCueSlot(cues: HotCue[]): number {
   }
   return oldest.index
 }
+
+/**
+ * The label a saved mix-in pad gets: "Mix in · m:ss", the point's own track
+ * time, so several mix-in pads on one deck read as distinct points. Same
+ * "<text> · m:ss" shape `renameHotCue` writes, so `customTextOf` recovers
+ * "Mix in" cleanly. Lives here since v0.8.14 moved the save from the click
+ * (`Deck.tsx`) to the "Excellent" rating (`controls.ts`).
+ */
+export function mixEntryLabel(sec: number): string {
+  const t = Number.isFinite(sec) && sec > 0 ? sec : 0
+  const m = Math.floor(t / 60)
+  const s = Math.floor(t % 60)
+  return `Mix in · ${m}:${s.toString().padStart(2, '0')}`
+}
+
+/** Already a mix-in pad within half a second of `sec`? Rating the same replayed pairing "Excellent" twice must not fill the pad grid with copies of one point. */
+export function hasMixEntryNear(cues: HotCue[], sec: number): boolean {
+  return cues.some((c) => c.kind === 'mixEntry' && Math.abs(c.positionSec - sec) < 0.5)
+}

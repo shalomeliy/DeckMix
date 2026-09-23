@@ -61,7 +61,14 @@ import { analysisCacheKey } from '@/core/analysis-cache'
 import { hashBytes, hashFile } from '@/platform/source-fsaccess/hash'
 import { settings } from '@/platform/settings-idb/store'
 import { DEFAULTS, FIELD_BY_KEY, secPerRev, type Settings } from '@/core/settings'
-import { isOrdinalLabel, moveHotCue as moveHotCuePure, pickHotCueSlot, shouldTriggerMixEntry } from '@/core/hotcues'
+import {
+  hasMixEntryNear,
+  isOrdinalLabel,
+  mixEntryLabel,
+  moveHotCue as moveHotCuePure,
+  pickHotCueSlot,
+  shouldTriggerMixEntry,
+} from '@/core/hotcues'
 import { AI_TOOL_CATALOG, validateToolCall } from '@/core/ai/toolCatalog'
 import {
   isSamplerMode,
@@ -87,7 +94,7 @@ import {
   importSamplerBankWithRecordings,
 } from '@/platform/sampler-bank-fsaccess/store'
 import { getFxBank, saveFxBank, type StoredFxBank } from '@/platform/fx-idb/store'
-import { useStore, type FxState } from '@/app/state/store'
+import { useStore, type AppState, type FxState } from '@/app/state/store'
 import type { AIMessage, AIToolCall } from '@/core/ports/ai'
 import type { BeatGrid, DeckId, PadMode, Track } from '@/core/types'
 import { aiLocalProvider } from '@/platform/ai-local'
@@ -1128,9 +1135,10 @@ export function moveHotCue(deckId: DeckId, fromIndex: number, toIndex: number) {
 }
 
 /**
- * Auto-save a chosen mix-in point as a hot cue (v0.4.7) — called alongside
- * `startAutoTransition` when the DJ picks a point in `TransitionPointsPanel`,
- * never on its own. Uses the first empty pad, or evicts the pad with the
+ * Save a mix-in point as a hot cue (v0.4.7). Since v0.8.14 only from
+ * `rateMixTransition`'s "Excellent" — Shalom (23/09): a pad per click filled
+ * the grid with points that never proved themselves; only a mix he rated
+ * excellent earns one. Uses the first empty pad, or evicts the pad with the
  * oldest `createdAt` when all 8 are full (`pickHotCueSlot`, `core/hotcues.ts`)
  * — always a visible overwrite in the Pad Grid, never a silent one.
  */
@@ -2939,7 +2947,9 @@ export function rateMixTransition(rating: 'bad' | 'needs-work' | 'excellent') {
   const { pendingMixRating, decks, patchDeck } = useStore.getState()
   if (!pendingMixRating) return
   useStore.setState({ pendingMixRating: null })
-  if (rating !== 'excellent' || !pendingMixRating.contentHash) return
+  if (rating !== 'excellent') return
+  saveExcellentMixEntryPad(pendingMixRating)
+  if (!pendingMixRating.contentHash) return
   void markExcellent(pendingMixRating.contentHash, pendingMixRating.exitPointSec).catch((err) => {
     console.error('markExcellent failed', err)
   })
@@ -2968,6 +2978,28 @@ export function rateMixTransition(rating: 'bad' | 'needs-work' | 'excellent') {
       patchDeck(pendingMixRating.fromDeckId, { excellentMixPoints: [...deck.excellentMixPoints, rounded] })
     }
   }
+}
+
+/**
+ * The "Mix in" pad for an excellent-rated mix (v0.8.14) goes on the incoming
+ * track — the deck that took over. Only if that exact track is still there:
+ * the rating prompt can sit unanswered while the DJ loads something else,
+ * and a pad lands on whatever track is loaded (`persistCues`). Anything that
+ * stops the save is said, not skipped.
+ */
+function saveExcellentMixEntryPad(r: NonNullable<AppState['pendingMixRating']>) {
+  const toDeckId: DeckId = r.fromDeckId === 'A' ? 'B' : 'A'
+  const st = useStore.getState().decks[toDeckId]
+  if (!r.toContentHash || st.track?.contentHash !== r.toContentHash) {
+    useStore.getState().setNotice({
+      text: `Mix-in pad not saved — deck ${toDeckId} no longer holds the track this mix went into.`,
+      tone: 'info',
+      source: 'mixRating',
+    })
+    return
+  }
+  if (hasMixEntryNear(st.hotCues, r.entrySec)) return
+  saveMixEntryHotCue(toDeckId, r.entrySec, mixEntryLabel(r.entrySec))
 }
 
 export function selectedTrack(): Track | undefined {

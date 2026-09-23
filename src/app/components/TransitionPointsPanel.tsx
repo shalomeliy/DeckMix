@@ -15,10 +15,10 @@ import { Pill } from '@/app/components/controls'
  * Picking a point is the flow's second and last click (ROADMAP.md v0.4.6,
  * "בחירת נקודה היא הקליק השני והאחרון") — so this panel is shown
  * automatically whenever it applies, never behind an extra open click of its
- * own. `onSelect` drives `startAutoTransition` and `saveMixEntryHotCue`
- * (v0.4.7) together — the deck's own `showTransitionPoints` eligibility
- * already retires this panel the instant the transition starts (it flips
- * `playing`), so there is no double-fire path.
+ * own. `onSelect` drives `startAutoTransition`; the "Mix in" pad is saved
+ * later, only on an Excellent rating (`rateMixTransition`, v0.8.14). The
+ * deck's own `showTransitionPoints` hides this panel while any transition is
+ * active, so there is no double-fire path.
  *
  * The "based on energy" wording is load-bearing, not decoration: this is an
  * RMS-envelope heuristic, never real structure detection (see the doc
