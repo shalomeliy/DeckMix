@@ -409,9 +409,19 @@ export function Library() {
     // scan with a saved bank, found live: it read exactly like the bug
     // this whole fix exists to close. Only the final call, once nothing
     // else will hash any more tracks this scan, reports for real.
-    await ctl.resolveSamplerSlots({ silent: true })
+    //
+    // Fixed 23/09 (Shalom, running app): a saved sampler *recording* slot
+    // resolves through `loadSamplerSlotRecording` → `initAudio()` →
+    // `engine.resume()`, and a browser refuses to resume an AudioContext
+    // before any user gesture — the promise just sits pending, forever,
+    // with no error. `await` here on a fresh page load (no gesture yet)
+    // blocked this entire function, so tag-reading and BPM analysis below
+    // never even started: the library sat at "reading tags…" indefinitely.
+    // `void`, not `await` — sampler-slot resolution finishes whenever the
+    // audio engine actually starts; it must never gate the library scan.
+    void ctl.resolveSamplerSlots({ silent: true })
     await Promise.all([applyTags(queued, scan), applyAnalysisQueue(queued, scan)])
-    if (!scan.cancelled) await ctl.resolveSamplerSlots()
+    if (!scan.cancelled) void ctl.resolveSamplerSlots()
     void applyEmbeddingBackfill(scan)
   }
 
@@ -458,9 +468,10 @@ export function Library() {
     // for why this needs a second pass after tagging/analysis actually
     // hashes these files. `silent: true` for the same reason as `runScan`'s
     // matching call — almost nothing has a `contentHash` yet at this point.
-    await ctl.resolveSamplerSlots({ silent: true })
+    // `void`, not `await` — see `runScan`'s matching call for why (23/09 fix).
+    void ctl.resolveSamplerSlots({ silent: true })
     await Promise.all([applyTags(queued, scan), applyAnalysisQueue(queued, scan)])
-    if (!scan.cancelled) await ctl.resolveSamplerSlots()
+    if (!scan.cancelled) void ctl.resolveSamplerSlots()
     void applyEmbeddingBackfill(scan)
   }
 
