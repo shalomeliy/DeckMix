@@ -20,6 +20,13 @@ const KEY_PREFIX = 'soundgrid:mixpairs:'
 export interface ExcellentFollowUp {
   toHash: string
   entrySec: number
+  /**
+   * v0.8.16: where the OUTGOING deck actually was when this mix joined — the
+   * second a replay waits for. Stored as-is, not re-aligned: it was already
+   * a bar line at save time. Absent on every pair saved before v0.8.16; the
+   * replay says so rather than guessing one.
+   */
+  exitSec?: number
 }
 
 /**
@@ -40,8 +47,13 @@ export async function getExcellentFollowUps(fromHash: string): Promise<Excellent
  * "excellent" confirmation that silently didn't save. A later rating of the
  * same pair replaces its `entrySec` rather than accumulating duplicates.
  */
-export async function markExcellentPair(fromHash: string, toHash: string, entrySec: number): Promise<void> {
+export async function markExcellentPair(
+  fromHash: string,
+  toHash: string,
+  entrySec: number,
+  exitSec: number,
+): Promise<void> {
   const existing = await getExcellentFollowUps(fromHash)
   const withoutThisPair = existing.filter((p) => p.toHash !== toHash)
-  await set(KEY_PREFIX + fromHash, [...withoutThisPair, { toHash, entrySec }])
+  await set(KEY_PREFIX + fromHash, [...withoutThisPair, { toHash, entrySec, exitSec }])
 }

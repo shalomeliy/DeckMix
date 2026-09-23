@@ -67,3 +67,23 @@ export function phaseAlignedEntrySec(
   const sec = entrySec + barPhaseDeltaSec(entrySec, incomingGrid, masterPositionSec, masterGrid)
   return sec < 0 ? sec + (60 / incomingGrid.bpm) * BEATS_PER_BAR : sec
 }
+
+/**
+ * Where the outgoing deck stands against a remembered exit second (v0.8.16).
+ * `exitSec` is where the outgoing deck actually was when an excellent-rated
+ * mix joined — itself a bar line, since the join always waits for one. On a
+ * replay the join fires on the first bar line crossed while `'due'`.
+ *
+ * The window is asymmetric on purpose: half a bar before, a whole bar after.
+ * 1.5 bars always holds at least one bar line, so a grid nudged since the
+ * pair was saved still lands a join instead of sliding the deck straight
+ * from `'early'` to `'passed'` without ever being `'due'` on a line.
+ * `barSec` is in track seconds, same clock as both positions.
+ */
+export type ExitWaitStatus = 'early' | 'due' | 'passed'
+
+export function exitWaitStatus(positionSec: number, exitSec: number, barSec: number): ExitWaitStatus {
+  if (positionSec > exitSec + barSec) return 'passed'
+  if (positionSec >= exitSec - barSec / 2) return 'due'
+  return 'early'
+}

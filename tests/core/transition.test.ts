@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { crossfadeGains, crossfadeProgress, phaseAlignedEntrySec } from '@/core/transition'
+import { crossfadeGains, crossfadeProgress, exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
 import type { BeatGrid } from '@/core/types'
 
 describe('crossfadeGains', () => {
@@ -110,5 +110,42 @@ describe('phaseAlignedEntrySec lands yellow line on yellow line', () => {
     const seek = phaseAlignedEntrySec(0.2, grid, 11.5, grid) // would be -0.3 before the fix
     expect(seek).toBeGreaterThanOrEqual(0)
     expect(seek).toBeCloseTo(1.5, 10)
+  })
+})
+
+describe('exitWaitStatus (v0.8.16)', () => {
+  // 120 BPM: one bar = 2s. Remembered exit at 180s (3:00).
+  const bar = 2
+  const exit = 180
+
+  it('is early well before the remembered exit', () => {
+    expect(exitWaitStatus(60, exit, bar)).toBe('early')
+  })
+
+  it('is still early just outside half a bar before it', () => {
+    expect(exitWaitStatus(exit - bar / 2 - 0.01, exit, bar)).toBe('early')
+  })
+
+  it('is due from half a bar before, through the exit itself', () => {
+    expect(exitWaitStatus(exit - bar / 2, exit, bar)).toBe('due')
+    expect(exitWaitStatus(exit, exit, bar)).toBe('due')
+  })
+
+  it('stays due up to a whole bar after, so a nudged grid still gets a bar line', () => {
+    expect(exitWaitStatus(exit + bar, exit, bar)).toBe('due')
+  })
+
+  it('is passed beyond a whole bar after — Shalom chose "do nothing" here', () => {
+    expect(exitWaitStatus(exit + bar + 0.01, exit, bar)).toBe('passed')
+    expect(exitWaitStatus(exit + 20, exit, bar)).toBe('passed')
+  })
+
+  it('the due window always contains a bar line, wherever the grid sits', () => {
+    // 1.5 bars wide > 1 bar, for any offset of the bar lines.
+    for (let offset = 0; offset < bar; offset += 0.1) {
+      const lines = [0, 1, 2, 3].map((k) => exit - bar + offset + k * bar)
+      const inWindow = lines.filter((l) => exitWaitStatus(l, exit, bar) === 'due')
+      expect(inWindow.length).toBeGreaterThan(0)
+    }
   })
 })

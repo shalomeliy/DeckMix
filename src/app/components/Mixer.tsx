@@ -237,7 +237,11 @@ export function Mixer() {
           className="w-full rounded-[var(--radius-md)] py-2.5 text-sm font-bold uppercase tracking-wide text-white shadow-[var(--shadow-control)] transition-transform active:translate-y-px"
           style={{ background: 'var(--color-danger)' }}
         >
-          {activeTransition.waitingForBar ? 'Starting on next bar · cancel' : 'Cancel transition'}
+          {activeTransition.waitingUntilSec != null
+            ? `Waiting for ${ctl.formatMinSec(activeTransition.waitingUntilSec)} · cancel`
+            : activeTransition.waitingForBar
+              ? 'Starting on next bar · cancel'
+              : 'Cancel transition'}
         </button>
       )}
 

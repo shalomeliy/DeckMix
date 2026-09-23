@@ -21,6 +21,7 @@ import { findSimilarTracks } from '@/core/embedding-search'
 import { libraryEmptyCopy } from '@/core/library-list-copy'
 import {
   excellentPairSuggestions,
+  type ExcellentPairInfo,
   matchReasons,
   mixRecommendations,
   orderMixList,
@@ -186,18 +187,20 @@ export function Library() {
   // memo below — loaded here into local state instead, keyed off the same
   // `aHash`/`bHash` primitives, and consumed as a plain `Map` by the pure
   // `mixRecommendations` the same way `playedHashes` already is.
-  const [excellentPairs, setExcellentPairs] = useState<
-    ReadonlyMap<string, { fromName: string; entrySec: number }>
-  >(new Map())
+  const [excellentPairs, setExcellentPairs] = useState<ReadonlyMap<string, ExcellentPairInfo>>(new Map())
   useEffect(() => {
     let cancelled = false
     async function load() {
-      const map = new Map<string, { fromName: string; entrySec: number }>()
+      const map = new Map<string, ExcellentPairInfo>()
       const decks = useStore.getState().decks
       for (const track of [decks.A.track, decks.B.track]) {
         if (!track?.contentHash) continue
         const followUps = await getExcellentFollowUps(track.contentHash)
-        for (const f of followUps) map.set(`${track.contentHash}:${f.toHash}`, { fromName: track.name, entrySec: f.entrySec })
+        for (const f of followUps) map.set(`${track.contentHash}:${f.toHash}`, {
+            fromName: track.name,
+            entrySec: f.entrySec,
+            exitSec: f.exitSec,
+          })
       }
       if (!cancelled) setExcellentPairs(map)
     }
@@ -966,13 +969,22 @@ export function Library() {
                       })
                       return
                     }
-                    void ctl.startExcellentPairTransition(match.deck, fromHash, t, info.entrySec)
+                    void ctl.startExcellentPairTransition(match.deck, fromHash, t, info.entrySec, info.exitSec)
                   }}
                   className="shrink-0 rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-left text-2xs hover:bg-surface-3"
-                  title={`Click to mix now — enters at the point that worked after ${info.fromName}`}
+                  title={
+                    info.exitSec != null
+                      ? `Click to load it and mix when ${info.fromName} reaches ${fmtTime(info.exitSec)} — where this mix went last time`
+                      : `Click to mix on the next bar — enters at the point that worked after ${info.fromName}`
+                  }
                 >
                   <div className="font-semibold text-grid-text">{t.title ?? t.name}</div>
-                  <div className="text-grid-dim">after {info.fromName} · click to mix now</div>
+                  {/* v0.8.16: the remembered second is on the button itself, so a
+                      click that then waits a minute reads as planned, not stuck. */}
+                  <div className="text-grid-dim">
+                    after {info.fromName} ·{' '}
+                    {info.exitSec != null ? `mixes at ${fmtTime(info.exitSec)}` : 'click to mix now'}
+                  </div>
                 </button>
               )
             })}

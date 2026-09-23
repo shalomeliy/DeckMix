@@ -37,7 +37,7 @@ import {
   setDownbeatAt,
   shiftGrid,
 } from '@/core/beatgrid'
-import { crossfadeProgress, phaseAlignedEntrySec } from '@/core/transition'
+import { crossfadeProgress, exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
 import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
 import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
 import {
@@ -551,9 +551,22 @@ export async function startExcellentPairTransition(
   fromHashAtClick: string,
   toTrack: Track,
   entrySec: number,
+  exitSec: number | undefined,
 ) {
   const target: DeckId = fromDeckId === 'A' ? 'B' : 'A'
   const { decks, setNotice } = useStore.getState()
+  // v0.8.16: past the remembered second, Shalom chose "do nothing" — checked
+  // before loading too, so a refused mix doesn't leave a track sitting on
+  // the other deck. `startAutoTransition` checks again after the load.
+  const fromGrid = decks[fromDeckId].beatGrid
+  if (
+    exitSec != null &&
+    fromGrid &&
+    exitWaitStatus(engine.decks[fromDeckId].position, exitSec, barSecOf(fromGrid)) === 'passed'
+  ) {
+    setNotice({ text: passedExitText(fromDeckId, exitSec), tone: 'warn', source: 'mixRating' })
+    return
+  }
   if (decks[target].track) {
     setNotice({
       text: `Deck ${target} already has a track loaded — unload it before starting an excellent-match mix there.`,
@@ -571,7 +584,13 @@ export async function startExcellentPairTransition(
     })
     return
   }
-  startAutoTransition(fromDeckId, target, entrySec)
+  // A pair rated before v0.8.16 never saved where the outgoing deck was —
+  // mixing on the next bar is the old behaviour, named rather than silent.
+  const oldPairNote =
+    exitSec == null
+      ? 'This pair was saved before exit points were remembered — mixing on the next bar. Rate it Excellent again to save where it mixed.'
+      : null
+  startAutoTransition(fromDeckId, target, entrySec, exitSec ?? null, oldPairNote)
 }
 
 /**
@@ -593,8 +612,11 @@ function maybeAutoMaster(deckId: DeckId) {
  */
 function blockStopOfOutgoingDeck(deckId: DeckId): boolean {
   if (!activeTransition || deckId !== activeTransition.fromDeckId) return false
+  const waiting = useStore.getState().activeTransition
   useStore.getState().setNotice({
-    text: useStore.getState().activeTransition?.waitingForBar
+    text: waiting?.waitingUntilSec != null
+      ? `Deck ${deckId} is waiting to mix out at ${formatMinSec(waiting.waitingUntilSec)} — press CANCEL TRANSITION to stop it.`
+      : waiting?.waitingForBar
       ? `Deck ${deckId} is about to mix out on its next bar line — press CANCEL TRANSITION to stop it.`
       : `Deck ${deckId} is fading out in a transition — press CANCEL TRANSITION to stop it, or wait for it to finish.`,
     tone: 'warn',
@@ -2133,7 +2155,7 @@ export function setCrossfader(v: number) {
   // drag mid-transition takes the fader over cleanly instead of fighting the
   // autonomous fade, which drives the crossfader every frame via
   // `engine.setCrossfader` directly and never through this function.
-  if (activeTransition) cancelTransition()
+  if (activeTransition) cancelTransitionByHand('the crossfader was moved')
   engine.setCrossfader(v)
   useStore.getState().patchMixer({ crossfader: v })
 }
@@ -2651,6 +2673,8 @@ interface ActiveTransition {
   exitPointSec: number
   /** v0.8.14: the raw `entrySec` this transition was called with, before `phaseAlignedEntrySec` re-aligns it — carried through to `pendingMixRating` for `markExcellentPair`, same split as `exitPointSec` above. */
   entrySec: number
+  /** v0.8.16: the outgoing deck's position at the join, set by `join` — `null` until then. What `markExcellentPair` saves as the pair's exit second. */
+  joinedFromSec: number | null
 }
 
 let activeTransition: ActiveTransition | null = null
@@ -2663,7 +2687,27 @@ let activeTransition: ActiveTransition | null = null
  * calls and self-cancelling.
  */
 function cancelTransitionIfOutgoingDeckTouched(deckId: DeckId) {
-  if (activeTransition && deckId === activeTransition.fromDeckId) cancelTransition()
+  if (activeTransition && deckId === activeTransition.fromDeckId) cancelTransitionByHand(`deck ${deckId} was touched`)
+}
+
+/**
+ * v0.8.16: a replay can wait minutes for its exit second, and any touch on
+ * either deck or the crossfader cancels it (the ROADMAP rule these callers
+ * apply). The red button just vanishing reads as "it didn't mix", so a
+ * cancelled *wait* is named. A normal transition is cancelled within a bar
+ * of the click, by the hand that is plainly doing it — no notice there, as
+ * before.
+ */
+function cancelTransitionByHand(what: string) {
+  const waitingUntilSec = useStore.getState().activeTransition?.waitingUntilSec
+  cancelTransition()
+  if (waitingUntilSec != null) {
+    useStore.getState().setNotice({
+      text: `Excellent-match mix cancelled — ${what} while it was waiting for ${formatMinSec(waitingUntilSec)}.`,
+      tone: 'info',
+      source: 'mixRating',
+    })
+  }
 }
 
 /**
@@ -2683,7 +2727,7 @@ function cancelTransitionIfEitherDeckTouched(deckId: DeckId) {
     activeTransition &&
     (deckId === activeTransition.fromDeckId || deckId === activeTransition.toDeckId)
   ) {
-    cancelTransition()
+    cancelTransitionByHand(`deck ${deckId} was touched`)
   }
 }
 
@@ -2709,7 +2753,26 @@ function crossfaderExtremeFor(fromDeckId: DeckId): number {
   return fromDeckId === 'A' ? -1 : 1
 }
 
-export function startAutoTransition(fromDeckId: DeckId, toDeckId: DeckId, entrySec: number) {
+/**
+ * `waitUntilSec` (v0.8.16): an excellent-pair replay — hold the join until the
+ * outgoing deck reaches the second it mixed out at last time
+ * (`exitWaitStatus`), then take the first bar line there. Shalom's calls
+ * (23/09): before that second, load and wait; past it, don't mix at all and
+ * say so. Omitted, the join takes the next bar line, as before.
+ */
+export function startAutoTransition(
+  fromDeckId: DeckId,
+  toDeckId: DeckId,
+  entrySec: number,
+  waitUntilSec: number | null = null,
+  /**
+   * A caller's own note about this start (v0.8.16: "old pair, no exit
+   * second"). `notice` has one slot, so it is folded into this function's own
+   * unconfirmed-grid warning instead of being set before the call and
+   * overwritten by it. Dropped only by a refusal, which matters more.
+   */
+  leadNote: string | null = null,
+) {
   const { decks, setNotice } = useStore.getState()
   if (activeTransition) {
     setNotice({ text: 'A transition is already running — cancel it before starting another.', tone: 'warn', source: 'sync' })
@@ -2741,16 +2804,23 @@ export function startAutoTransition(fromDeckId: DeckId, toDeckId: DeckId, entryS
   const unconfirmed: DeckId[] = []
   if (!from.beatGridConfirmed) unconfirmed.push(fromDeckId)
   if (!to.beatGridConfirmed) unconfirmed.push(toDeckId)
-  if (unconfirmed.length > 0) {
-    setNotice({
-      text: `Phase-aligning against an unconfirmed beat grid on deck ${unconfirmed.join(' and ')} — the join may drift more than usual until SYNC catches it up.`,
-      tone: 'warn',
-      source: 'sync',
-    })
-  }
+  const unconfirmedText =
+    unconfirmed.length > 0
+      ? `Phase-aligning against an unconfirmed beat grid on deck ${unconfirmed.join(' and ')} — the join may drift more than usual until SYNC catches it up.`
+      : null
 
   const fromEngine = engine.decks[fromDeckId]
   const toEngine = engine.decks[toDeckId]
+
+  if (waitUntilSec != null && exitWaitStatus(fromEngine.position, waitUntilSec, barSecOf(from.beatGrid)) === 'passed') {
+    setNotice({ text: passedExitText(fromDeckId, waitUntilSec), tone: 'warn', source: 'sync' })
+    return
+  }
+  if (unconfirmedText) {
+    setNotice({ text: leadNote ? `${leadNote} Also: ${unconfirmedText}` : unconfirmedText, tone: 'warn', source: 'sync' })
+  } else if (leadNote) {
+    setNotice({ text: leadNote, tone: 'info', source: 'mixRating' })
+  }
 
   // Establish the join point explicitly rather than trust whatever the live
   // crossfader already happens to read — ROADMAP.md requires the incoming
@@ -2759,6 +2829,9 @@ export function startAutoTransition(fromDeckId: DeckId, toDeckId: DeckId, entryS
   // otherwise leave it short of that extreme.
   const startExtreme = crossfaderExtremeFor(fromDeckId)
   engine.setCrossfader(startExtreme)
+  // v0.8.16: the store follows now, not at the join — a replay can wait
+  // minutes, and the on-screen fader must not sit somewhere the audio isn't.
+  useStore.getState().patchMixer({ crossfader: startExtreme })
 
   // v0.8.14 (owner review 23/09): the join waits for the outgoing deck's next
   // yellow (bar) line instead of firing on the click — a DJ drops the new
@@ -2787,9 +2860,11 @@ export function startAutoTransition(fromDeckId: DeckId, toDeckId: DeckId, entryS
     // it lands. The frame this runs on is a few ms past the bar line;
     // `phaseAlignedEntrySec` is bar-phase math, so the incoming deck lands
     // exactly that same fraction past its own yellow line.
-    const enterSec = phaseAlignedEntrySec(entrySec, toGrid, fromEngine.position, fromGrid)
+    const joinedFromSec = fromEngine.position
+    const enterSec = phaseAlignedEntrySec(entrySec, toGrid, joinedFromSec, fromGrid)
     toEngine.seek(enterSec)
     toEngine.play()
+    if (activeTransition) activeTransition.joinedFromSec = joinedFromSec
     useStore.getState().patchMixer({ crossfader: startExtreme })
     useStore.getState().patchDeck(toDeckId, { playing: true, positionSec: enterSec })
     // The reference this transition is built on is `fromDeckId`, regardless of
@@ -2815,7 +2890,9 @@ export function startAutoTransition(fromDeckId: DeckId, toDeckId: DeckId, entryS
       if (progress >= 1) finishTransition()
     })
     if (activeTransition) activeTransition.unsubscribe = unsubscribeFade
-    useStore.setState({ activeTransition: { fromDeckId, toDeckId, exitPointSec, waitingForBar: false } })
+    useStore.setState({
+      activeTransition: { fromDeckId, toDeckId, exitPointSec, waitingForBar: false, waitingUntilSec: null },
+    })
   }
 
   const giveUp = (text: string) => {
@@ -2823,7 +2900,8 @@ export function startAutoTransition(fromDeckId: DeckId, toDeckId: DeckId, entryS
     useStore.getState().setNotice({ text, tone: 'warn', source: 'sync' })
   }
   let lastPos = fromEngine.position
-  const waitStartedAt = engine.currentTime
+  let waitStartedAt = engine.currentTime
+  let loopNoticeShown = false
   const unsubscribeWait = clock.subscribe((t) => {
     // Grids read fresh every frame, not captured at the click: a grid nudge
     // or "set downbeat here" during the wait moves the yellow lines, and
@@ -2842,6 +2920,34 @@ export function startAutoTransition(fromDeckId: DeckId, toDeckId: DeckId, entryS
     const pos = fromEngine.position
     const crossed = barLineCrossed(lastPos, pos, fromGrid)
     lastPos = pos
+    if (waitUntilSec != null) {
+      const status = exitWaitStatus(pos, waitUntilSec, barSecOf(fromGrid))
+      if (status === 'passed') {
+        giveUp(passedExitText(fromDeckId, waitUntilSec))
+        return
+      }
+      if (status === 'early') {
+        // A wait of minutes is the point here, so the two-bar "never reached
+        // a bar line" guard below only starts counting once the exit is due.
+        waitStartedAt = t
+        // A loop closing before the exit second holds the deck in 'early'
+        // for as long as it runs. Not a reason to cancel — a DJ may be
+        // stretching the song on purpose — but the wait must not look stuck.
+        const loopEnd = fromEngine.loopEnd
+        const loopHolds = loopEnd != null && now[fromDeckId].loopActive && loopEnd < waitUntilSec
+        if (loopHolds && !loopNoticeShown) {
+          loopNoticeShown = true
+          useStore.getState().setNotice({
+            text: `Deck ${fromDeckId} is looping before ${formatMinSec(waitUntilSec)} — the excellent mix waits until the loop is released.`,
+            tone: 'info',
+            source: 'sync',
+          })
+        } else if (!loopHolds) {
+          loopNoticeShown = false
+        }
+        return
+      }
+    }
     if (!crossed) {
       // A loop shorter than a bar that holds no yellow line never crosses
       // one. Two bars of waiting (at the tempo the grid says) is past any
@@ -2862,8 +2968,26 @@ export function startAutoTransition(fromDeckId: DeckId, toDeckId: DeckId, entryS
     unsubscribe: unsubscribeWait,
     exitPointSec,
     entrySec,
+    joinedFromSec: null,
   }
-  useStore.setState({ activeTransition: { fromDeckId, toDeckId, exitPointSec, waitingForBar: true } })
+  useStore.setState({
+    activeTransition: { fromDeckId, toDeckId, exitPointSec, waitingForBar: true, waitingUntilSec: waitUntilSec },
+  })
+}
+
+/** One bar in track seconds — the unit `exitWaitStatus` measures its window in. */
+function barSecOf(grid: BeatGrid): number {
+  return BEATS_PER_BAR * (60 / grid.bpm)
+}
+
+function passedExitText(fromDeckId: DeckId, exitSec: number): string {
+  return `Deck ${fromDeckId} is already past ${formatMinSec(exitSec)}, where this excellent mix went last time — mix not started.`
+}
+
+/** `3:05` — the same m:ss the deck header shows, so a notice names a second the owner can find on screen. */
+export function formatMinSec(sec: number): string {
+  const whole = Math.max(0, Math.floor(sec))
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
 }
 
 /**
@@ -2905,6 +3029,9 @@ function finishTransition() {
         exitPointSec: t.exitPointSec,
         toContentHash: toTrack?.contentHash,
         entrySec: t.entrySec,
+        // `join` always runs before the fade that reaches here, so this is set;
+        // the fallback only keeps the type honest.
+        joinedFromSec: t.joinedFromSec ?? t.exitPointSec,
       },
     })
   }
@@ -2968,11 +3095,14 @@ export function rateMixTransition(rating: 'bad' | 'needs-work' | 'excellent') {
   // would fill it in for this specific transition, so the gap is surfaced
   // rather than silently dropped.
   if (pendingMixRating.toContentHash) {
-    void markExcellentPair(pendingMixRating.contentHash, pendingMixRating.toContentHash, pendingMixRating.entrySec).catch(
-      (err) => {
-        console.error('markExcellentPair failed', err)
-      },
-    )
+    void markExcellentPair(
+      pendingMixRating.contentHash,
+      pendingMixRating.toContentHash,
+      pendingMixRating.entrySec,
+      pendingMixRating.joinedFromSec,
+    ).catch((err) => {
+      console.error('markExcellentPair failed', err)
+    })
   } else {
     useStore.getState().setNotice({
       text: "Pair not saved — the other track hasn't finished analyzing yet.",

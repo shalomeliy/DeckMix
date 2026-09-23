@@ -1,6 +1,17 @@
 import { TEMPO_RANGE } from '@/core/constants'
 import type { DeckId, Track } from '@/core/types'
 
+/**
+ * One remembered excellent X→Y mix, as the recommender carries it. `exitSec`
+ * (v0.8.16) is where X was when the mix joined; absent for a pair saved
+ * before that version.
+ */
+export interface ExcellentPairInfo {
+  fromName: string
+  entrySec: number
+  exitSec?: number
+}
+
 export interface MixMatch {
   /** true = tight match (bold + dot); false = loose match (dot only) */
   strong: boolean
@@ -27,7 +38,7 @@ export interface MixMatch {
    * and the entry second that transition used, so a click can replay it
    * without a second lookup.
    */
-  excellentPairAfter?: { fromName: string; entrySec: number }
+  excellentPairAfter?: ExcellentPairInfo
 }
 
 /** Why `mixRecommendations` found nothing — so the UI can say so instead of rendering empty. */
@@ -59,7 +70,7 @@ export interface MixContext {
    * currently-playing deck's own track — directional, built fresh in
    * `Library.tsx`'s memo alongside `playedHashes`.
    */
-  excellentPairs?: ReadonlyMap<string, { fromName: string; entrySec: number }>
+  excellentPairs?: ReadonlyMap<string, ExcellentPairInfo>
 }
 
 /** Just what the recommender needs from a deck — keeps it off per-frame state. */

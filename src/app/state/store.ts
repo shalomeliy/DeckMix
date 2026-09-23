@@ -216,6 +216,13 @@ export interface AppState {
      * a click that did nothing.
      */
     waitingForBar: boolean
+    /**
+     * v0.8.16: an excellent-pair replay waiting for the outgoing deck to reach
+     * the second it mixed out at last time — possibly minutes away, so the
+     * cancel button names it instead of "next bar". `null` for every other
+     * transition.
+     */
+    waitingUntilSec: number | null
   } | null
 
   /**
@@ -236,6 +243,8 @@ export interface AppState {
     toContentHash: string | undefined
     /** v0.8.14: the raw entry second `startAutoTransition` was called with (pre phase-alignment) — what a later "excellent match" replay seeks the incoming track to. */
     entrySec: number
+    /** v0.8.16: where the outgoing deck actually was at the join — what a replay waits for. Not `exitPointSec`, which is a structure guess made at the click. */
+    joinedFromSec: number
   } | null
 
   library: {
