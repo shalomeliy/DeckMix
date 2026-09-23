@@ -79,7 +79,7 @@
 ## החלטות שנסגרו
 
 - **הקוד קנייני, לא קוד פתוח (23/09, החלטת שלום).** `LICENSE` = "All rights
-  reserved", `package.json` = `UNLICENSED`, ה-repo ב-GitHub הפך ל-**פרטי**
+  reserved" לשלום אליהו **בשם המסחרי ARTPEACE**, `package.json` = `UNLICENSED`, ה-repo ב-GitHub הפך ל-**פרטי**
   (היה ציבורי + MIT מ-v0.8.7; 0 forks/stars בזמן ההחלפה). נאכף ב-
   `tests/repo/licensing.test.ts`. גרסאות שהורדו בזמן ה-MIT נשארות MIT למי שהוריד
   — אי אפשר לבטל. **נפתח: שם חדש** — "SoundGrid" רשום כנראה כסימן מסחר של

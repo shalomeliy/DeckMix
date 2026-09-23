@@ -16,6 +16,9 @@ describe('SoundGrid is proprietary — all rights reserved', () => {
     const license = read('LICENSE')
     expect(license).toContain('All rights reserved')
     expect(license).toContain('Shalom Eliyahu')
+    // The owner's trade name (23/09). Shalom stays named too: a trade name
+    // is not a separate legal person, so the rights are his either way.
+    expect(license).toContain('ARTPEACE')
     expect(
       /Permission is hereby granted|MIT License|Apache License|GNU General Public/i.test(license),
       'LICENSE contains open-source grant text — the owner decided (23/09) the code is not open source.',
@@ -31,6 +34,7 @@ describe('SoundGrid is proprietary — all rights reserved', () => {
   it('the Settings screen does not tell the user the code is open source', () => {
     const settings = read('src/app/components/Settings.tsx')
     expect(settings).not.toMatch(/code is MIT/i)
+    expect(settings).toContain('ARTPEACE')
     expect(settings).toContain('all rights reserved')
   })
 })
