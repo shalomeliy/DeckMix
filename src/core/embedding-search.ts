@@ -112,3 +112,16 @@ export function findSimilarTracks(seedId: string, tracks: Track[], opts: { limit
     .slice(0, opts.limit ?? DEFAULT_LIMIT)
     .map((m) => ({ id: idByHash.get(m.contentHash) ?? m.contentHash, score: m.score }))
 }
+
+/**
+ * The table's rows for a "more like this" view: only the matches, **in
+ * `findSimilarTracks`'s order**. `Library.tsx` used to re-sort these by raw
+ * cosine score, which threw away the genre-first ordering above — a Trance
+ * seed (23/09, Shalom's library) showed a genre-less track and two Hip Hop
+ * tracks above its seven Trance matches. Rank position is the order, never
+ * the score.
+ */
+export function orderBySimilarMatches<T extends { id: string }>(rows: T[], matches: TrackSimilarityMatch[]): T[] {
+  const rank = new Map(matches.map((m, i) => [m.id, i]))
+  return rows.filter((r) => rank.has(r.id)).sort((a, b) => rank.get(a.id)! - rank.get(b.id)!)
+}

@@ -17,7 +17,7 @@ import {
 } from '@/platform/source-fsaccess/library'
 import { useShallow } from 'zustand/react/shallow'
 import { bootCopy, bootFor, bootForScanError } from '@/core/library-boot'
-import { findSimilarTracks } from '@/core/embedding-search'
+import { findSimilarTracks, orderBySimilarMatches } from '@/core/embedding-search'
 import { libraryEmptyCopy } from '@/core/library-list-copy'
 import {
   excellentStripEntries,
@@ -637,7 +637,6 @@ export function Library() {
     () => (similarTo ? findSimilarTracks(similarTo, library.tracks) : []),
     [similarTo, library.tracks],
   )
-  const similarScoreById = useMemo(() => new Map(similarMatches.map((m) => [m.id, m.score])), [similarMatches])
   const similarToTrack = similarTo ? (library.tracks.find((t) => t.id === similarTo) ?? null) : null
 
   // Kept separate from `list` so the empty state below can tell "mixOnly
@@ -645,9 +644,7 @@ export function Library() {
   // the two used to render the identical "no audio files" message.
   const preMixList = ctl.sortedFilteredTracks()
   const list = similarTo
-    ? preMixList
-        .filter((t) => similarScoreById.has(t.id))
-        .sort((a, b) => (similarScoreById.get(b.id) ?? -Infinity) - (similarScoreById.get(a.id) ?? -Infinity))
+    ? orderBySimilarMatches(preMixList, similarMatches)
     : mixOnly
       ? orderMixList(preMixList, recs, { hidePlayed, keepOrder: library.sortKey != null })
       : preMixList

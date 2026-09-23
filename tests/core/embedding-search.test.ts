@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bpmCompatible, cosineSimilarity, findSimilarTracks, rankBySimilarity, type SimilarityCandidate } from '@/core/embedding-search'
+import { bpmCompatible, cosineSimilarity, findSimilarTracks, orderBySimilarMatches, rankBySimilarity, type SimilarityCandidate } from '@/core/embedding-search'
 import type { Track } from '@/core/types'
 
 function vec(...values: number[]): Float32Array {
@@ -150,5 +150,22 @@ describe('findSimilarTracks — tempo and genre (20/09 real-library failure: Hip
   it('applies no tempo gate when the seed itself has no BPM', () => {
     const tracks = [track('s', { embedding: vec(1, 0) }), track('x', { embedding: vec(1, 0.1), bpm: 173 })]
     expect(findSimilarTracks('s', tracks).map((m) => m.id)).toEqual(['x'])
+  })
+})
+
+describe('orderBySimilarMatches (23/09: a Trance seed showed Hip Hop above its Trance matches)', () => {
+  it('keeps the genre-first rank order, not the raw sound score', () => {
+    const seed = track('seed', { embedding: vec(1, 0), bpm: 144, genre: 'Trance' })
+    const tracks = [
+      seed,
+      track('hop-close', { embedding: vec(1, 0.01), bpm: 142, genre: 'Hip Hop' }),
+      track('trance-far', { embedding: vec(0.2, 1), bpm: 145, genre: 'Trance' }),
+    ]
+    const rows = orderBySimilarMatches(tracks, findSimilarTracks('seed', tracks))
+    expect(rows.map((t) => t.id)).toEqual(['trance-far', 'hop-close'])
+  })
+
+  it('drops rows that are not matches', () => {
+    expect(orderBySimilarMatches([{ id: 'a' }, { id: 'b' }], [{ id: 'b', score: 0.5 }]).map((r) => r.id)).toEqual(['b'])
   })
 })
