@@ -555,8 +555,8 @@ function LegalPanel() {
       <div className="rounded-[var(--radius-sm)] border border-hairline bg-surface-1 px-3 py-2.5">
         <div className="mb-1.5 text-xs font-semibold text-grid-text">License</div>
         <p className="text-2xs text-grid-dim">
-          SoundGrid&apos;s own code is MIT licensed — see the <code>LICENSE</code> file. It is built
-          with open-source libraries, each under its own license.
+          SoundGrid&apos;s own code is © 2026 Shalom Eliyahu, all rights reserved — see the{' '}
+          <code>LICENSE</code> file. It is built with open-source libraries, each under its own license.
         </p>
         <details className="mt-2">
           <summary className="cursor-pointer text-2xs text-grid-muted hover:text-grid-text">

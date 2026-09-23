@@ -78,6 +78,13 @@
 
 ## החלטות שנסגרו
 
+- **הקוד קנייני, לא קוד פתוח (23/09, החלטת שלום).** `LICENSE` = "All rights
+  reserved", `package.json` = `UNLICENSED`, ה-repo ב-GitHub הפך ל-**פרטי**
+  (היה ציבורי + MIT מ-v0.8.7; 0 forks/stars בזמן ההחלפה). נאכף ב-
+  `tests/repo/licensing.test.ts`. גרסאות שהורדו בזמן ה-MIT נשארות MIT למי שהוריד
+  — אי אפשר לבטל. **נפתח: שם חדש** — "SoundGrid" רשום כנראה כסימן מסחר של
+  Waves Audio בתחום תוכנת אודיו; שלום בחר להחליף שם, טרם נבחר. להמליץ לו על
+  עו"ד קניין רוחני לפני פרסום/מכירה.
 - **Hint mode דלוק כברירת מחדל (04/09), עד הודעה חדשה.** `DEFAULTS.hintMode` ב‑
   `src/core/settings.ts` הוא `true`, לא `false` כמו שכתוב ב‑
   [`docs/handoff/v0.4.8.md`](docs/handoff/v0.4.8.md) — זה תיעוד מה שנבנה במקור,

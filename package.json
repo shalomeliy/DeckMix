@@ -2,7 +2,7 @@
   "name": "soundgrid",
   "private": true,
   "version": "0.8.17",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "type": "module",
   "scripts": {
     "dev": "vite",
