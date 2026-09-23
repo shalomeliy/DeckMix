@@ -13,6 +13,11 @@ function sineTone(freqHz: number, seconds = 3): PcmData {
 }
 
 describe('computeClassicalEmbedding', () => {
+  it('refuses silent audio instead of returning a zero vector (23/09: 349 zero vectors in the real library)', async () => {
+    const silent: PcmData = { channels: [new Float32Array(SAMPLE_RATE * 2)], sampleRate: SAMPLE_RATE }
+    await expect(computeClassicalEmbedding(silent)).rejects.toThrow(/no usable signal/)
+  })
+
   it('returns a fixed-length vector with no NaN/Infinity', async () => {
     const vector = await computeClassicalEmbedding(sineTone(440))
     expect(vector.length).toBe(CLASSICAL_EMBEDDING_LENGTH)

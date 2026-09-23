@@ -76,5 +76,13 @@ export async function computeClassicalEmbedding(pcm: PcmData): Promise<Float32Ar
   const vector = new Float32Array(CLASSICAL_EMBEDDING_LENGTH)
   for (let i = 0; i < MFCC_COEFFICIENTS; i++) vector[i] = mfccSum[i] / frameCount
   for (let i = 0; i < CHROMA_BANDS; i++) vector[MFCC_COEFFICIENTS + i] = chromaSum[i] / frameCount
+  // An all-zero or non-finite vector is not a fingerprint. Cosine on it is
+  // NaN, and every comparison silently becomes "no answer". Silent PCM is
+  // what a detached AudioBuffer reads as (see `pcmCopyFromAudioBuffer`), so
+  // it fails loudly here and the track shows as a failed embedding, not a
+  // "done" one that matches nothing.
+  if (vector.every((v) => v === 0) || vector.some((v) => !Number.isFinite(v))) {
+    throw new Error('computeClassicalEmbedding: no usable signal (silent or unreadable audio)')
+  }
   return vector
 }

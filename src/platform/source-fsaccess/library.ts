@@ -407,13 +407,22 @@ export async function queueLibraryAnalysis(
         let embeddingFailed = false
         if (!analysis) {
           const buffer = await engine.decode(data)
+          // The embedder's copy is taken BEFORE the analyzer call, never after.
+          // `analyze` transfers the buffer's own channel data to its worker,
+          // and from then on `copyFromChannel` on that AudioBuffer returns
+          // full-length silence, not an error. That ordering wrote 349
+          // all-zero embeddings for Shalom's library on 20/09, when
+          // ANALYZER_VERSION 2 re-analysed every track, and "more like this"
+          // then compared nothing for three days (found 23/09 in his own
+          // Chrome: 349 of 355 cached vectors were zero).
+          const embedPcm = pcmCopyFromAudioBuffer(buffer)
           analysis = await analyzerWorker.analyze(pcmFromAudioBuffer(buffer), { hintBpm })
           await analysisCache.put(cacheKey, analysis)
           // v0.8.5: piggybacks on this exact decode rather than a second
           // queue/pass — `workshop-output/PLAN.md` §3. A failure here never
           // fails the track's analysis (BPM/waveform already succeeded).
           try {
-            embedding = await classicalEmbedder.embed(pcmCopyFromAudioBuffer(buffer))
+            embedding = await classicalEmbedder.embed(embedPcm)
             await embeddingCache.put(contentHash, classicalEmbedder.modelId, embedding)
           } catch {
             embeddingFailed = true

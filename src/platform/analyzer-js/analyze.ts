@@ -41,6 +41,11 @@ export function pcmFromAudioBuffer(buffer: AudioBuffer): PcmData {
  * *second*, separately-transferred read risks handing a worker an already
  * -detached, zero-length array instead of real audio. `copyFromChannel` is
  * the spec-sanctioned way to get an explicit, owned copy.
+ *
+ * It has to be taken *before* any transfer, though. Once `pcmFromAudioBuffer`'s
+ * arrays have gone to a worker, Chromium's `copyFromChannel` on that buffer
+ * fills the copy with zeros and throws nothing. Measured 23/09 in the owner's
+ * Chrome: 14039 before the transfer, 0 after, same length.
  */
 export function pcmCopyFromAudioBuffer(buffer: AudioBuffer): PcmData {
   const channels: Float32Array[] = []
