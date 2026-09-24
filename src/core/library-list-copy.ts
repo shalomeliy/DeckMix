@@ -74,7 +74,11 @@ export function libraryEmptyCopy(
       offerMixOnlyReset: false,
     }
   }
-  if (activeCrateName) {
+  // `preMixCount` is counted *inside* the crate (`filteredTracks`), so a
+  // non-zero count with Mix Only on means the crate has tracks and Mix Only
+  // hid them. v0.8.21 pins the deck's own track above this sentence, which
+  // made "No tracks in X" visibly false: it sat directly under a row from X.
+  if (activeCrateName && !(mixOnly && preMixCount > 0)) {
     if (crateAnalysisCatchingUp) {
       return {
         title: `Still checking "${activeCrateName}"`,

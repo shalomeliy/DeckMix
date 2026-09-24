@@ -1,5 +1,5 @@
 /**
- * v0.8.20: storage keys follow the product rename (v0.8.19, SoundGrid → DeckMix).
+ * v0.8.20: storage keys follow the product rename (v0.8.19, the old name → DeckMix).
  *
  * Every setting, cue, rating, crate, sampler recording and the remembered
  * library folder lives in the owner's browser under a prefixed key. Change the

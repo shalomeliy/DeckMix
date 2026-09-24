@@ -6,6 +6,7 @@ import {
   matchTier,
   mixRecommendations,
   orderMixList,
+  pinDeckTracks,
   type DeckMixState,
   type MixMatch, excellentStripHint } from '@/core/recommend'
 import type { Track } from '@/core/types'
@@ -428,6 +429,33 @@ describe('orderMixList (v0.8.10)', () => {
   it('drops played tracks when asked to hide them', () => {
     expect(ids(orderMixList(tracks, matches, { hidePlayed: true, keepOrder: false }))).toEqual(['a', 'c'])
     expect(ids(orderMixList(tracks, matches, { hidePlayed: true, keepOrder: true }))).toEqual(['a', 'c'])
+  })
+})
+
+describe('pinDeckTracks (v0.8.21)', () => {
+  const pool = ['onA', 'onB', 'x', 'y'].map((id) => track(id, 128))
+  const ids = (l: Track[]) => l.map((t) => t.id)
+
+  it('pins the deck tracks, A before B, above the suggestions', () => {
+    const { pinned, rest } = pinDeckTracks(pool, [pool[2], pool[3]], ['onA', 'onB'])
+    expect(ids(pinned)).toEqual(['onA', 'onB'])
+    expect(ids(rest)).toEqual(['x', 'y'])
+  })
+
+  it('shows a paused deck track that is also a suggestion once, pinned', () => {
+    const { pinned, rest } = pinDeckTracks(pool, [pool[1], pool[2]], ['onA', 'onB'])
+    expect(ids(pinned)).toEqual(['onA', 'onB'])
+    expect(ids(rest)).toEqual(['x'])
+  })
+
+  it('respects the search/crate: a deck track outside the pool is not pinned', () => {
+    const { pinned } = pinDeckTracks(pool.slice(1), [], ['onA', 'onB'])
+    expect(ids(pinned)).toEqual(['onB'])
+  })
+
+  it('pins the same track once when both decks hold it, and nothing for empty decks', () => {
+    expect(ids(pinDeckTracks(pool, [], ['onA', 'onA']).pinned)).toEqual(['onA'])
+    expect(pinDeckTracks(pool, [pool[2]], [null, null]).pinned).toEqual([])
   })
 })
 

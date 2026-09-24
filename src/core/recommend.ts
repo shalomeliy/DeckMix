@@ -353,6 +353,27 @@ export function orderMixList(
   return [0, 1, 2].flatMap((n) => shown.filter((t) => tier(t) === n).sort(bySound))
 }
 
+/**
+ * v0.8.21: the decks' own tracks, pinned above the Mix Only list. The list
+ * holds suggestions only, and a deck's playing track is never a suggestion
+ * for itself (`onDeck` in `mixRecommendations`) — so the moment a deck
+ * started, the track the owner had just loaded vanished from the table
+ * without a word. Pinned from `pool` (the searched/crated view), not the whole
+ * library: a filter the owner typed still decides what the table shows. A
+ * paused deck's track can also be a suggestion; it appears once, pinned.
+ */
+export function pinDeckTracks(
+  pool: Track[],
+  list: Track[],
+  deckTrackIds: ReadonlyArray<string | null>,
+): { pinned: Track[]; rest: Track[] } {
+  const ids = [...new Set(deckTrackIds.filter((id): id is string => id != null))]
+  const byId = new Map(pool.map((t) => [t.id, t]))
+  const pinned = ids.map((id) => byId.get(id)).filter((t): t is Track => t != null)
+  const pinnedIds = new Set(pinned.map((t) => t.id))
+  return { pinned, rest: list.filter((t) => !pinnedIds.has(t.id)) }
+}
+
 /** One button on the "Excellent matches" strip. */
 export interface ExcellentStripEntry {
   track: Track

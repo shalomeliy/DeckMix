@@ -27,6 +27,7 @@ import {
   SOUND_TOP_COUNT,
   mixRecommendations,
   orderMixList,
+  pinDeckTracks,
   type MixMatch,
 } from '@/core/recommend'
 import { getExcellentFollowUps } from '@/platform/mix-pairs-idb/store'
@@ -649,6 +650,11 @@ export function Library() {
     : mixOnly
       ? orderMixList(preMixList, recs, { hidePlayed, keepOrder: library.sortKey != null })
       : preMixList
+  // v0.8.21: `list` stays the suggestions alone — the empty-state copy below
+  // is about them — and the decks' tracks ride on top only in what's drawn.
+  const { pinned, rest } =
+    mixOnly && !similarTo ? pinDeckTracks(preMixList, list, [aId, bId]) : { pinned: [], rest: list }
+  const rows = [...pinned, ...rest]
   // v0.8.14: a fixed strip above the table, never a reordering of `list`.
   // Since v0.8.17 it reads the whole library, not `preMixList`: a search or a
   // crate hides rows from the table, not a mix the owner already proved.
@@ -697,7 +703,22 @@ export function Library() {
   // per track. Called unconditionally (not inside the empty-state branch
   // below) — `list.length` is 0 in every empty state anyway, which
   // `visibleRange` already treats as "nothing to render".
-  const { containerRef, start, end, padTop, padBottom } = useVirtualRows(list.length, ROW_HEIGHT)
+  const { containerRef, start, end, padTop, padBottom } = useVirtualRows(rows.length, ROW_HEIGHT)
+  const emptyAction = similarTo ? (
+    <Button variant="toggle" active tone="var(--color-accent)" onClick={() => setSimilarTo(null)}>
+      Clear similar filter
+    </Button>
+  ) : emptyCopy.offerMixOnlyReset ? (
+    // Ahead of the crate button: when the copy blames Mix Only, clearing a
+    // crate that has tracks would not answer it (v0.8.21).
+    <Button variant="toggle" active tone="var(--color-accent)" onClick={() => setMixOnly(false)}>
+      Show all tracks
+    </Button>
+  ) : activeCrate ? (
+    <Button variant="toggle" active tone="var(--color-accent)" onClick={() => ctl.setActiveCrate(null)}>
+      Clear crate filter
+    </Button>
+  ) : undefined
 
   // null once tracks are on screen — that is the only state with no sentence
   const boot = bootCopy(library.boot, library.folderName, library.bootDetail ?? undefined)
@@ -1027,7 +1048,7 @@ export function Library() {
           not inside its one "tracks are on screen" branch.
         */}
         <CratesRail />
-        {library.scanning && list.length === 0 ? (
+        {library.scanning && rows.length === 0 ? (
           <EmptyState title="Scanning your folder…" body={library.scanMsg} pulse />
         ) : boot ? (
         /*
@@ -1052,26 +1073,8 @@ export function Library() {
             ) : undefined
           }
         />
-      ) : list.length === 0 ? (
-        <EmptyState
-          title={emptyCopy.title}
-          body={emptyCopy.body}
-          action={
-            similarTo ? (
-              <Button variant="toggle" active tone="var(--color-accent)" onClick={() => setSimilarTo(null)}>
-                Clear similar filter
-              </Button>
-            ) : activeCrate ? (
-              <Button variant="toggle" active tone="var(--color-accent)" onClick={() => ctl.setActiveCrate(null)}>
-                Clear crate filter
-              </Button>
-            ) : emptyCopy.offerMixOnlyReset ? (
-              <Button variant="toggle" active tone="var(--color-accent)" onClick={() => setMixOnly(false)}>
-                Show all tracks
-              </Button>
-            ) : undefined
-          }
-        />
+      ) : rows.length === 0 ? (
+        <EmptyState title={emptyCopy.title} body={emptyCopy.body} action={emptyAction} />
       ) : (
         <div ref={containerRef} className="min-h-0 flex-1 overflow-auto">
           {/*
@@ -1185,7 +1188,7 @@ export function Library() {
                   <td colSpan={COLUMN_COUNT} />
                 </tr>
               )}
-              {list.slice(start, end).map((t) => (
+              {rows.slice(start, end).map((t) => (
                 <Row
                   key={t.id}
                   track={t}
@@ -1206,6 +1209,9 @@ export function Library() {
               )}
             </tbody>
           </table>
+          {/* Only the decks' own rows are drawn: the "no suggestions" sentence
+              still has to be said, under them, not swapped for them. */}
+          {list.length === 0 && <EmptyState title={emptyCopy.title} body={emptyCopy.body} action={emptyAction} />}
         </div>
         )}
       </div>
@@ -1454,16 +1460,18 @@ function Row({
             // renders at on the owner's screen a same-shaped dot in the same
             // spot would be indistinguishable from it (see the ring-vs-fill
             // comment above, same underlying measurement).
+            // v0.8.21: solid deck colour, dark letter. The faint tinted box it
+            // replaced was the same deck blue as the match dot and the ≈ box
+            // beside it, and at this scale the owner could not tell "on deck
+            // A" from "mixes with deck A". The one solid block in the row is
+            // the one that means "this is playing".
             <span className="flex shrink-0 items-center gap-0.5">
               {loadedOnA && (
                 <span
                   aria-label="Loaded on deck A"
                   title="Loaded on deck A"
-                  className="grid h-4 w-4 place-items-center rounded-[var(--radius-xs)] text-[10px] font-bold leading-none"
-                  style={{
-                    background: 'color-mix(in srgb, var(--color-deck-a), transparent 82%)',
-                    color: 'var(--color-deck-a)',
-                  }}
+                  className="grid h-4 w-4 place-items-center rounded-[var(--radius-xs)] text-[10px] font-extrabold leading-none"
+                  style={{ background: 'var(--color-deck-a)', color: 'var(--color-surface-0)' }}
                 >
                   A
                 </span>
@@ -1472,11 +1480,8 @@ function Row({
                 <span
                   aria-label="Loaded on deck B"
                   title="Loaded on deck B"
-                  className="grid h-4 w-4 place-items-center rounded-[var(--radius-xs)] text-[10px] font-bold leading-none"
-                  style={{
-                    background: 'color-mix(in srgb, var(--color-deck-b), transparent 82%)',
-                    color: 'var(--color-deck-b)',
-                  }}
+                  className="grid h-4 w-4 place-items-center rounded-[var(--radius-xs)] text-[10px] font-extrabold leading-none"
+                  style={{ background: 'var(--color-deck-b)', color: 'var(--color-surface-0)' }}
                 >
                   B
                 </span>

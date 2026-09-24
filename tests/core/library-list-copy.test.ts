@@ -55,10 +55,18 @@ describe('libraryEmptyCopy', () => {
    * from before the crate was selected — "this crate is empty" is the true,
    * actionable fact, not "no audio files found" or "clear the filter".
    */
+  // v0.8.21: this case used to pass `preMixCount: 5`, but that count is taken
+  // inside the crate — 5 means the crate is NOT empty. An empty crate is 0.
   it('names the crate, not mixOnly or the query, when a selected crate is empty', () => {
-    const copy = libraryEmptyCopy('trance', true, 5, 'Friday set')
+    const copy = libraryEmptyCopy('trance', true, 0, 'Friday set')
     expect(copy.title).toBe('No tracks in "Friday set"')
     expect(copy.offerMixOnlyReset).toBe(false)
+  })
+
+  it('blames Mix Only, not the crate, when the crate has tracks and Mix Only hid them (v0.8.21)', () => {
+    const copy = libraryEmptyCopy('', true, 5, 'Techno')
+    expect(copy.title).toBe('No tracks currently mix with what’s playing')
+    expect(copy.offerMixOnlyReset).toBe(true)
   })
 
   it('falls back to the query/mixOnly logic when no crate is active', () => {
