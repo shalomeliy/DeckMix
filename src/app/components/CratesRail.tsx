@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import * as ctl from '@/controls'
-import { matchesQuery } from '@/core/library-search'
+import { SEARCH_COLUMN_LABEL, matchesSearch } from '@/core/library-search'
 import { useStore } from '@/app/state/store'
 import { Button } from '@/app/components/controls'
 import type { CrateRecord } from '@/platform/crates-idb/store'
@@ -25,6 +25,7 @@ export function CratesRail() {
   const activeCrateId = useStore((s) => s.library.activeCrateId)
   const tracks = useStore((s) => s.library.tracks)
   const query = useStore((s) => s.library.query)
+  const queryColumn = useStore((s) => s.library.queryColumn)
   const knownHashes = new Set(tracks.map((t) => t.contentHash).filter((h): h is string => h != null))
   // Same "not done yet" test `Library.tsx`'s header count uses. A fresh scan's
   // tracks start with no `contentHash` at all until the background queue
@@ -44,7 +45,7 @@ export function CratesRail() {
 
   function onSaveSearchAsCrate() {
     const name = window.prompt('Save the current search as a crate named:')
-    if (name?.trim()) ctl.createSmartCrate(name.trim(), query)
+    if (name?.trim()) ctl.createSmartCrate(name.trim(), query, queryColumn)
   }
 
   function onDelete(crate: CrateRecord) {
@@ -126,7 +127,7 @@ function CrateRow({
     crate.kind === 'smart' &&
     crate.query != null &&
     (() => {
-      const current = tracks.filter((t) => t.contentHash && matchesQuery(t, crate.query!)).map((t) => t.contentHash)
+      const current = tracks.filter((t) => t.contentHash && matchesSearch(t, crate.query!, crate.queryColumn)).map((t) => t.contentHash)
       const before = crate.materialized ?? []
       return current.length !== before.length || current.some((h) => !before.includes(h!))
     })()
@@ -137,7 +138,7 @@ function CrateRow({
   // silently" rule.
   const pending =
     crate.kind === 'smart' && crate.query != null
-      ? tracks.filter((t) => !t.contentHash && matchesQuery(t, crate.query!)).length
+      ? tracks.filter((t) => !t.contentHash && matchesSearch(t, crate.query!, crate.queryColumn)).length
       : 0
 
   const [dragOver, setDragOver] = useState(false)
@@ -229,7 +230,7 @@ function CrateRow({
               ctl.refreshSmartCrate(crate.id)
             }}
             className="text-2xs text-grid-dim hover:text-grid-text"
-            title={`Re-run the saved search: ${crate.query}`}
+            title={`Re-run the saved search: ${crate.queryColumn ? `${SEARCH_COLUMN_LABEL[crate.queryColumn]} ▸ ` : ''}${crate.query}`}
           >
             ⟳ refresh
           </button>

@@ -210,7 +210,13 @@ const HINT_BASE = {
   'library.excellentMatches': {
     text: 'Tracks that followed what’s playing now in a transition you once rated excellent. This is different from the table below: clicking a track here loads it and runs the whole mix right away, entering at the point that worked last time — it doesn’t just load the track.',
   },
-  'library.search': { text: 'Filter the track list by title, artist or genre.' },
+  'library.search': {
+    text: 'Filter the track list by title, artist, genre or key, or a BPM range like 120-130.',
+    gestures: [
+      { mouse: '⌕ in a column header (Title, Artist, BPM, Key)', does: 'search that column only — the box shows its tag, e.g. "BPM ▸"' },
+      { key: 'Esc in the search box', does: 'drop the column tag first, then clear the text' },
+    ],
+  },
   'library.rows': {
     text: 'Click a row to select it. Click the Genre cell to change it. The two buttons on the right load straight to deck A or B.',
     gestures: [

@@ -49,7 +49,7 @@ import {
   saveCrate,
   type CrateRecord,
 } from '@/platform/crates-idb/store'
-import { matchesQuery } from '@/core/library-search'
+import { matchesSearch, type SearchColumn } from '@/core/library-search'
 import { sortTracks } from '@/core/library-sort'
 import { getCues, putCues } from '@/platform/cues-idb/store'
 import { getTempo, putTempo } from '@/platform/tempo-idb/store'
@@ -3355,16 +3355,34 @@ export function moveSelection(delta: number) {
   // move the highlight to whatever's next in scan order, not the row
   // actually above/below it on screen. Found by independent review, not
   // caught while building the sort feature itself.
-  const list = sortedFilteredTracks()
-  if (list.length === 0) return
-  const idx = list.findIndex((t) => t.id === library.selectedId)
-  const nextIdx = idx < 0 ? 0 : Math.max(0, Math.min(list.length - 1, idx + delta))
-  setLibrary({ selectedId: list[nextIdx].id })
+  //
+  // v0.8.25: and the rows the table actually *draws* when it has told us —
+  // Mix Only / hide-played / "more like this" narrow the list inside
+  // `Library.tsx`, and walking the sorted list under them moved the
+  // highlight onto a hidden row. The sorted list stays the fallback for
+  // before the table has rendered once.
+  // `null` = the table hasn't drawn yet; `[]` = it drew nothing, so there
+  // is no row to move to — falling back there picked a hidden track again.
+  const ids = library.visibleIds ?? sortedFilteredTracks().map((t) => t.id)
+  if (ids.length === 0) return
+  const idx = ids.indexOf(library.selectedId ?? '')
+  const nextIdx = idx < 0 ? 0 : Math.max(0, Math.min(ids.length - 1, idx + delta))
+  setLibrary({ selectedId: ids[nextIdx] })
+}
+
+/**
+ * Limit the search box to one column (v0.8.25), or `null` for the plain
+ * all-fields search. The typed text is kept: switching BPM → Key with "8A"
+ * already typed shows the Key result for it straight away.
+ */
+export function setSearchColumn(column: SearchColumn | null) {
+  useStore.getState().setLibrary({ queryColumn: column })
 }
 
 export function filteredTracks(): Track[] {
   const { library, crates } = useStore.getState()
-  const base = library.tracks.filter((t) => matchesQuery(t, library.query))
+  const column = library.queryColumn
+  const base = library.tracks.filter((t) => matchesSearch(t, library.query, column))
   const crate = library.activeCrateId ? crates.get(library.activeCrateId) : undefined
   if (!crate) return base
   const members = new Set(crate.kind === 'manual' ? (crate.members ?? []) : (crate.materialized ?? []))
@@ -3580,10 +3598,17 @@ export function removeTrackFromCrate(crateId: string, hash: string) {
   void saveCrate(next).catch(reportCrateFailure)
 }
 
-export function createSmartCrate(name: string, query: string) {
+export function createSmartCrate(name: string, query: string, queryColumn: SearchColumn | null = null) {
   // Empty until the first explicit refresh — never auto-filled at creation,
   // consistent with "a smart crate updates only on a refresh click."
-  const record: CrateRecord = { id: crypto.randomUUID(), name, kind: 'smart', query, materialized: [] }
+  const record: CrateRecord = {
+    id: crypto.randomUUID(),
+    name,
+    kind: 'smart',
+    query,
+    ...(queryColumn ? { queryColumn } : {}),
+    materialized: [],
+  }
   patchCrates(record.id, record)
   void saveCrate(record).catch(reportCrateFailure)
 }
@@ -3599,7 +3624,7 @@ export function refreshSmartCrate(crateId: string) {
   const record = crates.get(crateId)
   if (!record || record.kind !== 'smart' || record.query == null) return
   const materialized = library.tracks
-    .filter((t) => t.contentHash && matchesQuery(t, record.query!))
+    .filter((t) => t.contentHash && matchesSearch(t, record.query!, record.queryColumn))
     .map((t) => t.contentHash!)
   const next = { ...record, materialized, refreshedAt: Date.now() }
   patchCrates(crateId, next)

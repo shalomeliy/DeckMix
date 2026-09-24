@@ -94,7 +94,7 @@ await page.addInitScript(harness(entries))
 await page.goto(URL, { waitUntil: 'domcontentloaded' })
 await page.waitForTimeout(1500)
 
-await page.getByRole('button', { name: 'BPM' }).click() // sort ascending: Mmm(90), Zzz(128), Aaa(174)
+await page.getByRole('button', { name: 'BPM', exact: true }).click() // sort ascending: Mmm(90), Zzz(128), Aaa(174)
 await page.waitForTimeout(200)
 const sortedTitles = await page.locator('tbody tr td:first-child').allTextContents()
 ok('sorted ascending by BPM as expected', sortedTitles.join(',') === 'Mmm Track,Zzz Track,Aaa Track', sortedTitles.join(', '))

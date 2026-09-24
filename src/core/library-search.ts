@@ -28,6 +28,82 @@ export function matchesQuery(track: Track, rawQuery: string): boolean {
   )
 }
 
+/**
+ * Columns the search box can be limited to (v0.8.25) — picked with the ⌕ in a
+ * column header, shown as a "BPM ▸" tag in the box. What "matches" means is
+ * different for each, and is written in the box itself (`columnSearchHint`):
+ *
+ * - Title / Artist: the typed text starts a word ("love" finds "Lovely Day"
+ *   and "Endless Love", not "Glove").
+ * - BPM: "124" is 123.5 up to (not including) 124.5 — what the table shows
+ *   rounded as 124. A range ("120-130") still works.
+ * - Key: exact, in either spelling — "8A" or "Am". The two can't collide
+ *   (a Camelot code always starts with a digit, a note name never does), so
+ *   accepting both costs nothing when the display is switched to the other.
+ */
+export type SearchColumn = 'title' | 'artist' | 'bpm' | 'key'
+
+export const SEARCH_COLUMN_LABEL: Record<SearchColumn, string> = {
+  title: 'Title',
+  artist: 'Artist',
+  bpm: 'BPM',
+  key: 'Key',
+}
+
+export function columnSearchHint(column: SearchColumn): string {
+  switch (column) {
+    case 'title':
+      return 'start of a word in the title'
+    case 'artist':
+      return 'start of a word in the artist'
+    case 'bpm':
+      return '124 = 123.5–124.5, or 120-130'
+    case 'key':
+      return '8A or Am'
+  }
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+function startsAWord(field: string | undefined, q: string): boolean {
+  if (!field) return false
+  return new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRe(q)}`, 'iu').test(field)
+}
+
+/**
+ * The one entry point for "does this track match this search" — the table,
+ * a smart crate's refresh and its "may be stale" count all go through it.
+ * Until v0.8.25's review a crate saved while a column tag was on re-ran the
+ * plain search: "BPM ▸ 124" saved every track with "124" in its path.
+ */
+export function matchesSearch(track: Track, rawQuery: string, column: SearchColumn | null | undefined): boolean {
+  return column ? matchesColumnQuery(track, column, rawQuery) : matchesQuery(track, rawQuery)
+}
+
+/** One track against a query limited to one column. An empty query matches everything, like the plain search. */
+export function matchesColumnQuery(track: Track, column: SearchColumn, rawQuery: string): boolean {
+  const q = rawQuery.trim()
+  if (!q) return true
+  switch (column) {
+    case 'title':
+      return startsAWord(track.title ?? track.name, q)
+    case 'artist':
+      return startsAWord(track.artist, q)
+    case 'bpm': {
+      if (track.bpm == null) return false
+      const range = parseBpmRange(q)
+      if (range) return track.bpm >= range.min && track.bpm <= range.max
+      const n = Number(q)
+      if (!Number.isFinite(n)) return false
+      return track.bpm >= n - 0.5 && track.bpm < n + 0.5
+    }
+    case 'key': {
+      const k = q.toLowerCase()
+      return track.key?.toLowerCase() === k || track.camelot?.toLowerCase() === k
+    }
+  }
+}
+
 export interface BpmRange {
   min: number
   max: number

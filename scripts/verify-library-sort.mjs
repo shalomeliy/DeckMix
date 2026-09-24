@@ -117,7 +117,7 @@ ok('setup: 3 rows loaded with tags read', scanOrder.length === 3, scanOrder.join
 // scanLibrary sorts by path (== filename here), so scan order is alphabetical by filename
 ok('scan order is alphabetical by path before any sort click', scanOrder.join(',') === 'Aaa Track,Mmm Track,Zzz Track', scanOrder.join(', '))
 
-const bpmHeader = page.getByRole('button', { name: 'BPM' })
+const bpmHeader = page.getByRole('button', { name: 'BPM', exact: true })
 await bpmHeader.click()
 await page.waitForTimeout(200)
 const ascOrder = await rowTitles()
@@ -137,7 +137,7 @@ ok('third click on BPM returns to scan order', resetOrder.join(',') === scanOrde
 const noArrow = await page.locator('thead').getByText(/[▲▼]/).count()
 ok('no arrow shown once sort is off', noArrow === 0)
 
-const titleHeader = page.getByRole('button', { name: 'Title' })
+const titleHeader = page.getByRole('button', { name: 'Title', exact: true })
 await titleHeader.click()
 await page.waitForTimeout(200)
 const titleAsc = await rowTitles()

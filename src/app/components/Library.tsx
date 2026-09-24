@@ -19,6 +19,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { bootCopy, bootFor, bootForScanError } from '@/core/library-boot'
 import { findSimilarTracks, orderBySimilarMatches } from '@/core/embedding-search'
 import { libraryEmptyCopy } from '@/core/library-list-copy'
+import { SEARCH_COLUMN_LABEL, columnSearchHint, type SearchColumn } from '@/core/library-search'
 import { mergeTagPatch } from '@/core/tag-merge'
 import {
   excellentStripEntries,
@@ -646,6 +647,7 @@ export function Library() {
   // filtered everything out" apart from "the folder genuinely has nothing" —
   // the two used to render the identical "no audio files" message.
   const preMixList = ctl.sortedFilteredTracks()
+  const activeCrate = library.activeCrateId ? (crates.get(library.activeCrateId) ?? null) : null
   const list = similarTo
     ? orderBySimilarMatches(preMixList, similarMatches)
     : mixOnly
@@ -656,6 +658,36 @@ export function Library() {
   const { pinned, rest } =
     mixOnly && !similarTo ? pinDeckTracks(preMixList, list, [aId, bId]) : { pinned: [], rest: list }
   const rows = [...pinned, ...rest]
+  // What the table draws, handed to `moveSelection` (v0.8.25) — a joined
+  // string so the effect runs when the rows change, not on every render.
+  const rowIdsKey = rows.map((t) => t.id).join('\n')
+  useEffect(() => {
+    setLibrary({ visibleIds: rowIdsKey ? rowIdsKey.split('\n') : [] })
+  }, [rowIdsKey, setLibrary])
+  const searchRef = useRef<HTMLInputElement>(null)
+  const searchColumn = library.queryColumn
+  const pickSearchColumn = (c: SearchColumn) => {
+    ctl.setSearchColumn(searchColumn === c ? null : c)
+    searchRef.current?.focus()
+  }
+  // Every narrowing on screen, each with its own way out — shown in the
+  // empty state (v0.8.25), so "nothing matches" always names what to undo.
+  const activeFilters: { label: string; clear: () => void }[] = [
+    ...(library.query.trim()
+      ? [
+          {
+            label: `${searchColumn ? `${SEARCH_COLUMN_LABEL[searchColumn]}: ` : 'Search: '}"${library.query.trim()}"`,
+            clear: () => setLibrary({ query: '', queryColumn: null }),
+          },
+        ]
+      : []),
+    ...(mixOnly && !similarTo ? [{ label: 'Mix Only', clear: () => setMixOnly(false) }] : []),
+    ...(mixOnly && !similarTo && hidePlayed ? [{ label: 'Played hidden', clear: () => setHidePlayed(false) }] : []),
+    ...(activeCrate ? [{ label: `Crate: ${activeCrate.name}`, clear: () => ctl.setActiveCrate(null) }] : []),
+    ...(similarToTrack
+      ? [{ label: `Similar to: ${similarToTrack.title ?? similarToTrack.name}`, clear: () => setSimilarTo(null) }]
+      : []),
+  ]
   // v0.8.14: a fixed strip above the table, never a reordering of `list`.
   // Since v0.8.17 it reads the whole library, not `preMixList`: a search or a
   // crate hides rows from the table, not a mix the owner already proved.
@@ -686,7 +718,6 @@ export function Library() {
     hidePlayed &&
     list.length === 0 &&
     orderMixList(preMixList, recs, { hidePlayed: false, keepOrder: true }).length > 0
-  const activeCrate = library.activeCrateId ? (crates.get(library.activeCrateId) ?? null) : null
   const emptyCopy = libraryEmptyCopy(
     library.query,
     mixOnly,
@@ -720,6 +751,37 @@ export function Library() {
       Clear crate filter
     </Button>
   ) : undefined
+  // The one clear-X button stays (it is the state's own answer), and the
+  // chip that would repeat it is left out: two controls for one action read
+  // as two different actions (review).
+  const repeatsButton = (label: string) =>
+    similarTo
+      ? label.startsWith('Similar to:')
+      : emptyCopy.offerMixOnlyReset
+        ? label === 'Mix Only'
+        : activeCrate
+          ? label.startsWith('Crate:')
+          : false
+  const otherFilters = activeFilters.filter((f) => !repeatsButton(f.label))
+  const emptyActions =
+    otherFilters.length > 0 ? (
+      <div className="flex flex-col items-center gap-2">
+        {emptyAction}
+        <div aria-label="Active filters" className="flex flex-wrap justify-center gap-1.5">
+          {otherFilters.map((f) => (
+            <button
+              key={f.label}
+              onClick={f.clear}
+              className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-grid-text hover:bg-surface-3"
+            >
+              {f.label} ✕
+            </button>
+          ))}
+        </div>
+      </div>
+    ) : (
+      emptyAction
+    )
 
   // null once tracks are on screen — that is the only state with no sentence
   const boot = bootCopy(library.boot, library.folderName, library.bootDetail ?? undefined)
@@ -884,16 +946,50 @@ export function Library() {
           </span>
         )}
 
-        <label className={`relative ${aP || bP ? '' : 'ml-auto'}`}>
+        <div className={`relative flex items-center ${aP || bP ? '' : 'ml-auto'}`}>
           <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-grid-dim">⌕</span>
+          {/* The column tag (v0.8.25) sits in the box, not on the table: the
+              deck keys (Q, P, A, ;, [ ]) are global, and only a real text box
+              keeps a typed "Q" from starting deck A. */}
+          {searchColumn && (
+            <button
+              type="button"
+              onClick={() => {
+                ctl.setSearchColumn(null)
+                searchRef.current?.focus()
+              }}
+              title="Searching this column only — click (or Esc) to search every field again"
+              aria-label={`Remove the ${SEARCH_COLUMN_LABEL[searchColumn]} column limit`}
+              className="absolute left-6 top-1/2 -translate-y-1/2 rounded-[var(--radius-xs)] bg-accent/20 px-1 text-2xs font-semibold text-grid-text hover:bg-accent/30"
+            >
+              {SEARCH_COLUMN_LABEL[searchColumn]} ▸
+            </button>
+          )}
           <input
+            ref={searchRef}
             value={library.query}
             onChange={(e) => setLibrary({ query: e.target.value })}
-            placeholder="Filter tracks…"
-            className="w-52 rounded-[var(--radius-sm)] border border-hairline bg-surface-0 py-1 pl-6 pr-2 text-xs outline-none transition-colors focus-visible:border-transparent focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]"
+            onKeyDown={(e) => {
+              if (e.key !== 'Escape') return
+              if (searchColumn) ctl.setSearchColumn(null)
+              else setLibrary({ query: '' })
+            }}
+            aria-label={searchColumn ? `Search ${SEARCH_COLUMN_LABEL[searchColumn]} only` : 'Filter tracks'}
+            placeholder={searchColumn ? columnSearchHint(searchColumn) : 'Filter tracks…'}
+            className={`w-60 rounded-[var(--radius-sm)] border border-hairline bg-surface-0 py-1 pr-2 text-xs outline-none transition-colors focus-visible:border-transparent focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] ${
+              searchColumn ? 'pl-[4.5rem]' : 'pl-6'
+            }`}
           />
           <HintIcon id="library.search" className="absolute -right-1.5 -top-1.5" />
-        </label>
+        </div>
+        {/* "12 of 480 · in Mix Only" — only while something narrows the table,
+            so a shrunken list always says it was narrowed and by what. */}
+        {activeFilters.length > 0 && library.tracks.length > 0 && (
+          <span className="tnum whitespace-nowrap text-xs text-grid-muted" aria-live="polite">
+            {rows.length} of {library.tracks.length}
+            {mixOnly && !similarTo && ' · in Mix Only'}
+          </span>
+        )}
         <span className="tnum flex items-center gap-1.5 text-xs text-grid-muted">
           {library.scanning && (
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
@@ -1075,7 +1171,7 @@ export function Library() {
           }
         />
       ) : rows.length === 0 ? (
-        <EmptyState title={emptyCopy.title} body={emptyCopy.body} action={emptyAction} />
+        <EmptyState title={emptyCopy.title} body={emptyCopy.body} action={emptyActions} />
       ) : (
         <div ref={containerRef} className="min-h-0 flex-1 overflow-auto">
           {/*
@@ -1104,10 +1200,12 @@ export function Library() {
                     not go to Artist, it collected in the Type column as a dead
                     band between Artist and MP3. Fixed layout is what makes the
                     number mean what it says. */}
-                <Th className="w-[20%] pl-3 text-left" sortKey="title" activeSort={activeSort} onSort={handleSort}>
+                <Th className="w-[20%] pl-3 text-left" sortKey="title" activeSort={activeSort} onSort={handleSort}
+                  searchColumn="title" searchActive={searchColumn === 'title'} onSearch={pickSearchColumn}>
                   Title
                 </Th>
-                <Th className="w-[21%] text-left" sortKey="artist" activeSort={activeSort} onSort={handleSort}>
+                <Th className="w-[21%] text-left" sortKey="artist" activeSort={activeSort} onSort={handleSort}
+                  searchColumn="artist" searchActive={searchColumn === 'artist'} onSearch={pickSearchColumn}>
                   Artist
                 </Th>
                 {/* Reclaimed from Type (8%→4%) and Time (10%→7%) — Title, Artist,
@@ -1116,7 +1214,8 @@ export function Library() {
                     shrank a bit further) to make room for Note + Last played. */}
                 <Th className="w-[5%] text-left">Genre</Th>
                 <Th className="w-[3%] text-left">Type</Th>
-                <Th className="w-[8%] text-right tnum" sortKey="bpm" activeSort={activeSort} onSort={handleSort}>
+                <Th className="w-[8%] text-right tnum" sortKey="bpm" activeSort={activeSort} onSort={handleSort}
+                  searchColumn="bpm" searchActive={searchColumn === 'bpm'} onSearch={pickSearchColumn}>
                   BPM
                 </Th>
                 <Th className="w-[8%] text-right">
@@ -1152,8 +1251,11 @@ export function Library() {
                     }
                     className="label -mr-1 rounded-[var(--radius-xs)] px-1 py-0.5 transition-colors hover:bg-surface-2 hover:text-grid-text"
                   >
-                    {keyMode === 'musical' ? 'Key' : 'Camelot'}
+                    <span className={searchColumn === 'key' ? 'underline decoration-2 underline-offset-4' : undefined}>
+                      {keyMode === 'musical' ? 'Key' : 'Camelot'}
+                    </span>
                   </button>
+                  <SearchColumnButton column="key" active={searchColumn === 'key'} onSearch={pickSearchColumn} />
                 </Th>
                 <Th
                   className="w-[6%] text-right tnum"
@@ -1212,7 +1314,7 @@ export function Library() {
           </table>
           {/* Only the decks' own rows are drawn: the "no suggestions" sentence
               still has to be said, under them, not swapped for them. */}
-          {list.length === 0 && <EmptyState title={emptyCopy.title} body={emptyCopy.body} action={emptyAction} />}
+          {list.length === 0 && <EmptyState title={emptyCopy.title} body={emptyCopy.body} action={emptyActions} />}
         </div>
         )}
       </div>
@@ -1233,12 +1335,19 @@ function Th({
   sortKey,
   activeSort,
   onSort,
+  searchColumn,
+  searchActive = false,
+  onSearch,
 }: {
   children: React.ReactNode
   className?: string
   sortKey?: SortKey
   activeSort?: { key: SortKey; dir: SortDir } | null
   onSort?: (key: SortKey) => void
+  /** v0.8.25: shows a ⌕ that limits the search box to this column. */
+  searchColumn?: SearchColumn
+  searchActive?: boolean
+  onSearch?: (c: SearchColumn) => void
 }) {
   if (!sortKey || !onSort) {
     return <th className={`label py-1.5 font-semibold ${className}`}>{children}</th>
@@ -1253,14 +1362,46 @@ function Th({
         onClick={() => onSort(sortKey)}
         className="-mx-0.5 inline-flex items-center gap-0.5 rounded-[var(--radius-xs)] px-0.5 transition-colors hover:bg-surface-2 hover:text-grid-text"
       >
-        {children}
+        {/* Underlined, not only coloured, while the search box is limited to this column. */}
+        <span className={searchActive ? 'underline decoration-2 underline-offset-4' : undefined}>{children}</span>
         {active && (
           <span aria-hidden="true" className="text-2xs">
             {activeSort.dir === 'asc' ? '▲' : '▼'}
           </span>
         )}
       </button>
+      {searchColumn && onSearch && <SearchColumnButton column={searchColumn} active={searchActive} onSearch={onSearch} />}
     </th>
+  )
+}
+
+/**
+ * The ⌕ in a column header (v0.8.25). A separate button because a click on
+ * the header name already sorts — one gesture must not do two things, the
+ * same reason the Key header keeps sort and spelling apart.
+ */
+function SearchColumnButton({
+  column,
+  active,
+  onSearch,
+}: {
+  column: SearchColumn
+  active: boolean
+  onSearch: (c: SearchColumn) => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSearch(column)}
+      aria-label={active ? `Stop searching ${SEARCH_COLUMN_LABEL[column]} only` : `Search ${SEARCH_COLUMN_LABEL[column]} only`}
+      aria-pressed={active}
+      title={active ? 'Searching this column — click to search every field again' : `Search ${SEARCH_COLUMN_LABEL[column]} only`}
+      className={`ml-0.5 rounded-[var(--radius-xs)] px-0.5 text-2xs transition-colors hover:bg-surface-2 hover:text-grid-text ${
+        active ? 'text-accent' : 'text-grid-dim'
+      }`}
+    >
+      ⌕
+    </button>
   )
 }
 

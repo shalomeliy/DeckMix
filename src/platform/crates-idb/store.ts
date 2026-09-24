@@ -14,6 +14,7 @@
  * `matchesQuery` already knows how to read; there is no new filter format.
  */
 import { get, set } from 'idb-keyval'
+import type { SearchColumn } from '@/core/library-search'
 
 const KEY = 'deckmix:crates'
 
@@ -25,6 +26,8 @@ export interface CrateRecord {
   members?: string[]
   /** The saved search-box query, smart crates only — verbatim, never parsed here. */
   query?: string
+  /** v0.8.25: the column the search was limited to when saved ("BPM ▸"), smart crates only. Absent on older crates = the plain search, which is what they always meant. */
+  queryColumn?: SearchColumn
   /** contentHash[], smart crates only — the last explicit refresh's result. Never recomputed on render. */
   materialized?: string[]
   /** `Date.now()` of the last refresh, smart crates only — drives the "may be stale" badge. */

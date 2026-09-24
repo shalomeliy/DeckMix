@@ -46,6 +46,7 @@ const NAMED: Record<string, Named[]> = {
     { token: 'onDoubleClick=', count: 1, gesture: 'library.rows' },
     { token: 'onDoubleClick=', count: 2, exempt: 'stops a row double-click inside the genre/note cell editors' },
     { token: 'onKeyDown=', count: 1, gesture: 'library.rows' },
+    { token: 'onKeyDown=', count: 1, gesture: 'library.search' }, // Esc: tag first, then text
   ],
   'src/app/components/Deck.tsx': [{ token: 'onDrop=', count: 1, gesture: 'library.rows' }],
   'src/app/components/CratesRail.tsx': [
