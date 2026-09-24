@@ -53,7 +53,7 @@ src/
     state/store.ts      zustand — כל ה‑UI state. patchDeck/patchChannel/patchMixer/set*
     hooks/useRenderLoop.ts   נרשם ל‑Clock ומושך position מהמנוע ל‑store
     components/         TopBar, Deck, Mixer, Library, Waveform, Platter, PadGrid,
-                        controls.tsx (Button/Knob/Fader)
+                        controls.tsx (Button/Knob/Fader), KeysScreen (v0.8.24 — מהטבלה ב-core/hints.ts)
 ```
 
 הגבולות נאכפים ע"י `dependency-cruiser` (`.dependency-cruiser.cjs`), לא ע"י מוסכמה —

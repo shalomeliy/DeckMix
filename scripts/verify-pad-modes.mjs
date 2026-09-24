@@ -190,7 +190,7 @@ await scenario('Beat Jump: forward, and backward with SHIFT', async (page, error
 
   await page.keyboard.down('ShiftLeft')
   await page.waitForTimeout(50)
-  const shiftPill = await page.locator('text=SHIFT').count()
+  const shiftPill = await page.getByText('SHIFT', { exact: true }).count() // exact: the pill, not the "SHIFT:" line under the pads (v0.8.24)
   ok('holding Shift shows the SHIFT pill', shiftPill > 0)
   const backLabel = await deckA(page).getByRole('button', { name: /Jump back 4 beats/ }).count()
   ok('pad label swaps to show the SHIFT action', backLabel > 0)
@@ -200,7 +200,7 @@ await scenario('Beat Jump: forward, and backward with SHIFT', async (page, error
   ok(`SHIFT+jump moved the playhead back (was ${p1}, now ${p2})`, p2 !== p1)
   await page.keyboard.up('ShiftLeft')
   await page.waitForTimeout(50)
-  const pillGone = await page.locator('text=SHIFT').count()
+  const pillGone = await page.getByText('SHIFT', { exact: true }).count() // exact: the pill, not the "SHIFT:" line under the pads (v0.8.24)
   ok('releasing Shift hides the pill', pillGone === 0)
   ok('no console errors', errors.length === 0, errors[0])
 })

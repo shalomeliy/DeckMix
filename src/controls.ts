@@ -1538,6 +1538,14 @@ export function pressPad(deckId: DeckId, index: number): () => void {
   const beats = LOOP_BEATS_STEPS[index] ?? 1
   switch (mode) {
     case 'hotcue':
+      // SHIFT + a set pad deletes, from the FLX4 exactly as from Shift+click
+      // (v0.8.24, owner's decision): the pads say "× delete" whenever SHIFT
+      // is held, from either source, and a label that promises a delete the
+      // controller doesn't do is the silent mismatch this version removed.
+      if (shiftHeld && decks[deckId].hotCues.some((c) => c.index === index)) {
+        deleteHotCue(deckId, index)
+        return () => {}
+      }
       pressHotCue(deckId, index)
       return () => {}
     case 'loop':

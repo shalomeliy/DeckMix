@@ -3,6 +3,7 @@ import * as ctl from '@/controls'
 import { HOT_CUE_COLORS } from '@/core/constants'
 import { LOOP_BEATS_STEPS } from '@/core/padmodes'
 import { customTextOf } from '@/core/hotcues'
+import type { HintId } from '@/core/hints'
 import { isSamplerSlotOccupied, type SamplerMode, type SamplerSlot } from '@/core/sampler'
 import { Button, HintIcon, Knob, Pill } from '@/app/components/controls'
 import { useStore } from '@/app/state/store'
@@ -96,13 +97,41 @@ export function PadGrid({ deckId, hotCues, padMode, color }: Props) {
         // drop, found by Shalom on the real app).
         data-drop-zone={padMode === 'sampler' ? 'sampler' : undefined}
       >
-        {padMode === 'hotcue' && <HotCuePads deckId={deckId} hotCues={hotCues} />}
+        {padMode === 'hotcue' && <HotCuePads deckId={deckId} hotCues={hotCues} shiftHeld={shiftHeld} />}
         {padMode === 'loop' && <LoopPads deckId={deckId} shiftHeld={shiftHeld} />}
         {padMode === 'beatJump' && <BeatJumpPads deckId={deckId} shiftHeld={shiftHeld} />}
         {padMode === 'sampler' && <SamplerPads deckId={deckId} shiftHeld={shiftHeld} />}
       </div>
+      {/* What SHIFT does, in every mode, always on screen (v0.8.24) — SHIFT
+          has no button of its own, so until this line the only place it was
+          explained was a hint shown nowhere. The current mode's part is lit. */}
+      <div className="mt-0.5 flex items-center gap-1 text-2xs leading-tight text-grid-dim">
+        <span className="font-semibold">SHIFT:</span>
+        {SHIFT_LEGEND.map(({ mode, label }, i) => (
+          <span key={mode} className={padMode === mode ? 'text-grid-text' : undefined}>
+            {i > 0 && <span aria-hidden> · </span>}
+            {label}
+          </span>
+        ))}
+        <HintIcon id={PAD_HINT[padMode]} className="relative ml-auto" />
+      </div>
     </div>
   )
+}
+
+/** The SHIFT line under the pads — pad-grid order, so it reads left to right like the mode tabs. */
+const SHIFT_LEGEND: { mode: PadMode; label: string }[] = [
+  { mode: 'hotcue', label: 'delete' },
+  { mode: 'loop', label: 'loop roll' },
+  { mode: 'beatJump', label: 'jump back' },
+  { mode: 'sampler', label: 'slots 9–16' },
+]
+
+const PAD_HINT: Record<PadMode, HintId> = {
+  hotcue: 'pads.hotcue',
+  loop: 'pads.loop',
+  beatJump: 'pads.beatJump',
+  sampler: 'pads.sampler',
 }
 
 /**
@@ -124,8 +153,13 @@ export function PadGrid({ deckId, hotCues, padMode, color }: Props) {
  * custom text scrolls out of memory. `Enter` saves; `Escape` or clicking away
  * cancels without writing anything — a stray `Alt`+click should never be able
  * to relabel a pad by accident.
+ *
+ * v0.8.24: while SHIFT is held a set pad *says* "× delete" — the next click
+ * deletes it, and until then nothing on screen warned. A visible ✎ beside
+ * the × opens the same rename box as Alt+click; Alt itself shows nothing
+ * live, because on Windows a bare Alt press jumps to the browser's menu.
  */
-function HotCuePads({ deckId, hotCues }: { deckId: DeckId; hotCues: HotCue[] }) {
+function HotCuePads({ deckId, hotCues, shiftHeld }: { deckId: DeckId; hotCues: HotCue[]; shiftHeld: boolean }) {
   const [renaming, setRenaming] = useState<{ index: number; text: string } | null>(null)
   const commitRename = (cue: HotCue) => {
     const text = renaming!.text.trim()
@@ -198,8 +232,17 @@ function HotCuePads({ deckId, hotCues }: { deckId: DeckId; hotCues: HotCue[] }) 
               else if (e.altKey && cue) setRenaming({ index: i, text: customTextOf(cue) })
               else ctl.pressHotCue(deckId, i)
             }}
+            // F2 is rename's keyboard path — ✎ and Alt+click are both mouse-only.
+            onKeyDown={(e) => {
+              if (e.key === 'F2' && cue) {
+                e.preventDefault()
+                setRenaming({ index: i, text: customTextOf(cue) })
+              }
+            }}
             aria-label={
-              cue
+              cue && shiftHeld
+                ? `Shift held: click deletes hot cue ${i + 1}`
+                : cue
                 ? isMixEntry(cue)
                   ? `Start mix from ${cue.label}`
                   : `Jump to hot cue ${cue.label}`
@@ -224,7 +267,25 @@ function HotCuePads({ deckId, hotCues }: { deckId: DeckId; hotCues: HotCue[] }) 
                 descriptive label instead; `truncate` keeps it from
                 overflowing the pad rather than wrapping/clipping
                 mid-character. */}
-            <span className="block truncate px-0.5">{cue ? cue.label : i + 1}</span>
+            <span className="block truncate px-0.5">
+              {cue && shiftHeld ? '× delete' : cue ? cue.label : i + 1}
+            </span>
+            {cue && (
+              <span
+                role="button"
+                aria-label={`Edit name of hot cue ${i + 1}`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setRenaming({ index: i, text: customTextOf(cue) })
+                }}
+                // Bottom corner, clickable only while shown: at the top next to
+                // the × it covered the label, and an invisible target there
+                // turned a plain "jump to cue" click into a rename.
+                className="pointer-events-none absolute bottom-0.5 right-0.5 grid h-4 w-4 place-items-center rounded-full text-[10px] leading-none text-black opacity-0 transition-opacity duration-100 hover:bg-black/20 group-hover:pointer-events-auto group-hover:opacity-100"
+              >
+                ✎
+              </span>
+            )}
             {cue && (
               // A hover-revealed `span[role=button]`, not a nested
               // `<button>` (the pad is already one, and HTML forbids
@@ -239,7 +300,7 @@ function HotCuePads({ deckId, hotCues }: { deckId: DeckId; hotCues: HotCue[] }) 
                   e.stopPropagation()
                   ctl.deleteHotCue(deckId, i)
                 }}
-                className="absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full text-[10px] leading-none text-black opacity-0 transition-opacity duration-100 hover:bg-black/20 group-hover:opacity-100"
+                className="pointer-events-none absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full text-[10px] leading-none text-black opacity-0 transition-opacity duration-100 hover:bg-black/20 group-hover:pointer-events-auto group-hover:opacity-100"
               >
                 ×
               </span>

@@ -11,10 +11,12 @@ export function TopBar({
   onOpenSettings,
   onOpenLegal,
   onOpenHistory,
+  onOpenKeys,
 }: {
   onOpenSettings: () => void
   onOpenLegal: () => void
   onOpenHistory: () => void
+  onOpenKeys: () => void
 }) {
   const audioReady = useStore((s) => s.audioReady)
   const historyCount = useStore((s) => s.history.length)
@@ -180,6 +182,9 @@ export function TopBar({
             History ({historyCount})
           </Button>
         )}
+        <Button variant="ghost" size="sm" onClick={onOpenKeys}>
+          Keys
+        </Button>
         <span className="relative inline-flex">
           <Button variant="ghost" size="sm" onClick={onOpenSettings}>
             Settings

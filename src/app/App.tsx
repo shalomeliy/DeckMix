@@ -5,6 +5,7 @@ import { Library } from '@/app/components/Library'
 import { Mixer } from '@/app/components/Mixer'
 import { SettingsScreen } from '@/app/components/Settings'
 import { SetHistoryScreen } from '@/app/components/SetHistory'
+import { KeysScreen } from '@/app/components/KeysScreen'
 import { TopBar } from '@/app/components/TopBar'
 import { TransitionRatingPrompt } from '@/app/components/TransitionRatingPrompt'
 import * as ctl from '@/controls'
@@ -19,6 +20,13 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsGroup, setSettingsGroup] = useState<'hardware' | 'legal'>('hardware')
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [keysOpen, setKeysOpen] = useState(false)
+  // The Keys screen covers the decks: a key tried from its table must not
+  // play, cue or load a deck the owner can't see (v0.8.24 review).
+  const keysOpenRef = useRef(false)
+  useEffect(() => {
+    keysOpenRef.current = keysOpen
+  }, [keysOpen])
   const notice = useStore((s) => s.notice)
   const setNotice = useStore((s) => s.setNotice)
   const storageNotice = useStore((s) => s.storageNotice)
@@ -84,7 +92,10 @@ export default function App() {
       if (e.target instanceof HTMLInputElement) return
       // The Settings screen has its own keyboard; a stray D there must not
       // bend a deck that is playing to the room.
-      if (settingsOpenRef.current) return
+      if (settingsOpenRef.current || keysOpenRef.current) return
+      // A focused knob or fader steps on its own arrow keys; the library
+      // selection moving too was two things at once from one key press.
+      if (e.target instanceof HTMLElement && e.target.getAttribute('role') === 'slider' && e.code.startsWith('Arrow')) return
 
       if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
         if (!shiftCodes.has(e.code)) {
@@ -193,6 +204,7 @@ export default function App() {
           setSettingsOpen(true)
         }}
         onOpenHistory={() => setHistoryOpen(true)}
+        onOpenKeys={() => setKeysOpen(true)}
       />
       {/* Anything the app refused or quietly substituted says so here. It sits
           under the top bar rather than in a corner toast because a refusal the
@@ -241,6 +253,7 @@ export default function App() {
         <SettingsScreen onClose={() => setSettingsOpen(false)} initialGroup={settingsGroup} />
       )}
       {historyOpen && <SetHistoryScreen onClose={() => setHistoryOpen(false)} />}
+      {keysOpen && <KeysScreen onClose={() => setKeysOpen(false)} />}
     </div>
   )
 }

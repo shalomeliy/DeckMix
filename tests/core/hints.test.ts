@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { HINT_BASE, hint, type HintId } from '@/core/hints.ts'
+import { HINT_BASE, gestureTable, hint, type HintId } from '@/core/hints.ts'
 import { FLX4_LABELS, flx4Label } from '@/core/mapping/flx4-labels.ts'
 import type { ControlAction } from '@/core/mapping/mapping.ts'
 import { FLX4_MAPPING } from '@/platform/transport-webmidi/mappings/flx4.ts'
@@ -67,5 +67,28 @@ describe('FLX4 label drift', () => {
   it('gives the padMode label a button number that reflects its param', () => {
     expect(flx4Label('padMode', 0)).toBe('Pad-mode button 1 (Hot Cue / Loop / Beat Jump / Sampler)')
     expect(flx4Label('padMode', 3)).toBe('Pad-mode button 4 (Hot Cue / Loop / Beat Jump / Sampler)')
+  })
+})
+
+describe('gesture table (v0.8.24)', () => {
+  it('prints hidden gestures in the hint itself — Shift+click deleting a cue is on screen', () => {
+    expect(hint('pads.hotcue')).toContain('Shift+click a set pad')
+    expect(hint('pads.hotcue')).toContain('delete the cue')
+  })
+
+  it('fills the Keys screen FLX4 column only from flx4Label, never typed', () => {
+    for (const row of gestureTable()) {
+      if (row.flx4 == null) continue
+      const labels = Object.keys(FLX4_LABELS).flatMap((a) =>
+        Array.from({ length: 8 }, (_, p) => flx4Label(a as ControlAction, p)),
+      )
+      expect(labels, `${row.does}: FLX4 text not from flx4Label`).toContain(row.flx4)
+    }
+  })
+
+  it('lists a shared gesture once, and every place in order', () => {
+    const rows = gestureTable()
+    expect(rows.filter((r) => r.mouse === 'Double-click a knob')).toHaveLength(1)
+    expect([...new Set(rows.map((r) => r.place))]).toEqual(['Deck', 'Pads', 'Mixer', 'Library'])
   })
 })
