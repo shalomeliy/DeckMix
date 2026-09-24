@@ -35,11 +35,14 @@ export function matchesQuery(track: Track, rawQuery: string): boolean {
  *
  * - Title / Artist: the typed text starts a word ("love" finds "Lovely Day"
  *   and "Endless Love", not "Glove").
- * - BPM: "124" is 123.5 up to (not including) 124.5 — what the table shows
- *   rounded as 124. A range ("120-130") still works.
- * - Key: exact, in either spelling — "8A" or "Am". The two can't collide
- *   (a Camelot code always starts with a digit, a note name never does), so
- *   accepting both costs nothing when the display is switched to the other.
+ * - BPM: narrows from the first digit typed, the way the owner types it
+ *   (24/09: "12" showed nothing, because it meant 11.5–12.5). The typed
+ *   digits are the start of the BPM rounded to a whole number: "1" is
+ *   100–199, "12" is 120–129, "128" is 127.5–128.5. With a dot ("128.5")
+ *   the decimals count too. A range ("120-130") still works.
+ * - Key: the start of either spelling — "8" finds 8A and 8B, "8A" or "Am"
+ *   only that key. The two spellings can't collide (a Camelot code always
+ *   starts with a digit, a note name never does).
  */
 export type SearchColumn = 'title' | 'artist' | 'bpm' | 'key'
 
@@ -57,9 +60,9 @@ export function columnSearchHint(column: SearchColumn): string {
     case 'artist':
       return 'start of a word in the artist'
     case 'bpm':
-      return '124 = 123.5–124.5, or 120-130'
+      return '12 → 120–129, 128 → 128, or 120-130'
     case 'key':
-      return '8A or Am'
+      return '8 → 8A and 8B, or 8A / Am'
   }
 }
 
@@ -93,13 +96,14 @@ export function matchesColumnQuery(track: Track, column: SearchColumn, rawQuery:
       if (track.bpm == null) return false
       const range = parseBpmRange(q)
       if (range) return track.bpm >= range.min && track.bpm <= range.max
-      const n = Number(q)
-      if (!Number.isFinite(n)) return false
-      return track.bpm >= n - 0.5 && track.bpm < n + 0.5
+      if (!/^\d+(\.\d*)?$/.test(q)) return false
+      const dot = q.indexOf('.')
+      const shown = dot < 0 ? String(Math.round(track.bpm)) : track.bpm.toFixed(Math.max(1, q.length - dot - 1))
+      return shown.startsWith(q)
     }
     case 'key': {
       const k = q.toLowerCase()
-      return track.key?.toLowerCase() === k || track.camelot?.toLowerCase() === k
+      return (track.key?.toLowerCase().startsWith(k) ?? false) || (track.camelot?.toLowerCase().startsWith(k) ?? false)
     }
   }
 }

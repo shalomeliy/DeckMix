@@ -83,11 +83,22 @@ describe('matchesColumnQuery (v0.8.25)', () => {
     expect(matchesColumnQuery(t({ name: 'Techno Rush.mp3' }), 'title', 'rush')).toBe(true)
   })
 
-  it('bpm: "124" is 123.5 up to, not including, 124.5 — what the table shows as 124', () => {
+  it('bpm narrows from the first digit: "1" = 100–199, "12" = 120–129 (owner, 24/09)', () => {
+    expect(matchesColumnQuery(t({ bpm: 174 }), 'bpm', '1')).toBe(true)
+    expect(matchesColumnQuery(t({ bpm: 90 }), 'bpm', '1')).toBe(false)
+    expect(matchesColumnQuery(t({ bpm: 128 }), 'bpm', '12')).toBe(true)
+    expect(matchesColumnQuery(t({ bpm: 124.4 }), 'bpm', '12')).toBe(true)
+    expect(matchesColumnQuery(t({ bpm: 132 }), 'bpm', '12')).toBe(false)
+    expect(matchesColumnQuery(t({ bpm: 12 }), 'bpm', '12')).toBe(true)
+  })
+
+  it('bpm: three digits are the whole number the table shows — "124" = 123.5 up to 124.5', () => {
     expect(matchesColumnQuery(t({ bpm: 123.5 }), 'bpm', '124')).toBe(true)
     expect(matchesColumnQuery(t({ bpm: 124.49 }), 'bpm', '124')).toBe(true)
     expect(matchesColumnQuery(t({ bpm: 124.5 }), 'bpm', '124')).toBe(false)
     expect(matchesColumnQuery(t({ bpm: 123.4 }), 'bpm', '124')).toBe(false)
+    expect(matchesColumnQuery(t({ bpm: 128.52 }), 'bpm', '128.5')).toBe(true)
+    expect(matchesColumnQuery(t({ bpm: 128.4 }), 'bpm', '128.5')).toBe(false)
     expect(matchesColumnQuery(t({}), 'bpm', '124')).toBe(false)
     expect(matchesColumnQuery(t({ bpm: 125 }), 'bpm', '120-130')).toBe(true)
     expect(matchesColumnQuery(t({ bpm: 125 }), 'bpm', 'fast')).toBe(false)
@@ -97,12 +108,14 @@ describe('matchesColumnQuery (v0.8.25)', () => {
     expect(matchesColumnQuery(t({ title: '128 Degrees', bpm: 100 }), 'bpm', '128')).toBe(false)
   })
 
-  it('key: exact, in either spelling', () => {
+  it('key: the start of either spelling, from the first character', () => {
     const am = t({ key: 'Am', camelot: '8A' })
     expect(matchesColumnQuery(am, 'key', '8a')).toBe(true)
     expect(matchesColumnQuery(am, 'key', 'Am')).toBe(true)
-    expect(matchesColumnQuery(am, 'key', 'A')).toBe(false)
-    expect(matchesColumnQuery(am, 'key', '8')).toBe(false)
+    expect(matchesColumnQuery(am, 'key', '8')).toBe(true)
+    expect(matchesColumnQuery(t({ key: 'C', camelot: '8B' }), 'key', '8')).toBe(true)
+    expect(matchesColumnQuery(am, 'key', '9')).toBe(false)
+    expect(matchesColumnQuery(am, 'key', '8B')).toBe(false)
   })
 
   it('an empty query matches everything, like the plain search', () => {
