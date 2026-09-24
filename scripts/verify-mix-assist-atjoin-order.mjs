@@ -175,6 +175,14 @@ async function scenario(name, { bConfirmed }, checks) {
       await new Promise((r) => setTimeout(r, 50))
 
       const notice = useStore.getState().notice
+      // Since v0.8.14 the incoming deck starts on the outgoing deck's next bar
+      // line, not at once — up to one bar (1.875 s at 128 BPM) later. Checking
+      // B at +50 ms, as this did before v0.8.14, read a mix that was merely
+      // waiting as one that never started (found 2026-09-24).
+      const until = performance.now() + 3000
+      while (!useStore.getState().decks.B.playing && performance.now() < until) {
+        await new Promise((r) => setTimeout(r, 50))
+      }
       const bPlaying = useStore.getState().decks.B.playing
 
       ctl.cancelTransition()

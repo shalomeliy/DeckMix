@@ -21,7 +21,7 @@ const ok = (name, pass, detail) => {
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`)
 }
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' })
+const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || '/opt/pw-browsers/chromium' })
 const page = await browser.newPage()
 const consoleErrors = []
 page.on('pageerror', (err) => consoleErrors.push(String(err)))

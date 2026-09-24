@@ -135,15 +135,25 @@ const r = await page.evaluate(async () => {
   ctl.pause('A')
   ctl.togglePlay('A')
   ctl.cue('A')
+  // Since v0.8.14 deck B waits for deck A's next bar line (up to 1.875 s at
+  // 128 BPM), and these presses land inside that wait. Poll until B actually
+  // starts: the guard must leave the *pending* start alone, and the cancel
+  // below must then stop a B that is really playing — reading B at +100 ms
+  // would test neither (change-reviewer, 2026-09-24).
+  const notice = useStore.getState().notice?.text ?? null
+  const until = performance.now() + 3000
+  while (!useStore.getState().decks.B.playing && performance.now() < until) {
+    await new Promise((r) => setTimeout(r, 50))
+  }
   const st = useStore.getState()
-  out.afterOutgoingStop = { aPlaying: st.decks.A.playing, bPlaying: st.decks.B.playing, running: !!st.activeTransition, notice: st.notice?.text ?? null }
+  out.afterOutgoingStop = { aPlaying: st.decks.A.playing, bPlaying: st.decks.B.playing, running: !!st.activeTransition, notice }
   ctl.cancelTransition()
   const st2 = useStore.getState()
   out.afterCancel = { aPlaying: st2.decks.A.playing, bPlaying: st2.decks.B.playing }
   return out
 })
 const o = r.afterOutgoingStop
-ok('PAUSE/toggle/CUE on the outgoing deck do nothing', o.aPlaying === true && o.bPlaying === true && o.running === true, JSON.stringify(o))
+ok('PAUSE/toggle/CUE on the outgoing deck do nothing, and deck B still starts on the bar', o.aPlaying === true && o.bPlaying === true && o.running === true, JSON.stringify(o))
 ok('the refusal is named, not silent', /CANCEL TRANSITION/.test(o.notice ?? ''), o.notice)
 ok('CANCEL TRANSITION leaves the outgoing deck playing and stops the incoming one', r.afterCancel.aPlaying === true && r.afterCancel.bPlaying === false, JSON.stringify(r.afterCancel))
 ok('no console errors', errors.length === 0, errors[0])

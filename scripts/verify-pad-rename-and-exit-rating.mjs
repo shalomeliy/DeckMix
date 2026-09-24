@@ -219,11 +219,33 @@ await page.waitForTimeout(300)
 const exitPill = deckA.getByText(/^suggested exit at \d+:\d{2}$/)
 ok('deck A (the outgoing side) shows a suggested-exit indicator the moment the transition starts', (await exitPill.count()) === 1)
 
+// Since v0.8.14 (bdcb913, Shalom's decision) a "Mix in" pad is saved only
+// when the mix is rated Excellent, never on the candidate click itself. This
+// script predates that and asserted the pad right here; it now asserts the
+// opposite, and the rename round-trip below moved to after the rating
+// (found 2026-09-24, the first run of the verify scripts as one suite).
+ok(
+  'no mix-entry pad yet: a candidate click alone does not save one (v0.8.14)',
+  (await deckB.getByRole('button', { name: /^Start mix from Mix in · \d+:\d{2}$/ }).count()) === 0,
+)
+
+// Let the 8s crossfade (TRANSITION_CROSSFADE_SEC) finish.
+// Waits on the prompt itself, up to 15 s: since v0.8.14 the crossfade only
+// starts on deck A's next bar line (up to ~1.9 s later), so a fixed 8.5 s
+// passed alone and failed inside the full suite (found 2026-09-24).
+const ratingPrompt = page.getByText(/How did that exit from/)
+await ratingPrompt.waitFor({ timeout: 15000 }).catch(() => {})
+ok('a rating prompt appears once the crossfade completes', (await ratingPrompt.count()) === 1)
+
+await page.getByRole('button', { name: 'Excellent', exact: true }).click()
+await page.waitForTimeout(200)
+ok('the rating prompt disappears after rating', (await page.getByText(/How did that exit from/).count()) === 0)
+
 // v0.5.3/v0.5.4 interaction: renaming an *existing* Mix-Assist pad (not just
 // a plain one) must not glue a second timestamp onto the first — the exact
 // round-trip a change-reviewer pass caught before this script covered it.
 const mixEntryPad = deckB.getByRole('button', { name: /^Start mix from Mix in · \d+:\d{2}$/ })
-ok('deck B holds the mix-entry pad this candidate click just saved', (await mixEntryPad.count()) === 1)
+ok('rated Excellent: deck B now holds the mix-entry pad', (await mixEntryPad.count()) === 1)
 await mixEntryPad.click({ modifiers: ['Alt'] })
 await page.waitForTimeout(150)
 const mixEntryRenameBox = deckB.getByRole('textbox', { name: /^Rename hot cue \d$/ })
@@ -236,14 +258,6 @@ const mixEntryUnchanged = await deckB
   .count()
 ok('canceling out of that rename leaves the mix-entry pad and its label untouched', mixEntryUnchanged === 1)
 
-// Let the 8s crossfade (TRANSITION_CROSSFADE_SEC) finish.
-await page.waitForTimeout(8500)
-const ratingPrompt = page.getByText(/How did that exit from/)
-ok('a rating prompt appears once the crossfade completes', (await ratingPrompt.count()) === 1)
-
-await page.getByRole('button', { name: 'Excellent', exact: true }).click()
-await page.waitForTimeout(200)
-ok('the rating prompt disappears after rating', (await page.getByText(/How did that exit from/).count()) === 0)
 
 // Load a *different* file with the same bytes onto deck A — same content
 // hash as Track1.wav, so `loadTrackToDeck` re-reads the same
@@ -252,8 +266,17 @@ ok('the rating prompt disappears after rating', (await page.getByText(/How did t
 // in-memory state carried over from round 1. Deck A must be paused first:
 // `lockPlayingDeck` defaults to on (`core/settings.ts`), and a load onto a
 // playing deck is refused, not queued — the whole point of that default.
-await deckA.getByRole('button', { name: /^(play|pause)$/i }).click()
-await page.waitForTimeout(150)
+// Pause only if it is actually playing. The finished transition already
+// stops the outgoing deck; clicking the toggle blindly then *started* deck A
+// again and the lock refused the load (found 2026-09-24).
+const aPlayingNow = await page.evaluate(async () => {
+  const { useStore } = await import('/src/app/state/store.ts')
+  return useStore.getState().decks.A.playing
+})
+if (aPlayingNow) {
+  await deckA.getByRole('button', { name: /^(play|pause)$/i }).click()
+  await page.waitForTimeout(150)
+}
 await loadToA('Track3')
 const aName = await deckA.locator('.truncate.text-base').first().innerText()
 ok('setup: deck A holds a freshly-loaded Track3.wav', aName.includes('Track3'))

@@ -33,3 +33,6 @@ graphify-out/
 
 # scripts/verify-*.mjs write these to the repo root when SHOT_DIR isn't set
 /*.png
+
+# scripts/regression.mjs writes its last run here
+/regression-out/

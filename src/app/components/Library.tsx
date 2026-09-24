@@ -19,6 +19,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { bootCopy, bootFor, bootForScanError } from '@/core/library-boot'
 import { findSimilarTracks, orderBySimilarMatches } from '@/core/embedding-search'
 import { libraryEmptyCopy } from '@/core/library-list-copy'
+import { mergeTagPatch } from '@/core/tag-merge'
 import {
   excellentStripEntries,
   excellentStripHint,
@@ -516,8 +517,8 @@ export function Library() {
           store.setLibrary({
             tracks: store.library.tracks.map((t) => {
               const p = patch.get(t.id)
-              // never clobber values analysis already produced
-              return p ? { ...p, ...t, bpm: t.bpm ?? p.bpm } : t
+              // never clobber values analysis already produced — see mergeTagPatch
+              return p ? mergeTagPatch(t, p) : t
             }),
           })
         }

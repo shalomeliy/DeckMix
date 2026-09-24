@@ -19,7 +19,7 @@
  * audio container), so no separate decodeAudioData shim is needed — picking
  * one of them to a deck IS the corrupt-file case this test exercises.
  */
-import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs'
+import { chromium } from 'playwright'
 
 const URL = 'http://localhost:5173/'
 const VIEWPORT = { width: 1536, height: 710 }

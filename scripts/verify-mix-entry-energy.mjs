@@ -168,8 +168,26 @@ await page.waitForTimeout(400)
 
 const mixInPad = deckB.getByRole('button', { name: /^Start mix from Mix in · \d/ })
 const padCount = await mixInPad.count()
-ok('clicking a candidate saves a hot cue labeled "Mix in · <time>" on deck B', padCount > 0, `matches: ${padCount}`)
-if (padCount > 0) {
+// Since v0.8.14 (bdcb913, Shalom's decision) the "Mix in" pad is saved only
+// when the finished mix is rated Excellent — a candidate click alone starts
+// the transition and saves nothing. The pad-after-rating path is covered by
+// verify-pad-rename-and-exit-rating.mjs (updated together, 2026-09-24).
+ok('clicking a candidate alone saves no "Mix in" pad on deck B (v0.8.14)', padCount === 0, `matches: ${padCount}`)
+
+// The rest of this script tests what the *saved* pad does when pressed, which
+// v0.8.14 did not change. Save it the way an Excellent rating does
+// (`saveMixEntryHotCue` + `mixEntryLabel`), rather than playing a whole 8 s
+// crossfade and a rating prompt that verify-pad-rename-and-exit-rating.mjs
+// already covers end to end.
+await page.evaluate(async () => {
+  const ctl = await import('/src/controls.ts')
+  const { mixEntryLabel } = await import('/src/core/hotcues.ts')
+  ctl.saveMixEntryHotCue('B', 5, mixEntryLabel(5))
+})
+await page.waitForTimeout(200)
+const savedCount = await mixInPad.count()
+ok('setup: a saved "Mix in" pad shows on deck B', savedCount === 1, `matches: ${savedCount}`)
+if (savedCount > 0) {
   const padText = await mixInPad.first().innerText()
   // `innerText` also picks up the hover-reveal delete "×" span (opacity-only
   // hidden, not `display:none`), so anchor the start only. Same "<text> ·
@@ -181,7 +199,15 @@ if (padCount > 0) {
 // Pause deck B (cancels the transition the candidate click just started, per
 // the existing cancel-on-touch rule) so the saved pad can be tested from a
 // clean paused state — deck A is untouched and still playing throughout.
-await deckB.getByRole('button', { name: /pause/i }).click()
+// Cancel through the app, not by clicking PAUSE: since v0.8.14 deck B may
+// still be waiting for the bar line here, so its button can read PLAY and a
+// /pause/ locator would hang (change-reviewer, 2026-09-24).
+await page.evaluate(async () => {
+  const ctl = await import('/src/controls.ts')
+  const { useStore } = await import('/src/app/state/store.ts')
+  if (useStore.getState().activeTransition) ctl.cancelTransition()
+  if (useStore.getState().decks.B.playing) ctl.pause('B')
+})
 await page.waitForTimeout(300)
 const beforePress = (await deckB.getByRole('button', { name: /^(play|pause)$/i }).innerText()).toUpperCase()
 ok('setup: deck B is paused before pressing the saved pad', beforePress === 'PLAY', beforePress)
@@ -190,7 +216,10 @@ ok('setup: deck B is paused before pressing the saved pad', beforePress === 'PLA
 // full automatic transition — seek + phase-align + play — not just park the
 // playhead the way a plain hot cue does.
 await mixInPad.first().click()
-await page.waitForTimeout(500)
+// Since v0.8.14 the transition this pad starts waits for deck A's next bar
+// line (up to one bar, 1.875 s at 128 BPM) before deck B plays; a fixed
+// 500 ms read that wait as "didn't start" (found 2026-09-24).
+await deckB.getByRole('button', { name: /^pause$/i }).waitFor({ timeout: 4000 }).catch(() => {})
 const afterPress = (await deckB.getByRole('button', { name: /^(play|pause)$/i }).innerText()).toUpperCase()
 ok(
   'pressing the saved "Mix <time>" pad starts deck B playing (full transition, not just a seek)',
@@ -202,7 +231,10 @@ ok(
 // pad again in that state must NOT attempt another transition — it should
 // fall back to a plain seek (v0.4.9 `shouldTriggerMixEntry`), exactly like
 // any other pad, instead of becoming a dead button with just a warning.
-await page.waitForTimeout(1200) // let the playhead move away from the cue's saved position
+// 2.5 s, not 1.2: since v0.8.14 the entry is bar-phase aligned, so deck B can
+// start up to a bar *before* the pad's second, and 1.2 s later the display
+// (whole seconds) still read the same m:ss the seek goes back to.
+await page.waitForTimeout(2500) // let the playhead move away from the cue's saved position
 const posEl = deckB
   .locator('[class="tnum mt-0.5 flex items-center gap-2 text-xs text-grid-muted"]')
   .locator('span')

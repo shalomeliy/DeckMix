@@ -145,7 +145,7 @@ for (const heading of legalHeadings) {
   ok(`Settings → Privacy & Terms shows the "${heading}" section`, visible)
 }
 
-const notApplicable = await page.getByText(/Cookies — SoundGrid sets none/).isVisible()
+const notApplicable = await page.getByText(/Cookies — DeckMix sets none/).isVisible()
 ok('cookies/analytics/etc. are named as not applicable, not omitted', notApplicable)
 
 const details = page.locator('details', { hasText: 'open-source packages' })
@@ -159,7 +159,7 @@ const bg = await page.locator('main, [class*="surface-1"]').first().evaluate(() 
   const probe = document.querySelector('[class*="bg-surface-1"]')
   return probe ? getComputedStyle(probe).backgroundColor : null
 })
-const dimText = await page.getByText(/Cookies — SoundGrid sets none/).evaluate((el) => getComputedStyle(el).color)
+const dimText = await page.getByText(/Cookies — DeckMix sets none/).evaluate((el) => getComputedStyle(el).color)
 const headingText = await page.getByText('Privacy', { exact: true }).first().evaluate((el) => getComputedStyle(el).color)
 if (bg && dimText && headingText) {
   const dimRatio = contrastRatio(dimText, bg)

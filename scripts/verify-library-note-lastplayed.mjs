@@ -20,7 +20,7 @@
  * test needs an actual successful `decodeAudioData`, which needs a real,
  * if tiny and silent, WAV payload.
  */
-import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs'
+import { chromium } from 'playwright'
 
 const URL = 'http://localhost:5173/'
 const VIEWPORT = { width: 1536, height: 710 }

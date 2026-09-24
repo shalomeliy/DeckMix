@@ -167,12 +167,41 @@ async function scenario(name, tracks, check) {
 // row's own match-reason text, lowercase) — a plain string filter for
 // "Compatible" matched both rows. A regex with no `i` flag doesn't.
 const row = (page, text) => page.locator('tbody tr', { hasText: new RegExp(text) })
-const matchDot = (row) => row.locator('[title^="Mixes with deck"]')
+// The dot's title has read "Suggested · …" since v0.8.11. The old
+// "Mixes with deck" selector matched nothing, so "own track carries no match
+// dot" passed vacuously and "exactly one dot" failed (found 2026-09-24, the
+// first time these scripts were run as one suite).
+const matchDot = (row) => row.locator('span[aria-hidden="true"][title^="Suggested"]')
 
 async function loadAndPlayDeckA(page, trackName) {
+  // Waits on the app, not the clock (2026-09-24). Fixed 200/300 ms sleeps
+  // passed in the Linux container these were written in and failed in Comet
+  // on Windows: the load (read, hash, decode) was still running when KeyQ
+  // arrived, so PLAY hit an empty deck and every "suggestion" check after it
+  // failed for a reason that had nothing to do with suggestions.
+  // Tags first: a deck keeps the track object it was loaded with, so a load
+  // that beats the tag pass leaves the deck "key unknown" for good (seen in the
+  // full run, 2026-09-24 — recorded as debt in HANDOFF.md). Not what this
+  // script is about, so it waits for "N with BPM", the tag pass's last word.
+  await page.getByText(/with BPM/).first().waitFor({ timeout: 10000 })
   await row(page, trackName).dblclick()
-  await page.waitForTimeout(200)
-  await page.keyboard.press('KeyQ') // play deck A
+  await page
+    .locator('section')
+    .nth(0)
+    .locator('div.truncate.text-base.font-semibold')
+    .first()
+    .filter({ hasText: trackName })
+    .waitFor({ timeout: 10000 })
+  await page.keyboard.press('KeyQ')
+  await page.waitForFunction(
+    // either the Mix Only toggle switched itself on, or the app said outright
+    // that nothing mixes — both mean the deck is playing and recs are computed
+    () =>
+      [...document.querySelectorAll('button')].some((b) => /mixable/.test(b.textContent ?? '') && b.getAttribute('aria-pressed') === 'true') ||
+      document.body.textContent.includes('no mixable tracks'),
+    null,
+    { timeout: 10000 },
+  )
   await page.waitForTimeout(300)
 }
 
@@ -267,7 +296,7 @@ await scenario('deck-swap update latency', TRACKS, async (page) => {
               const swapRow = [...document.querySelectorAll('tbody tr')].find((r) =>
                 r.textContent?.includes('Swap Target'),
               )
-              if (swapRow && !swapRow.querySelector('[title^="Mixes with deck"]')) {
+              if (swapRow && !swapRow.querySelector('span[aria-hidden="true"][title^="Suggested"]')) {
                 clearTimeout(timeout)
                 obs.disconnect()
                 resolve(performance.now() - t1)
@@ -277,7 +306,10 @@ await scenario('deck-swap update latency', TRACKS, async (page) => {
           obs.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true })
         }),
     ),
-    row(page, 'Swap Target').dblclick(), // triggers the load; the observer above times the reaction to it
+    // The row's own "A" button, not a double-click: since Mix Assist (v0.4.6)
+    // double-clicking a *suggested* row loads it onto the empty deck (B), so
+    // deck A never changed and this timed out (found 2026-09-24).
+    row(page, 'Swap Target').getByRole('button', { name: 'Load to deck A' }).click(),
   ])
   console.log(`  measured: ${elapsed.toFixed(1)}ms from deck-swap taking effect to highlight-set update`)
   ok('deck swap updates highlights in under 100ms', elapsed < 100, `${elapsed.toFixed(1)}ms`)

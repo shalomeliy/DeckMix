@@ -87,18 +87,24 @@ const openSettings = async (page) => {
 
   const groups = await page.locator('nav button').allInnerTexts()
   // System (v0.2.5's own capabilities group) joined the original five —
-  // Controller/Feel/Display/Library/Help — later; six is current, not a bug.
-  ok('all six groups present', groups.length === 6, groups.join(' / '))
+  // Controller/Feel/Display/Library/Help — later, and Privacy & Terms
+  // (v0.8.7) after that; seven is current, not a bug.
+  ok('all seven groups present', groups.length === 7 && groups.includes('Privacy & Terms'), groups.join(' / '))
 
   // Every group renders without throwing, and the calibration constants are
   // nowhere among the labels. Scoped to the settings panel (`.z-40`) — the
   // crate rail (v0.8.1) also carries `.overflow-y-auto`, so the unscoped
   // locator started matching two elements and throwing strict-mode errors.
-  const fieldList = page.locator('.z-40 .overflow-y-auto')
+  // The whole panel's text, not its field list: Privacy & Terms (v0.8.7)
+  // renders prose, not a field list, so `.overflow-y-auto` never appeared for
+  // that group and the loop hung on it (found 2026-09-24). Reading the
+  // whole panel is also the stricter check — a constant can't leak anywhere
+  // on the settings screen, not just into a field label.
+  const panel = page.locator('.z-40').first()
   const labels = []
   for (const g of groups) {
     await page.getByRole('button', { name: g, exact: true }).click()
-    labels.push(...(await fieldList.innerText()).split('\n'))
+    labels.push(...(await panel.innerText()).split('\n'))
   }
   const banned = ['PLATTER_SIZE', 'POSITION_EPSILON', 'DECLICK', 'ANCHOR_EVERY', 'STANDSTILL']
   const leaked = banned.filter((b) => labels.some((l) => l.includes(b)))

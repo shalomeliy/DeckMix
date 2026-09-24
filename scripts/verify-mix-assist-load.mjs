@@ -137,9 +137,29 @@ const deckHeader = (page, deckId) =>
   page.locator('section').nth(deckId === 'A' ? 0 : 2).locator('div.truncate.text-base.font-semibold').first()
 
 async function loadAndPlayDeckA(page, trackName) {
+  // Waits on the app, not the clock (2026-09-24). Fixed 200/300 ms sleeps
+  // passed in the Linux container these were written in and failed in Comet
+  // on Windows: the load (read, hash, decode) was still running when KeyQ
+  // arrived, so PLAY hit an empty deck and every "suggestion" check after it
+  // failed for a reason that had nothing to do with suggestions.
   await row(page, trackName).dblclick()
-  await page.waitForTimeout(200)
+  await page
+    .locator('section')
+    .nth(0)
+    .locator('div.truncate.text-base.font-semibold')
+    .first()
+    .filter({ hasText: trackName })
+    .waitFor({ timeout: 10000 })
   await page.keyboard.press('KeyQ')
+  await page.waitForFunction(
+    // either the Mix Only toggle switched itself on, or the app said outright
+    // that nothing mixes — both mean the deck is playing and recs are computed
+    () =>
+      [...document.querySelectorAll('button')].some((b) => /mixable/.test(b.textContent ?? '') && b.getAttribute('aria-pressed') === 'true') ||
+      document.body.textContent.includes('no mixable tracks'),
+    null,
+    { timeout: 10000 },
+  )
   await page.waitForTimeout(300)
 }
 

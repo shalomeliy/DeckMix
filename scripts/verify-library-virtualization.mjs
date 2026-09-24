@@ -16,7 +16,7 @@
  * calls for: measuring the render/virtualization layer, not disk I/O this
  * remote container has no real audio files to provide anyway.
  */
-import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs'
+import { chromium } from 'playwright'
 
 const URL = 'http://localhost:5173/'
 const VIEWPORT = { width: 1536, height: 710 }

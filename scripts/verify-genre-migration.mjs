@@ -137,6 +137,17 @@ const WAV_BASE64 = wavBytes.toString('base64')
   // The genre cell holds a controlled <select>, so its value (not innerText,
   // unreliable across browsers for a <select>) is the source of truth.
   const genreSelect = page.locator('tbody tr').first().locator('td').nth(2).locator('select')
+  // Polls up to 5 s instead of reading once at +600 ms: the override is
+  // applied after an async IndexedDB read, and a fixed wait passed three full
+  // runs and failed the fourth (2026-09-24). "Immediately" here means without
+  // waiting for analysis to hash the file, not within a set number of ms.
+  await page
+    .waitForFunction(
+      () => document.querySelector('tbody tr td:nth-child(3) select')?.value === 'Trance',
+      null,
+      { timeout: 5000 },
+    )
+    .catch(() => {})
   ok('unmoved file: override applies immediately from the old store', (await genreSelect.inputValue()) === 'Trance')
 
   // Wait for the background queue to reach it and the migration to settle.
