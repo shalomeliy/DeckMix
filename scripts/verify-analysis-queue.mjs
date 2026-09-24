@@ -71,11 +71,17 @@ function harness() {
     ['a-real-track.wav', goodBytes],
     ['b-real-track.wav', goodBytes],
     ['c-broken.wav', brokenBytes],
+    ['d-vanished.wav', null],
   ];
   const makeFile = (name, bytes) => ({
     kind: 'file',
     name,
-    getFile: async () => new File([bytes], name, { type: 'audio/wav' }),
+    // null bytes = a file that vanished or lost permission after the scan (v0.8.29 review):
+    // getFile itself rejects, in the hash pass, before any decode
+    getFile: async () => {
+      if (bytes === null) throw new DOMException('A requested file or directory could not be found', 'NotFoundError');
+      return new File([bytes], name, { type: 'audio/wav' });
+    },
   });
   const makeDir = (name) => ({
     kind: 'directory',
@@ -132,7 +138,7 @@ await page.goto(URL, { waitUntil: 'domcontentloaded' })
 await page.waitForTimeout(600)
 
 const rows = page.locator('tbody tr')
-ok('all three files are listed', (await rows.count()) === 3, `${await rows.count()} rows`)
+ok('all four files are listed', (await rows.count()) === 4, `${await rows.count()} rows`)
 
 const headerBadge = (text) => page.getByText(text, { exact: false })
 
@@ -150,8 +156,8 @@ await page.waitForFunction(
 await page.waitForTimeout(200)
 
 {
-  const failedText = await headerBadge(/1 analysis failed/).first().innerText().catch(() => null)
-  ok('settled: header shows exactly 1 analysis failed', failedText !== null, failedText ?? 'not found')
+  const failedText = await headerBadge(/2 analysis failed/).first().innerText().catch(() => null)
+  ok('settled: header shows exactly 2 analysis failed (bad audio + unreadable file)', failedText !== null, failedText ?? 'not found')
 }
 
 {
@@ -167,6 +173,10 @@ await page.waitForTimeout(200)
   const title = await dot.getAttribute('title')
   ok('broken row: the tooltip names a reason, not just "failed"', (title?.length ?? 0) > 'Background analysis failed'.length,
     title ?? '')
+
+  const vanishedDot = page.locator('tbody tr', { hasText: 'd-vanished' }).locator('[title^="Background analysis failed"]')
+  ok('unreadable file: a failed dot too, not silently dropped', (await vanishedDot.count()) === 1)
+  ok('unreadable file: the tooltip carries the read error', /could not be found/.test((await vanishedDot.getAttribute('title').catch(() => '')) ?? ''))
 
   const goodRow = page.locator('tbody tr', { hasText: 'a-real-track' })
   const goodDots = await goodRow.locator('[title="Analyzing…"], [title="Queued for background analysis"], [title^="Background analysis failed"]').count()

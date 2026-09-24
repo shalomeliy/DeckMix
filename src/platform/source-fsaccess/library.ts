@@ -349,9 +349,14 @@ export interface AnalysisQueueProgress {
  * "scan renders immediately, this fills in behind it" shape as
  * `readLibraryTags`, but heavier per track (hash + decode + Worker analysis,
  * against tag-reading's byte-range peek), so it runs at a lower default
- * concurrency and reports per-track rather than in batches: the point of
- * `'analyzing'` as its own state is a live signal, and holding it back for a
- * flush window would make the icon lie about what's happening right now.
+ * concurrency and reports analysis per-track rather than in batches: the point
+ * of `'analyzing'` as its own state is a live signal, and holding it back for a
+ * flush window would make the icon lie about what's happening right now. The
+ * hash pass that runs first (v0.8.29) *is* batched — it only carries
+ * `contentHash`, and ~360 separate store writes in a few seconds would cost
+ * more than they show. Measured 24/09: hashing all 362 files (4.8GB) of the
+ * owner's library takes ~12s in Node, during which rows sit at "queued" while
+ * their genre picks fill in.
  *
  * A cache hit (this exact file content already analyzed, by this analyzer
  * version) skips `engine.decode` entirely — the expensive step — which is
