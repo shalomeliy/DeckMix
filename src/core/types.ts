@@ -19,6 +19,14 @@ export interface Track {
   /** Camelot code for the key, e.g. `8A` — what harmonic matching compares */
   camelot?: string
   /**
+   * `'detected'` when `key`/`camelot` came from the audio, not a tag
+   * (v0.8.27) — the Key column marks it, and a tag read later replaces it.
+   * Undefined means a tag, or no key at all.
+   */
+  keySource?: 'detected'
+  /** Set with `keySource: 'detected'` when the audio barely picked this key over the next one (`UNCERTAIN_MARGIN`). */
+  keyUncertain?: boolean
+  /**
    * From the immediate parent folder at scan time (v0.3.2), overridden by a
    * manual pick from `core/genres.ts`'s `GENRES` list when the owner sets one.
    * Undefined means neither source produced a value — never a silent blank

@@ -9,6 +9,7 @@
  * changing, since none of them care how `analyze` gets its answer either.
  */
 import type { BeatGrid } from '@/core/types'
+import type { DetectedKey } from '@/core/key-detect'
 
 /** One `Float32Array` per channel, all the same length — a decoded track's samples. */
 export interface PcmData {
@@ -30,6 +31,8 @@ export interface TrackAnalysis extends WaveformData {
   beatGrid: BeatGrid | null
   /** whether `beatGrid` looks like a real periodicity, not a guess — see `core/beatgrid.ts`. */
   beatGridConfirmed: boolean
+  /** From the audio itself (v0.8.27, `core/key-detect.ts`). `null` = the chroma picked nothing (silence, noise) — shown as no key, never a guess. */
+  key: DetectedKey | null
 }
 
 export interface Analyzer {

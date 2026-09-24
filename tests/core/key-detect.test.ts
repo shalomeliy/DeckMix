@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { FFT_SIZE, KK_MAJOR, LIBRARY_MINOR, camelotOf, detectKey, fft, keyFromChroma } from '@/core/key-detect.ts'
+import { FFT_SIZE, KK_MAJOR, LIBRARY_MINOR, UNCERTAIN_MARGIN, camelotOf, detectKey, detectedKeyFields, fft, keyFromChroma, keyNameOf } from '@/core/key-detect.ts'
+import { parseKey } from '@/platform/source-fsaccess/tags'
 
 const RATE = 44100
 /** Sine tones at the given MIDI notes, summed, `sec` long. */
@@ -63,5 +64,22 @@ describe('camelotOf', () => {
     expect(camelotOf({ tonic: 0, minor: false })).toBe('8B')
     expect(camelotOf({ tonic: 4, minor: true })).toBe('9A')
     expect(camelotOf({ tonic: 7, minor: false })).toBe('9B')
+  })
+})
+
+describe('keyNameOf / detectedKeyFields (v0.8.27)', () => {
+  it('spells every key exactly as a tag with the same Camelot code is spelled', () => {
+    for (let tonic = 0; tonic < 12; tonic++) {
+      for (const minor of [false, true]) {
+        const code = camelotOf({ tonic, minor })
+        expect(keyNameOf({ tonic, minor })).toBe(parseKey(code)?.key)
+      }
+    }
+  })
+
+  it('marks a key the audio barely picked as uncertain', () => {
+    const k = { tonic: 9, minor: true, score: 0.8 }
+    expect(detectedKeyFields({ ...k, margin: UNCERTAIN_MARGIN - 0.001 })).toEqual({ key: 'Am', camelot: '8A', keySource: 'detected', keyUncertain: true })
+    expect(detectedKeyFields({ ...k, margin: UNCERTAIN_MARGIN }).keyUncertain).toBe(false)
   })
 })

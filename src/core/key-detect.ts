@@ -215,3 +215,30 @@ const MINOR_PC = [5, 12, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10]
 export function camelotOf(k: Pick<DetectedKey, 'tonic' | 'minor'>): string {
   return `${(k.minor ? MINOR_PC : MAJOR_PC)[k.tonic]}${k.minor ? 'A' : 'B'}`
 }
+
+// Camelot number 1..12 → display spelling; the same spellings `parseKey` in tags.ts normalises a tag to,
+// so a detected key and a tagged one never read differently for the same key
+const NAME_MAJOR = ['B', 'F#', 'Db', 'Ab', 'Eb', 'Bb', 'F', 'C', 'G', 'D', 'A', 'E']
+const NAME_MINOR = ['Abm', 'Ebm', 'Bbm', 'Fm', 'Cm', 'Gm', 'Dm', 'Am', 'Em', 'Bm', 'F#m', 'Dbm']
+
+/** `Am`-style spelling for the Key column. */
+export function keyNameOf(k: Pick<DetectedKey, 'tonic' | 'minor'>): string {
+  return (k.minor ? NAME_MINOR : NAME_MAJOR)[(k.minor ? MINOR_PC : MAJOR_PC)[k.tonic] - 1]
+}
+
+/**
+ * Below this lead over the runner-up the audio does not really pick one key.
+ * Measured on the owner's 348 tagged tracks (24/09): at or above it, 87% of
+ * them, 76% exact; below it the rest, far worse. Such a key is still shown —
+ * hiding it would be a silent skip — but marked uncertain.
+ */
+export const UNCERTAIN_MARGIN = 0.03
+
+/**
+ * The fields a detected key puts on a `Track` (v0.8.27). Only ever applied to
+ * a track with no key tag: a tag is the owner's own data and always wins —
+ * see `mergeTagPatch` and `fillDetectedKey`.
+ */
+export function detectedKeyFields(k: DetectedKey): { key: string; camelot: string; keySource: 'detected'; keyUncertain: boolean } {
+  return { key: keyNameOf(k), camelot: camelotOf(k), keySource: 'detected', keyUncertain: k.margin < UNCERTAIN_MARGIN }
+}

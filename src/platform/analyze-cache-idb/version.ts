@@ -10,4 +10,6 @@
  * named here rather than left implicit. See `workshop-output/PLAN.md`
  * (v0.4.0) Risk 2.
  */
-export const ANALYZER_VERSION = 2
+// 3 (v0.8.27): `TrackAnalysis` gained `key`. A version-2 entry has none, and
+// read as "the audio picked no key" it would leave every untagged track keyless.
+export const ANALYZER_VERSION = 3

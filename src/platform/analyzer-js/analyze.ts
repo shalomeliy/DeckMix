@@ -1,4 +1,5 @@
 import { estimateBeatGrid, type BeatGridEstimate } from '@/core/beatgrid'
+import { detectKey } from '@/core/key-detect'
 import type { PcmData, TrackAnalysis } from '@/core/ports/analyzer'
 
 /** Rare path: files with more than two channels. */
@@ -251,5 +252,6 @@ export function analyzeTrack(
     durationSec,
     beatGrid: detected?.grid ?? null,
     beatGridConfirmed: detected?.confident ?? false,
+    key: detectKey(pcm.channels, pcm.sampleRate),
   }
 }

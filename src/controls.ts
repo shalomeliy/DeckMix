@@ -60,6 +60,8 @@ import { markExcellentPair } from '@/platform/mix-pairs-idb/store'
 import { clock } from '@/platform/clock-audio'
 import { readTagBpm, readTrackData } from '@/platform/source-fsaccess/library'
 import { analysisCacheKey } from '@/core/analysis-cache'
+import { detectedKeyFields } from '@/core/key-detect'
+import { fillDetectedKey, withLatestKey } from '@/core/tag-merge'
 import { hashBytes, hashFile } from '@/platform/source-fsaccess/hash'
 import { settings } from '@/platform/settings-idb/store'
 import { DEFAULTS, FIELD_BY_KEY, secPerRev, type Settings } from '@/core/settings'
@@ -466,8 +468,16 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     const corrected = applySavedGridResult(saved)
     const beatGrid = corrected ?? detectedGrid
     const deckBpm = corrected ? corrected.bpm : bpm
+    // A key tag always wins (v0.8.27); this only fills a track that has none.
+    const detectedKey = analysis.key ? detectedKeyFields(analysis.key) : {}
     patchDeck(deckId, {
-      track: { ...track, contentHash, analysisState: 'analyzed', bpm: deckBpm ?? undefined, durationSec },
+      track: fillDetectedKey(
+        withLatestKey(
+          { ...track, contentHash, analysisState: 'analyzed', bpm: deckBpm ?? undefined, durationSec },
+          useStore.getState().library.tracks.find((t) => t.id === track.id),
+        ),
+        detectedKey,
+      ),
       bpm: deckBpm,
       // Unconfirmed whenever detection didn't produce a grid it trusts — never
       // a silently-assumed-fine grid. Cleared only by the user checking or
@@ -484,7 +494,9 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     const { library: libAfter, setLibrary: setLibAfter } = useStore.getState()
     setLibAfter({
       tracks: libAfter.tracks.map((t) =>
-        t.id === track.id ? { ...t, contentHash, analysisState: 'analyzed', bpm: deckBpm ?? t.bpm } : t,
+        t.id === track.id
+          ? fillDetectedKey({ ...t, contentHash, analysisState: 'analyzed', bpm: deckBpm ?? t.bpm }, detectedKey)
+          : t,
       ),
     })
   } catch (err) {

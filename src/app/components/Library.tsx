@@ -20,7 +20,7 @@ import { bootCopy, bootFor, bootForScanError } from '@/core/library-boot'
 import { findSimilarTracks, orderBySimilarMatches } from '@/core/embedding-search'
 import { libraryEmptyCopy } from '@/core/library-list-copy'
 import { SEARCH_COLUMN_LABEL, columnSearchHint, type SearchColumn } from '@/core/library-search'
-import { mergeTagPatch } from '@/core/tag-merge'
+import { mergeAnalysisPatch, mergeTagPatch } from '@/core/tag-merge'
 import {
   excellentStripEntries,
   excellentStripHint,
@@ -61,6 +61,19 @@ const DECK_COLOR = { A: 'var(--color-deck-a)', B: 'var(--color-deck-b)' } as con
 /** Camelot when asked for and known, musical otherwise — never an empty cell. */
 function keyLabel(track: Track, mode: KeyMode): string | undefined {
   return mode === 'camelot' ? (track.camelot ?? track.key) : track.key
+}
+
+/** Shared by the BPM and Key cells of a track whose analysis failed. */
+const UNDECODABLE_TITLE =
+  'The browser could not decode this file, so its BPM and key could not be detected. Converting it (to MP3 or WAV) usually fixes this.'
+
+/** The Key cell's tooltip: which key, and whether a person or the audio said so. */
+function keyTitle(track: Track, label: string): string {
+  const name = track.camelot && track.key ? `${track.key} · Camelot ${track.camelot}` : label
+  if (track.keySource !== 'detected') return name
+  return track.keyUncertain
+    ? `${name} — detected from the audio, uncertain: the music barely picks this key over another (no key tag in the file)`
+    : `${name} — detected from the audio (no key tag in the file)`
 }
 
 /**
@@ -572,7 +585,7 @@ export function Library() {
           tracks: store.library.tracks.map((t) => {
             const p = patch.get(t.id)
             if (!p) return t
-            const merged = { ...t, ...p, bpm: t.bpm ?? p.bpm, durationSec: t.durationSec ?? p.durationSec }
+            const merged = mergeAnalysisPatch(t, p)
             const hash = p.contentHash ?? t.contentHash
             const override = hash ? hashOverrides.get(hash) : undefined
             const meta = hash ? trackMetaByHash.get(hash) : undefined
@@ -1684,7 +1697,17 @@ function Row({
       <td className="py-1.5 pr-2 text-2xs uppercase text-grid-dim">{track.kind}</td>
       {/* BPM is a primary mixing datum, not metadata — it reads at full brightness */}
       <td className="tnum py-1.5 pr-2 text-right font-medium text-grid-text">
-        {track.bpm ? track.bpm.toFixed(0) : <span className="font-normal text-grid-dim">–</span>}
+        {track.bpm ? (
+          track.bpm.toFixed(0)
+        ) : track.analysisState === 'failed' ? (
+          // v0.8.27: the 6px dot beside the name was the only sign, and a "–" here read as
+          // "no tag" — the owner could not tell a file the browser cannot open from one nobody tagged
+          <span className="font-normal text-warn" title={UNDECODABLE_TITLE}>
+            n/a
+          </span>
+        ) : (
+          <span className="font-normal text-grid-dim">–</span>
+        )}
       </td>
       <td className="py-1.5 pr-2 text-right">
         {key ? (
@@ -1695,12 +1718,32 @@ function Row({
                 ? { color: tone, background: `color-mix(in oklab, ${tone}, transparent 88%)` }
                 : { color: 'var(--color-grid-muted)', background: 'var(--color-surface-2)' }
             }
-            title={track.camelot && track.key ? `${track.key} · Camelot ${track.camelot}` : key}
+            title={keyTitle(track, key)}
           >
             {key}
+            {/* v0.8.27: a key from the audio is marked, never passed off as a tag — see keyTitle */}
+            {track.keySource === 'detected' && (
+              <>
+                <span aria-hidden className="ml-0.5 font-normal opacity-70">
+                  {track.keyUncertain ? '?' : '*'}
+                </span>
+                <span className="sr-only">{track.keyUncertain ? ' (detected, uncertain)' : ' (detected)'}</span>
+              </>
+            )}
           </span>
         ) : (
-          <span className="text-grid-dim">–</span>
+          <span
+            className="text-grid-dim"
+            title={
+              track.analysisState === 'failed'
+                ? UNDECODABLE_TITLE
+                : track.analysisState === 'analyzed'
+                  ? 'No key: no key tag, and the audio does not settle on one'
+                  : undefined
+            }
+          >
+            –
+          </span>
         )}
       </td>
       <td className="tnum py-1.5 pr-2 text-right text-grid-muted">{fmtTime(track.durationSec)}</td>

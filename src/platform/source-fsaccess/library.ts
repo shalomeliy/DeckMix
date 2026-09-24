@@ -1,5 +1,6 @@
 import { get, set } from 'idb-keyval'
 import { matchGenre, parentFolderName } from '@/core/genres'
+import { detectedKeyFields } from '@/core/key-detect'
 import type { SavedPermission } from '@/core/library-boot'
 import type { Track } from '@/core/types'
 import { readTags } from '@/platform/source-fsaccess/tags'
@@ -448,6 +449,8 @@ export async function queueLibraryAnalysis(
                 analysisState: 'analyzed',
                 bpm: analysis.bpm ?? undefined,
                 durationSec: analysis.durationSec,
+                // offered, not applied: the caller's `fillDetectedKey` lets a key tag win
+                ...(analysis.key ? detectedKeyFields(analysis.key) : {}),
                 ...(embedding
                   ? { embedding, embeddingState: 'embedded' as const }
                   : embeddingFailed

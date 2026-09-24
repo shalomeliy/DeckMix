@@ -10,6 +10,7 @@ function makeAnalysis(bpm: number): TrackAnalysis {
     durationSec: 180,
     beatGrid: { bpm, offsetSec: 0 },
     beatGridConfirmed: true,
+    key: null,
   }
 }
 
