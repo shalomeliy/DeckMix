@@ -8,38 +8,40 @@ import { git, read, requireGit } from './repo.ts'
  * for it. So the old name must not come back on any screen, file name or
  * dialog.
  *
- * One part of the old name stays on purpose, and it is a named exemption, not
- * something the rename forgot: the `soundgrid:` storage keys. Every setting, cue,
- * rating, crate and the remembered library folder is saved under them in the
- * owner's own browser. Rename a key and the app stops finding that data. Nothing
- * gets deleted, but everything *looks* deleted, and the owner cannot tell the
- * difference. The internal drag-and-drop MIME types and the folder-picker `id`
- * stay too, and nobody ever sees them. The old sampler-bank export name is kept
- * only so a new export can overwrite an old one (see `sampler-bank-fsaccess`).
+ * The storage keys followed in v0.8.20 (`deckmix:`), and the data under the
+ * old `soundgrid:` keys is moved on first load. That move module is the one
+ * place that still names the old prefix. The internal drag-and-drop MIME types
+ * and the folder-picker `id` keep the old name, since nobody ever sees them. The old
+ * sampler-bank export name is kept only so a new export can overwrite an old
+ * one (see `sampler-bank-fsaccess`).
  */
 
-/** Every storage key as of v0.8.19. Renaming any one hides that data from the owner. */
+/**
+ * Every storage key as of v0.8.20. They moved from `soundgrid:` to `deckmix:`
+ * then, carried across by `platform/storage-rename/migrate.ts`. A key renamed
+ * again without its own move hides that data from the owner.
+ */
 const STORAGE_KEYS = [
-  'soundgrid:ai-local:warningAcknowledged',
-  'soundgrid:analysisCache:',
-  'soundgrid:bootLatency',
-  'soundgrid:crates',
-  'soundgrid:cues:',
-  'soundgrid:embeddingCache:',
-  'soundgrid:fx:racks',
-  'soundgrid:genreOverrides',
-  'soundgrid:genreOverrides:migratedToHash',
-  'soundgrid:genreOverridesByHash',
-  'soundgrid:keyMode',
-  'soundgrid:libraryDir',
-  'soundgrid:midiMapping',
-  'soundgrid:mixpairs:',
-  'soundgrid:mixratings:',
-  'soundgrid:sampler:bank',
-  'soundgrid:sampler:recording:',
-  'soundgrid:settings',
-  'soundgrid:tempo2:',
-  'soundgrid:trackMeta',
+  'deckmix:ai-local:warningAcknowledged',
+  'deckmix:analysisCache:',
+  'deckmix:bootLatency',
+  'deckmix:crates',
+  'deckmix:cues:',
+  'deckmix:embeddingCache:',
+  'deckmix:fx:racks',
+  'deckmix:genreOverrides',
+  'deckmix:genreOverrides:migratedToHash',
+  'deckmix:genreOverridesByHash',
+  'deckmix:keyMode',
+  'deckmix:libraryDir',
+  'deckmix:midiMapping',
+  'deckmix:mixpairs:',
+  'deckmix:mixratings:',
+  'deckmix:sampler:bank',
+  'deckmix:sampler:recording:',
+  'deckmix:settings',
+  'deckmix:tempo2:',
+  'deckmix:trackMeta',
 ]
 
 /** The internal identifiers above, which the owner never sees. */
@@ -74,12 +76,20 @@ describe('the product is called DeckMix', () => {
     expect(read('src/platform/sampler-idb/store.ts')).toContain(`'deckmix-sampler-bank.json'`)
   })
 
-  it('every storage key keeps its soundgrid: prefix, so no saved data looks lost', () => {
+  it('every storage key is a deckmix: key, and the list did not change behind the move', () => {
     const found = new Set<string>()
     for (const f of userFacingFiles()) {
-      for (const m of read(f).matchAll(/['`](soundgrid:[^'`]*)['`]/g)) found.add(m[1])
+      if (f === 'src/core/storage-rename.ts') continue
+      for (const m of read(f).matchAll(/'(deckmix:[^']+)'/g)) found.add(m[1])
     }
     expect([...found].sort()).toEqual([...STORAGE_KEYS].sort())
+  })
+
+  it('only the move itself still names the old soundgrid: prefix', () => {
+    const offenders = userFacingFiles().filter(
+      (f) => f !== 'src/core/storage-rename.ts' && f !== 'src/platform/storage-rename/migrate.ts' && f !== 'src/main.tsx' && /soundgrid:/i.test(read(f)),
+    )
+    expect(offenders, 'a store reads an old key, which the move has already emptied').toEqual([])
   })
 
   it('the drag-and-drop types and the folder-picker id keep their old names', () => {

@@ -17,7 +17,7 @@ import { resolveCacheEntry, type StoredAnalysisEntry } from '@/core/analysis-cac
 import type { AnalysisCache, TrackAnalysis } from '@/core/ports/analyzer'
 import { ANALYZER_VERSION } from '@/platform/analyze-cache-idb/version'
 
-const KEY_PREFIX = 'soundgrid:analysisCache:'
+const KEY_PREFIX = 'deckmix:analysisCache:'
 
 class IdbAnalysisCache implements AnalysisCache {
   async get(key: string): Promise<TrackAnalysis | null> {

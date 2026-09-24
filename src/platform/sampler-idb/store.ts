@@ -13,7 +13,7 @@
 import { get, set } from 'idb-keyval'
 import type { SamplerMode } from '@/core/sampler'
 
-const KEY = 'soundgrid:sampler:bank'
+const KEY = 'deckmix:sampler:bank'
 const FILE_TYPES = [
   { description: 'DeckMix sampler bank', accept: { 'application/json': ['.json'] } },
 ]

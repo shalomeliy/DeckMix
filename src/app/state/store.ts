@@ -357,6 +357,14 @@ export interface AppState {
    * degrades or substitutes belongs here rather than in a `console.warn`.
    */
   notice: { text: string; tone: 'warn' | 'info'; source: NoticeSource } | null
+  /**
+   * v0.8.20: the result of moving data saved before the rename to `deckmix:` keys.
+   * It gets its own slot instead of `notice`, because `notice` holds one
+   * message and the latest one wins. Startup writes several others (a missing
+   * audio device, genre orphans, sampler slots) within seconds, and a "could
+   * not be moved" warning replaced before anyone reads it is a silent loss.
+   */
+  storageNotice: { text: string; tone: 'warn' | 'info' } | null
 
   /** v0.5.5 natural-language control — see `AiState`. */
   ai: AiState
@@ -437,6 +445,7 @@ export const useStore = create<AppState>((set) => ({
   fxWorkletError: null,
   capabilities: detectCapabilities(),
   notice: null,
+  storageNotice: null,
   ai: {
     enabled: false,
     phase: 'idle',

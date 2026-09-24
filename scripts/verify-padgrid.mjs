@@ -49,7 +49,7 @@ const DURATION_SEC = 6
 const wavBytes = makeWav(DURATION_SEC, SAMPLE_RATE)
 const CONTENT_HASH = createHash('sha256').update(wavBytes).digest('hex')
 const WAV_BASE64 = wavBytes.toString('base64')
-const CUES_KEY = 'soundgrid:cues:' + CONTENT_HASH
+const CUES_KEY = 'deckmix:cues:' + CONTENT_HASH
 
 // Three seeded cues on pads 1/2/3 (0-indexed 0/1/2), each at a distinct,
 // whole-second position so the mm:ss readout tells them apart unambiguously.
@@ -90,7 +90,7 @@ function harness() {
   });
 
   const mem = new Map();
-  mem.set('soundgrid:libraryDir', makeDir('Tracks'));
+  mem.set('deckmix:libraryDir', makeDir('Tracks'));
   mem.set(${JSON.stringify(CUES_KEY)}, ${JSON.stringify(SEEDED)});
   const fire = (obj, prop, value) => setTimeout(() => { obj.result = value; obj[prop] && obj[prop](); }, 0);
   Object.defineProperty(window, 'indexedDB', { configurable: true, value: {

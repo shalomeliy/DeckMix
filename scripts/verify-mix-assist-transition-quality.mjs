@@ -225,7 +225,7 @@ function harness(fileA, fileB) {
     entries: async function* () { for (const n of Object.keys(files)) yield [n, makeFile(n)]; },
   });
   const mem = new Map();
-  mem.set('soundgrid:libraryDir', makeDir('Tracks'));
+  mem.set('deckmix:libraryDir', makeDir('Tracks'));
   const fire = (obj, prop, value) => setTimeout(() => { obj.result = value; obj[prop] && obj[prop](); }, 0);
   // indexedDB first: it's the one restoreLibraryFolder actually depends on,
   // so if only one override can land, it should be this one.

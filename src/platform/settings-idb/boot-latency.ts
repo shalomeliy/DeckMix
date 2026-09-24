@@ -19,7 +19,7 @@
  */
 import type { LatencyProfile } from '@/core/settings'
 
-export const BOOT_LATENCY_KEY = 'soundgrid:bootLatency'
+export const BOOT_LATENCY_KEY = 'deckmix:bootLatency'
 
 const HINTS: Record<LatencyProfile, AudioContextLatencyCategory> = {
   interactive: 'interactive',

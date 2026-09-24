@@ -15,7 +15,7 @@
  */
 import { get, set } from 'idb-keyval'
 
-const KEY_PREFIX = 'soundgrid:mixpairs:'
+const KEY_PREFIX = 'deckmix:mixpairs:'
 
 export interface ExcellentFollowUp {
   toHash: string

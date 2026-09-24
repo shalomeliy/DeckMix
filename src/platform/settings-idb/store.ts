@@ -17,8 +17,8 @@ import {
   migrate,
 } from '@/core/settings'
 
-const KEY = 'soundgrid:settings'
-const LEGACY_KEY_MODE = 'soundgrid:keyMode'
+const KEY = 'deckmix:settings'
+const LEGACY_KEY_MODE = 'deckmix:keyMode'
 
 function readLegacyKeyMode(): string | null {
   // Private-mode and blocked-storage browsers throw on access rather than

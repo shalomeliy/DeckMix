@@ -21,6 +21,7 @@ export default function App() {
   const [historyOpen, setHistoryOpen] = useState(false)
   const notice = useStore((s) => s.notice)
   const setNotice = useStore((s) => s.setNotice)
+  const storageNotice = useStore((s) => s.storageNotice)
   /**
    * Read inside the key handler rather than listed as a dependency: the handler
    * owns a Set of physically-held bend keys, and re-registering the listener
@@ -196,6 +197,21 @@ export default function App() {
       {/* Anything the app refused or quietly substituted says so here. It sits
           under the top bar rather than in a corner toast because a refusal the
           user misses is the same as no refusal at all. */}
+      {storageNotice && (
+        <div
+          className={`flex shrink-0 items-center gap-2 px-4 py-1.5 text-2xs ${
+            storageNotice.tone === 'warn' ? 'bg-warn/12 text-warn' : 'bg-surface-2 text-grid-muted'
+          }`}
+        >
+          <span className="min-w-0 flex-1">{storageNotice.text}</span>
+          <button
+            onClick={() => useStore.getState().set('storageNotice', null)}
+            className="shrink-0 rounded-[var(--radius-xs)] px-1.5 py-0.5 hover:bg-surface-3"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {notice && (
         <div
           className={`flex shrink-0 items-center gap-2 px-4 py-1.5 text-2xs ${

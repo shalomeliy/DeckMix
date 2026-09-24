@@ -7,7 +7,7 @@
  */
 import { get, set } from 'idb-keyval'
 
-const KEY = 'soundgrid:fx:racks'
+const KEY = 'deckmix:fx:racks'
 
 export interface StoredFxRack {
   effect: number

@@ -32,7 +32,7 @@ const seedIdb = (value) =>
     open.onerror = () => reject(open.error)
     open.onsuccess = () => {
       const tx = open.result.transaction('keyval', 'readwrite')
-      tx.objectStore('keyval').put(value, 'soundgrid:settings')
+      tx.objectStore('keyval').put(value, 'deckmix:settings')
       tx.oncomplete = () => resolve(true)
       tx.onerror = () => reject(tx.error)
     }
@@ -138,7 +138,7 @@ const openSettings = async (page) => {
   const ctx = await browser.newContext({ viewport: VIEWPORT })
   const page = await newPage(ctx)
   await page.goto(URL, { waitUntil: 'networkidle' })
-  await page.evaluate(() => localStorage.setItem('soundgrid:keyMode', 'camelot'))
+  await page.evaluate(() => localStorage.setItem('deckmix:keyMode', 'camelot'))
   await page.reload({ waitUntil: 'networkidle' })
   await openSettings(page)
 

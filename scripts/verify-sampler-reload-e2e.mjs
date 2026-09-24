@@ -72,7 +72,7 @@ function harness(extraIdbSeed) {
   });
   Object.defineProperty(window, 'showDirectoryPicker', { configurable: true, value: async () => makeDir('Tracks') });
   const mem = new Map();
-  mem.set('soundgrid:libraryDir', makeDir('Tracks'));
+  mem.set('deckmix:libraryDir', makeDir('Tracks'));
   ${extraIdbSeed ? `for (const [k, v] of Object.entries(${JSON.stringify(extraIdbSeed)})) mem.set(k, v);` : ''}
   window.__idbMem = mem; // exposed so the test can read it back out
   const fire = (obj, prop, value) => setTimeout(() => { obj.result = value; obj[prop] && obj[prop](); }, 0);
@@ -132,7 +132,7 @@ ok('setup: pad 1 shows as loaded right after the drag-drop', pad1AfterDrop > 0)
 await page1.waitForTimeout(800)
 const savedIdb = await page1.evaluate(() => ({
   libraryDir: undefined, // not serializable / not needed for phase 2 — re-seeded fresh
-  samplerBank: window.__idbMem.get('soundgrid:sampler:bank'),
+  samplerBank: window.__idbMem.get('deckmix:sampler:bank'),
 }))
 ok('setup: a sampler bank was actually saved to (fake) IndexedDB', !!savedIdb.samplerBank, JSON.stringify(savedIdb.samplerBank))
 await page1.close()
@@ -146,7 +146,7 @@ ok('phase 1: no page errors', errors1.length === 0, errors1[0])
 const page2 = await browser.newPage()
 const errors2 = []
 page2.on('pageerror', (e) => errors2.push(String(e)))
-await page2.addInitScript(harness({ 'soundgrid:sampler:bank': savedIdb.samplerBank }))
+await page2.addInitScript(harness({ 'deckmix:sampler:bank': savedIdb.samplerBank }))
 const t0 = Date.now()
 await page2.goto(URL, { waitUntil: 'domcontentloaded' })
 // A fresh page defaults deck A's pad grid to Hot Cue mode — switch to

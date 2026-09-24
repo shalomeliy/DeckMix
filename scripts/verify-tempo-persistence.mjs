@@ -51,7 +51,7 @@ const wavBytes = makeWav(DURATION_SEC, SAMPLE_RATE)
 const CONTENT_HASH = createHash('sha256').update(wavBytes).digest('hex')
 const WAV_BASE64 = wavBytes.toString('base64')
 const SEEDED_TEMPO = 0.25
-const TEMPO_KEY = 'soundgrid:tempo2:' + CONTENT_HASH
+const TEMPO_KEY = 'deckmix:tempo2:' + CONTENT_HASH
 
 function harness({ seedTempo } = {}) {
   return `(() => {
@@ -81,7 +81,7 @@ function harness({ seedTempo } = {}) {
   });
 
   const mem = new Map();
-  mem.set('soundgrid:libraryDir', makeDir('Tracks'));
+  mem.set('deckmix:libraryDir', makeDir('Tracks'));
   ${seedTempo ? `mem.set(${JSON.stringify(TEMPO_KEY)}, ${SEEDED_TEMPO});` : ''}
   const fire = (obj, prop, value) => setTimeout(() => { obj.result = value; obj[prop] && obj[prop](); }, 0);
   Object.defineProperty(window, 'indexedDB', { configurable: true, value: {

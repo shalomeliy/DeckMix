@@ -17,8 +17,8 @@
  */
 import { get, set } from 'idb-keyval'
 
-const KEY = 'soundgrid:genreOverrides'
-const HASH_KEY = 'soundgrid:genreOverridesByHash'
+const KEY = 'deckmix:genreOverrides'
+const HASH_KEY = 'deckmix:genreOverridesByHash'
 
 /**
  * All stored overrides, `trackId -> genre`, from the original path-keyed

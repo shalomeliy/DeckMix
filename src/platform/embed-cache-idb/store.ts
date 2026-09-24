@@ -11,7 +11,7 @@ import { resolveEmbeddingEntry, type StoredEmbeddingEntry } from '@/core/embeddi
 import type { EmbeddingCache } from '@/core/ports/embedder'
 import { EMBEDDER_VERSION } from '@/platform/embed-cache-idb/version'
 
-const KEY_PREFIX = 'soundgrid:embeddingCache:'
+const KEY_PREFIX = 'deckmix:embeddingCache:'
 
 function keyFor(modelId: string, contentHash: string): string {
   return `${KEY_PREFIX}${modelId}:${contentHash}`

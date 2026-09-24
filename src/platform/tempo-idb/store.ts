@@ -12,7 +12,7 @@ import { get, set } from 'idb-keyval'
 // so tracks came back at another song's pairing (e.g. pinned at +8%). Those old
 // values can't be told apart from hand-set ones, so they are left orphaned
 // rather than restored.
-const KEY_PREFIX = 'soundgrid:tempo2:'
+const KEY_PREFIX = 'deckmix:tempo2:'
 
 /**
  * Never throws — a missing/blocked IndexedDB must not stop a track from

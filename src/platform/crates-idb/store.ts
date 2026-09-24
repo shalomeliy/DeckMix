@@ -15,7 +15,7 @@
  */
 import { get, set } from 'idb-keyval'
 
-const KEY = 'soundgrid:crates'
+const KEY = 'deckmix:crates'
 
 export interface CrateRecord {
   id: string

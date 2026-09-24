@@ -69,7 +69,7 @@ function harness() {
   });
   Object.defineProperty(window, 'showDirectoryPicker', { configurable: true, value: async () => makeDir('Tracks') });
   const mem = new Map();
-  mem.set('soundgrid:libraryDir', makeDir('Tracks'));
+  mem.set('deckmix:libraryDir', makeDir('Tracks'));
   const fire = (o, p, v) => setTimeout(() => { o.result = v; o[p] && o[p](); }, 0);
   Object.defineProperty(window, 'indexedDB', { configurable: true, value: { open() {
     const req = {};

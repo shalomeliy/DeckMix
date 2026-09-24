@@ -3,9 +3,11 @@
 **The app was called SoundGrid until v0.8.19 (23/09).** That name is very likely a Waves
 Audio trademark in audio software. Shalom picked DeckMix after a WIPO Global Brand
 Database search found nothing registered under it. Older docs and commits still say
-SoundGrid; they mean this app. The `soundgrid:` storage keys keep the old name **on
-purpose**. Renaming them would make every saved setting, cue and rating look lost.
-`tests/repo/product-name.test.ts` pins both halves of this.
+SoundGrid; they mean this app. In v0.8.20 the storage keys followed (`soundgrid:` →
+`deckmix:`). `platform/storage-rename/migrate.ts` moves the old data on first load,
+*before* the app is imported (`main.tsx`), and says on screen how much moved. Renaming a
+key again without a move like that makes the owner's data look lost.
+`tests/repo/product-name.test.ts` pins all of this.
 
 A Hebrew copy of this file lives at [`CLAUDE-HE.md`](CLAUDE-HE.md), for the project
 owner, who is not a programmer. **This file is the authoritative one** — it is what gets

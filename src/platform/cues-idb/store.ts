@@ -14,7 +14,7 @@
 import { get, set } from 'idb-keyval'
 import type { HotCue } from '@/core/types'
 
-const KEY_PREFIX = 'soundgrid:cues:'
+const KEY_PREFIX = 'deckmix:cues:'
 
 export interface StoredCues {
   hotCues: HotCue[]

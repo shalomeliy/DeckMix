@@ -84,9 +84,9 @@ function harness({ folder, fileName, seedPathOverride, seedHashOverride }) {
   Object.defineProperty(window, 'showDirectoryPicker', { configurable: true, value: async () => root });
 
   const mem = new Map();
-  mem.set('soundgrid:libraryDir', root);
-  ${seedPathOverride ? `mem.set('soundgrid:genreOverrides', ${JSON.stringify(seedPathOverride)});` : ''}
-  ${seedHashOverride ? `mem.set('soundgrid:genreOverridesByHash', ${JSON.stringify(seedHashOverride)});` : ''}
+  mem.set('deckmix:libraryDir', root);
+  ${seedPathOverride ? `mem.set('deckmix:genreOverrides', ${JSON.stringify(seedPathOverride)});` : ''}
+  ${seedHashOverride ? `mem.set('deckmix:genreOverridesByHash', ${JSON.stringify(seedHashOverride)});` : ''}
   const fire = (obj, prop, value) => setTimeout(() => { obj.result = value; obj[prop] && obj[prop](); }, 0);
   Object.defineProperty(window, 'indexedDB', { configurable: true, value: {
     open() {
@@ -146,15 +146,15 @@ const WAV_BASE64 = wavBytes.toString('base64')
   )
   await page.waitForTimeout(200)
 
-  const oldStore = await page.evaluate(() => window.__readStore('soundgrid:genreOverrides'))
+  const oldStore = await page.evaluate(() => window.__readStore('deckmix:genreOverrides'))
   ok('migration: the old path-keyed store is untouched (Risk 3 rollback)',
     JSON.stringify(oldStore) === JSON.stringify({ 'House/track.wav': 'Trance' }), JSON.stringify(oldStore))
 
-  const newStore = await page.evaluate(() => window.__readStore('soundgrid:genreOverridesByHash'))
+  const newStore = await page.evaluate(() => window.__readStore('deckmix:genreOverridesByHash'))
   ok('migration: the new hash-keyed store carries the re-keyed entry',
     newStore?.[CONTENT_HASH] === 'Trance', JSON.stringify(newStore))
 
-  const migrated = await page.evaluate(() => window.__readStore('soundgrid:genreOverrides:migratedToHash'))
+  const migrated = await page.evaluate(() => window.__readStore('deckmix:genreOverrides:migratedToHash'))
   ok('migration: the guard flag is set so it never re-runs', migrated === true, String(migrated))
 
   ok('scenario 1: no console errors', errors.length === 0, errors[0])

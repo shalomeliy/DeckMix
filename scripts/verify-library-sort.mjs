@@ -70,7 +70,7 @@ function harness(entries) {
   });
 
   const mem = new Map();
-  mem.set('soundgrid:libraryDir', makeDir('Tracks'));
+  mem.set('deckmix:libraryDir', makeDir('Tracks'));
   const fire = (obj, prop, value) => setTimeout(() => { obj.result = value; obj[prop] && obj[prop](); }, 0);
   Object.defineProperty(window, 'indexedDB', { configurable: true, value: {
     open() {

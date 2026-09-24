@@ -93,10 +93,10 @@ function harness({ seedCues } = {}) {
 
   // --- IndexedDB shim: idb-keyval's default store, one key per record ---
   const mem = new Map();
-  mem.set('soundgrid:libraryDir', makeDir('Tracks'));
+  mem.set('deckmix:libraryDir', makeDir('Tracks'));
   ${
     seedCues
-      ? `mem.set(${JSON.stringify('soundgrid:cues:' + CONTENT_HASH)}, ${JSON.stringify({
+      ? `mem.set(${JSON.stringify('deckmix:cues:' + CONTENT_HASH)}, ${JSON.stringify({
           hotCues: [SEEDED_HOT_CUE],
           cuePointSec: SEEDED_CUE_POINT_SEC,
         })});`
@@ -126,9 +126,9 @@ function harness({ seedCues } = {}) {
     },
   } });
 
-  // Reads back what got written to 'soundgrid:cues:<hash>', for the test to
+  // Reads back what got written to 'deckmix:cues:<hash>', for the test to
   // assert on directly rather than guessing at DOM text.
-  window.__readCues = () => mem.get(${JSON.stringify('soundgrid:cues:' + CONTENT_HASH)});
+  window.__readCues = () => mem.get(${JSON.stringify('deckmix:cues:' + CONTENT_HASH)});
 })()`
 }
 

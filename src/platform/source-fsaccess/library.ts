@@ -12,7 +12,7 @@ import { analysisCache } from '@/platform/analyze-cache-idb/store'
 import { classicalEmbedder } from '@/platform/embed-classical'
 import { embeddingCache } from '@/platform/embed-cache-idb/store'
 
-const HANDLE_KEY = 'soundgrid:libraryDir'
+const HANDLE_KEY = 'deckmix:libraryDir'
 
 /**
  * Everything Chromium's `decodeAudioData` can actually play. Kept as an

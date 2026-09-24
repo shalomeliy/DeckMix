@@ -13,7 +13,7 @@
  */
 import { del, get, set } from 'idb-keyval'
 
-const KEY_PREFIX = 'soundgrid:sampler:recording:'
+const KEY_PREFIX = 'deckmix:sampler:recording:'
 
 export async function saveRecordingBlob(id: string, blob: Blob): Promise<void> {
   await set(KEY_PREFIX + id, blob)

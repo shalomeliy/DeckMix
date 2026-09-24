@@ -14,7 +14,7 @@
  */
 import { get, set } from 'idb-keyval'
 
-const KEY = 'soundgrid:ai-local:warningAcknowledged'
+const KEY = 'deckmix:ai-local:warningAcknowledged'
 
 /** Never throws — a missing/blocked IndexedDB should just mean "show the warning again", not stop the feature from being usable at all. */
 export async function hasAcknowledgedAiWarning(): Promise<boolean> {

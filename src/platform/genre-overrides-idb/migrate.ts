@@ -18,7 +18,7 @@ import { getGenreOverrides, setGenreOverrideByHash } from '@/platform/genre-over
 import { hashFile } from '@/platform/source-fsaccess/hash'
 import type { Track } from '@/core/types'
 
-const MIGRATED_KEY = 'soundgrid:genreOverrides:migratedToHash'
+const MIGRATED_KEY = 'deckmix:genreOverrides:migratedToHash'
 
 export interface MigrationResult {
   /** entries successfully re-keyed under content hash */

@@ -14,7 +14,7 @@
  */
 import { get, set } from 'idb-keyval'
 
-const KEY_PREFIX = 'soundgrid:mixratings:'
+const KEY_PREFIX = 'deckmix:mixratings:'
 
 /**
  * Never throws — a missing/blocked IndexedDB must not stop a track from

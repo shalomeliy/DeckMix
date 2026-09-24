@@ -119,9 +119,9 @@ function harness({ permission = 'granted', seed = true, entries, tags, mode = 'n
   const mem = new Map();
   ${
     seed === 'unusable'
-      ? `mem.set('soundgrid:libraryDir', { name: 'Tracks' });`
+      ? `mem.set('deckmix:libraryDir', { name: 'Tracks' });`
       : seed
-        ? `mem.set('soundgrid:libraryDir', makeDir('Tracks', ${JSON.stringify(permission)}));`
+        ? `mem.set('deckmix:libraryDir', makeDir('Tracks', ${JSON.stringify(permission)}));`
         : ''
   }
   const fire = (obj, prop, value) => setTimeout(() => { obj.result = value; obj[prop] && obj[prop](); }, 0);

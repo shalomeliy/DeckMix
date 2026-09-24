@@ -10,7 +10,7 @@
  */
 import { get, set } from 'idb-keyval'
 
-const KEY = 'soundgrid:trackMeta'
+const KEY = 'deckmix:trackMeta'
 
 export interface TrackMeta {
   note?: string

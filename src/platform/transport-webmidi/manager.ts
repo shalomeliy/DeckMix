@@ -13,7 +13,7 @@ import {
 } from '@/core/mapping/mapping'
 import { get, set } from 'idb-keyval'
 
-const CUSTOM_KEY = 'soundgrid:midiMapping'
+const CUSTOM_KEY = 'deckmix:midiMapping'
 
 /**
  * `padMode`'s `param` (0..3) to a `PadMode`, in the order the FLX4's 4

@@ -59,7 +59,7 @@ const init = `(() => {
   const makeDir = (n) => ({ kind: 'directory', name: n, queryPermission: async () => 'granted', requestPermission: async () => 'granted',
     entries: async function* () { yield [${JSON.stringify(name)}, makeFile(${JSON.stringify(name)})]; } });
   Object.defineProperty(window, 'showDirectoryPicker', { configurable: true, value: async () => makeDir('Tracks') });
-  const mem = new Map(); mem.set('soundgrid:libraryDir', makeDir('Tracks'));
+  const mem = new Map(); mem.set('deckmix:libraryDir', makeDir('Tracks'));
   const fire = (o, p, v) => setTimeout(() => { o.result = v; o[p] && o[p](); }, 0);
   Object.defineProperty(window, 'indexedDB', { configurable: true, value: { open() { const req = {}; setTimeout(() => {
     const db = { transaction: () => { const tx = {}; tx.objectStore = () => ({ transaction: tx,

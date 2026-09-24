@@ -96,7 +96,7 @@ function harness(tracks) {
   });
   Object.defineProperty(window, 'showDirectoryPicker', { configurable: true, value: async () => makeDir('Tracks') });
   const mem = new Map();
-  mem.set('soundgrid:libraryDir', makeDir('Tracks'));
+  mem.set('deckmix:libraryDir', makeDir('Tracks'));
   const fire = (obj, prop, value) => setTimeout(() => { obj.result = value; obj[prop] && obj[prop](); }, 0);
   Object.defineProperty(window, 'indexedDB', { configurable: true, value: {
     open() {
@@ -309,7 +309,7 @@ await scenario(
       await new Promise((r) => setTimeout(r, 300))
       return { suggestedName, text }
     })
-    ok('suggested filename looks like a dated setlist file', /^soundgrid-setlist-\d{4}-\d{2}-\d{2}\.txt$/.test(written.suggestedName ?? ''), written.suggestedName)
+    ok('suggested filename looks like a dated setlist file', /^deckmix-setlist-\d{4}-\d{2}-\d{2}\.txt$/.test(written.suggestedName ?? ''), written.suggestedName)
     ok(
       'written text lists both tracks in order, numbered',
       written.text?.includes('1. Track One') && written.text?.includes('2. Track Two'),

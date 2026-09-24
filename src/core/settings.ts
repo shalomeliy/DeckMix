@@ -500,7 +500,7 @@ export function coerce(raw: unknown): CoerceResult {
 /**
  * The settings that already existed before there was a settings screen, each
  * saved by whoever needed it and owned by nobody:
- * `soundgrid:keyMode` in `localStorage`, written from inside the library table.
+ * `deckmix:keyMode` in `localStorage`, written from inside the library table.
  *
  * The other two — the library folder handle and the custom MIDI mapping — keep
  * their own keys on purpose. A `FileSystemDirectoryHandle` is not JSON and a
