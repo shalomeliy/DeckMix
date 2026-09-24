@@ -84,8 +84,13 @@ const HINT_BASE = {
     ],
   },
   'deck.waveform': {
-    text: 'Click anywhere on the waveform to jump the playhead there.',
-    gestures: [{ mouse: 'Click the waveform', does: 'jump the playhead there' }],
+    text: 'Click to jump there. Drag it like a record, or use the mouse wheel to move the track in small steps.',
+    gestures: [
+      { mouse: 'Click the waveform', does: 'jump the playhead there' },
+      { mouse: 'Drag the waveform sideways', does: 'move the track like a hand on a record', action: 'jog' },
+      { mouse: 'Mouse wheel on the waveform', does: 'move the track a quarter beat per notch' },
+      { mouse: 'Shift + mouse wheel on the waveform', does: 'move the track a whole beat per notch' },
+    ],
   },
   // — pads, one hint per mode (v0.8.24; was one ~70-word hint shown nowhere) —
   'pads.hotcue': {

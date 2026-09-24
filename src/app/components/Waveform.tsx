@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSettings } from '@/app/hooks/useSettings'
 import { HintIcon } from '@/app/components/controls'
+import * as ctl from '@/controls'
+import { waveformDragRate, wheelSteps } from '@/core/scratch'
 import { BEATS_PER_BAR } from '@/core/beatgrid'
 import type { DeckId, HotCue } from '@/core/types'
 
@@ -41,6 +43,16 @@ const BAND_COLORS = [
 const QUIET = 0.0015
 
 /**
+ * Travel before a press on the waveform becomes a drag (v0.8.28). Below it the
+ * press is still the click-to-jump it always was; a hand is never perfectly
+ * still, and without this every click would start a tiny scratch instead.
+ */
+const DRAG_THRESHOLD_PX = 4
+
+/** Same as the platter's: a hand that stops moving holds the record still. */
+const HOLD_TIMEOUT_MS = 60
+
+/**
  * Scrolling waveform: playhead stays centred, audio moves under it.
  * Mirrored body coloured by frequency content, beat grid, cue flags, glow playhead.
  */
@@ -61,7 +73,7 @@ export function Waveform({
   const [size, setSize] = useState(0)
   // Zoom, pixel density and band colouring are the user's from v0.2.5. The
   // default is WAVEFORM_PX_PER_SEC in core/constants.ts.
-  const { waveformPxPerSec: PX_PER_SEC, hiResCanvas, waveformColorByEq } = useSettings()
+  const { waveformPxPerSec: PX_PER_SEC, hiResCanvas, waveformColorByEq, jogSmoothing } = useSettings()
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -267,20 +279,119 @@ export function Waveform({
     ctx.fill()
   }, [peaks, bands, positionSec, durationSec, bpm, offsetSec, hotCues, color, loading, size, PX_PER_SEC, hiResCanvas, waveformColorByEq])
 
-  const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const seekToPointer = (clientX: number) => {
     const canvas = canvasRef.current
     if (!canvas || durationSec === 0) return
     const rect = canvas.getBoundingClientRect()
-    const dx = e.clientX - rect.left - rect.width / 2
+    const dx = clientX - rect.left - rect.width / 2
     onSeek(Math.max(0, Math.min(durationSec, positionSec + dx / PX_PER_SEC)))
   }
+
+  // Drag = a hand on the record (v0.8.28, the owner's choice): it goes through
+  // the same beginScratch/scratchRate/endScratch as the platter and the FLX4
+  // jog, so the three can never drift apart. `refused` remembers a drag the
+  // SYNC setting blocked, so its release does not turn into a click-jump.
+  const drag = useRef<{
+    pointerId: number
+    startX: number
+    x: number
+    time: number
+    rate: number
+    scratching: boolean
+    refused: boolean
+  } | null>(null)
+  const holdTimer = useRef(0)
+  const stopHoldTimer = () => {
+    if (holdTimer.current) {
+      window.clearTimeout(holdTimer.current)
+      holdTimer.current = 0
+    }
+  }
+  useEffect(() => stopHoldTimer, [])
+
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    // One hand at a time: a second finger on a touchscreen used to replace the
+    // drag in progress, so the first finger's release found nothing and the
+    // deck was left scratching with no hand on it.
+    if (durationSec === 0 || e.button !== 0 || drag.current) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    drag.current = { pointerId: e.pointerId, startX: e.clientX, x: e.clientX, time: performance.now(), rate: 0, scratching: false, refused: false }
+  }
+
+  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const d = drag.current
+    if (!d || d.refused || e.pointerId !== d.pointerId) return
+    if (!d.scratching) {
+      if (Math.abs(e.clientX - d.startX) < DRAG_THRESHOLD_PX) return
+      if (!ctl.waveformMouseAllowed(deckId)) {
+        d.refused = true
+        return
+      }
+      ctl.beginScratch(deckId)
+      d.scratching = true
+      // No return, and the anchor stays at the press: the travel that crossed
+      // the threshold is part of the drag, and dropping it would leave the
+      // audio lagging the hand by DRAG_THRESHOLD_PX for the whole gesture.
+    }
+    const now = performance.now()
+    const dt = (now - d.time) / 1000
+    if (dt <= 0) return
+    d.rate = waveformDragRate(e.clientX - d.x, dt, PX_PER_SEC, d.rate, jogSmoothing)
+    d.x = e.clientX
+    d.time = now
+    ctl.scratchRate(deckId, d.rate)
+    stopHoldTimer()
+    holdTimer.current = window.setTimeout(() => {
+      if (!drag.current?.scratching) return
+      drag.current.rate = 0
+      ctl.scratchRate(deckId, 0)
+    }, HOLD_TIMEOUT_MS)
+  }
+
+  const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const d = drag.current
+    if (!d || e.pointerId !== d.pointerId) return
+    drag.current = null
+    stopHoldTimer()
+    if (d.scratching) ctl.endScratch(deckId)
+    else if (!d.refused && e.type === 'pointerup') seekToPointer(e.clientX)
+  }
+
+  // Wheel: a quarter beat per notch, a whole beat with Shift. Attached by hand
+  // because React registers wheel listeners as passive, and a passive listener
+  // cannot preventDefault — the page would scroll under the waveform while the
+  // track moved, which is the exact thing the owner asked to avoid.
+  const wheelCarry = useRef(0)
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const onWheel = (e: WheelEvent) => {
+      // An empty deck lets the page scroll as usual — swallowing the wheel there
+      // would do nothing and say nothing.
+      if (!ctl.deckHasTrack(deckId)) return
+      e.preventDefault()
+      // Chromium on Windows turns Shift+wheel into a horizontal scroll: deltaY
+      // arrives as 0 and the notch is in deltaX. Reading only deltaY made the
+      // Shift (whole-beat) step silently do nothing. Only with Shift, though: a
+      // plain sideways touchpad swipe is not a gesture anything names.
+      const delta = e.shiftKey && e.deltaY === 0 ? e.deltaX : e.deltaY
+      const r = wheelSteps(wheelCarry.current, delta, e.deltaMode)
+      wheelCarry.current = r.carryPx
+      if (r.steps !== 0) ctl.nudgeDeckByBeats(deckId, r.steps * (e.shiftKey ? 1 : 0.25))
+    }
+    canvas.addEventListener('wheel', onWheel, { passive: false })
+    return () => canvas.removeEventListener('wheel', onWheel)
+  }, [deckId])
 
   return (
     <div className="relative h-full min-h-[96px] flex-1 overflow-hidden rounded-[var(--radius-md)] shadow-[inset_0_0_0_1px_var(--color-hairline)]">
       <canvas
         ref={canvasRef}
-        onClick={handleClick}
-        className="absolute inset-0 h-full w-full cursor-crosshair"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        className="absolute inset-0 h-full w-full cursor-crosshair touch-none"
         data-deck={deckId}
       />
       {!peaks && durationSec === 0 && !loading && (

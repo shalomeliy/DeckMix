@@ -331,7 +331,7 @@ export function Deck({ deckId }: { deckId: DeckId }) {
         hotCues={deck.hotCues}
         color={color}
         loading={deck.loading}
-        onSeek={(s) => ctl.seekDeck(deckId, s)}
+        onSeek={(s) => ctl.seekDeckByHand(deckId, s)}
       />
 
       <div className="flex gap-3">

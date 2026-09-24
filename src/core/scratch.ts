@@ -86,3 +86,54 @@ export function shouldPushPosition(
     ? positionSec !== storedSec
     : Math.abs(positionSec - storedSec) > POSITION_EPSILON_SEC
 }
+
+/**
+ * Waveform drag → playback rate (v0.8.28).
+ *
+ * The waveform scrolls under a fixed playhead at `pxPerSec`, so a hand that grabs
+ * it is holding the audio itself: dragging right pulls *earlier* audio under the
+ * playhead, which is playback running backwards. Hence the minus sign — the
+ * platter's drag-right-is-forward convention would make the picture slide the
+ * opposite way to the hand, which reads as the drag being broken.
+ *
+ * One pixel is exactly `1 / pxPerSec` seconds of audio, the same scale the
+ * waveform is drawn at, so the audio under the hand stays under the hand at any
+ * zoom. Same smoothing, clamp and bad-`dt` guard as `scratchRateFromDrag`.
+ */
+export function waveformDragRate(
+  dxPx: number,
+  dtSec: number,
+  pxPerSec: number,
+  prevRate: number,
+  smoothing: number = SMOOTHING,
+): number {
+  if (dtSec <= 0 || pxPerSec <= 0) return prevRate
+  const instant = -dxPx / pxPerSec / dtSec
+  const smoothed = prevRate + (instant - prevRate) * smoothing
+  return Math.max(-MAX_RATE, Math.min(MAX_RATE, smoothed))
+}
+
+/** Pixels of `WheelEvent.deltaY` in one notch of an ordinary mouse wheel (Chromium, Windows and Mac). */
+export const WHEEL_NOTCH_PX = 100
+
+/**
+ * Wheel events → whole steps, carrying the remainder (v0.8.28).
+ *
+ * A mouse notch arrives as one event of ~100px, but a touchpad sends a stream of
+ * small deltas — 2px, 5px, 11px. Treating every event as one step would make a
+ * light touchpad swipe fly the track across dozens of beats. Counting pixels and
+ * spending them 100 at a time gives both the same feel per distance travelled.
+ * `deltaMode` 1 is lines (Firefox-style, ~33px each), 2 is pages.
+ */
+export function wheelSteps(
+  carryPx: number,
+  deltaY: number,
+  deltaMode: number = 0,
+): { steps: number; carryPx: number } {
+  const px = deltaMode === 1 ? deltaY * 33 : deltaMode === 2 ? deltaY * WHEEL_NOTCH_PX * 3 : deltaY
+  // Turning back drops what was left over going forward; otherwise the first
+  // notch back is partly spent cancelling it and the step feels uneven.
+  const total = (Math.sign(carryPx) * Math.sign(px) < 0 ? 0 : carryPx) + px
+  const steps = Math.trunc(total / WHEEL_NOTCH_PX)
+  return { steps, carryPx: total - steps * WHEEL_NOTCH_PX }
+}

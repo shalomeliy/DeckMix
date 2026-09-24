@@ -1257,15 +1257,20 @@ export function Library() {
                   </button>
                   <SearchColumnButton column="key" active={searchColumn === 'key'} onSearch={pickSearchColumn} />
                 </Th>
+                {/* Time is right-aligned and Note left-aligned, so with no padding
+                    between them the header read "TimeNote" as one word (v0.8.28).
+                    The rows already had `pr-2` on Time; the header did not. The gap
+                    goes on both sides of the seam, header and row alike, or the
+                    Note label and the note text stop lining up. */}
                 <Th
-                  className="w-[6%] text-right tnum"
+                  className="w-[6%] pr-2 text-right tnum"
                   sortKey="durationSec"
                   activeSort={activeSort}
                   onSort={handleSort}
                 >
                   Time
                 </Th>
-                <Th className="w-[12%] text-left" sortKey="note" activeSort={activeSort} onSort={handleSort}>
+                <Th className="w-[12%] pl-2 text-left" sortKey="note" activeSort={activeSort} onSort={handleSort}>
                   Note
                 </Th>
                 <Th
@@ -1700,7 +1705,7 @@ function Row({
       </td>
       <td className="tnum py-1.5 pr-2 text-right text-grid-muted">{fmtTime(track.durationSec)}</td>
       <td
-        className="max-w-0 py-1.5 pr-2"
+        className="max-w-0 py-1.5 pl-2 pr-2"
         onClick={(e) => e.stopPropagation()}
         onDoubleClick={(e) => e.stopPropagation()}
       >

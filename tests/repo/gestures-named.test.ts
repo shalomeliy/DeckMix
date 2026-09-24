@@ -49,6 +49,12 @@ const NAMED: Record<string, Named[]> = {
     { token: 'onKeyDown=', count: 1, gesture: 'library.search' }, // Esc: tag first, then text
   ],
   'src/app/components/Deck.tsx': [{ token: 'onDrop=', count: 1, gesture: 'library.rows' }],
+  'src/app/components/Waveform.tsx': [
+    // v0.8.28: wheel = quarter beat, Shift+wheel = whole beat
+    { token: "addEventListener('wheel'", count: 1, gesture: 'deck.waveform' },
+    // two: Shift picks the whole-beat step, and reads Chromium's Shift+wheel deltaX
+    { token: 'e.shiftKey', count: 2, gesture: 'deck.waveform' },
+  ],
   'src/app/components/CratesRail.tsx': [
     { token: 'onDrop=', count: 1, gesture: 'library.rows' },
     { token: 'onKeyDown=', count: 1, exempt: ENTER_ACTIVATES },

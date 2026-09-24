@@ -37,6 +37,14 @@ export const SCHEMA_VERSION = 1
 
 export type KeyMode = 'musical' | 'camelot'
 export type OnLoadPlayhead = 'start' | 'firstCue'
+/**
+ * What a mouse drag or wheel on the waveform does while that deck is in SYNC or
+ * inside an automatic transition (v0.8.28, the owner's choice, 24/09). `likeJog`
+ * treats the mouse exactly like a hand on the FLX4's platter — it takes over and
+ * cancels the transition — so the two never need two rules remembered. `blocked`
+ * refuses and says why on screen, for anyone who grabs the waveform by accident.
+ */
+export type WaveformMouseInSync = 'likeJog' | 'blocked'
 export type LatencyProfile = 'interactive' | 'balanced' | 'playback'
 
 export interface Settings {
@@ -83,6 +91,8 @@ export interface Settings {
   bpmDecimals: number
   /** Where the playhead sits when a track is loaded. */
   onLoadPlayhead: OnLoadPlayhead
+  /** Mouse drag / wheel on the waveform while in SYNC or an auto transition. */
+  waveformMouseInSync: WaveformMouseInSync
   /** Refuse to load a track onto a deck that is playing. */
   lockPlayingDeck: boolean
   /** Chosen audio output device, or null for the system default. */
@@ -111,6 +121,7 @@ export const DEFAULTS: Settings = {
   hiResCanvas: true,
   bpmDecimals: 1,
   onLoadPlayhead: 'start',
+  waveformMouseInSync: 'likeJog',
   lockPlayingDeck: true,
   outputDeviceId: null,
   hintMode: true, // temporary — user asked for hints on by default until further notice (2026-09-04)
@@ -300,6 +311,17 @@ export const FIELDS: Field[] = [
     options: [
       { value: 'start', label: 'Start of the track' },
       { value: 'firstCue', label: 'First cue point' },
+    ],
+  },
+  {
+    kind: 'choice',
+    key: 'waveformMouseInSync',
+    label: 'Mouse on the waveform during SYNC',
+    help: 'Dragging or wheeling the waveform while the deck is in SYNC or an automatic mix.',
+    group: 'feel',
+    options: [
+      { value: 'likeJog', label: 'Like the jog wheel — takes over' },
+      { value: 'blocked', label: 'Blocked, with a message' },
     ],
   },
   {

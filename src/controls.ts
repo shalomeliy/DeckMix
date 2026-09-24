@@ -1136,6 +1136,74 @@ export function nudgeDeck(deckId: DeckId, deltaSec: number) {
 }
 
 /**
+ * Whether the mouse may move this deck from the waveform right now (v0.8.28).
+ *
+ * The owner's choice is a setting, not a rule: `likeJog` (the default) lets the
+ * mouse behave exactly like a hand on the platter — it cancels an automatic mix
+ * through the same `cancelTransitionIfEitherDeckTouched` the jog uses, so there
+ * is one rule to remember. `blocked` refuses while the deck is in SYNC or in an
+ * automatic mix, and says so, because a refusal nobody sees looks like a broken
+ * waveform.
+ */
+export function waveformMouseAllowed(deckId: DeckId): boolean {
+  if (cfg.waveformMouseInSync !== 'blocked') return true
+  const { decks, setNotice } = useStore.getState()
+  const inMix =
+    !!activeTransition &&
+    (deckId === activeTransition.fromDeckId || deckId === activeTransition.toDeckId)
+  if (!inMix && !decks[deckId].syncActive) return true
+  setNotice({
+    text: `Deck ${deckId} is ${inMix ? 'in an automatic mix' : 'in SYNC'} — the waveform is locked. Settings → "Mouse on the waveform during SYNC" unlocks it.`,
+    tone: 'warn',
+    source: 'sync',
+  })
+  return false
+}
+
+export function deckHasTrack(deckId: DeckId): boolean {
+  return engine.decks[deckId].hasTrack
+}
+
+/**
+ * Click-to-jump on the waveform. It obeys the same SYNC setting as drag and
+ * wheel (v0.8.28 review): with `blocked` the notice says the waveform is locked,
+ * and a click that moved the track anyway would make that notice a lie; with
+ * `likeJog` a jump on a deck inside an automatic mix is a hand taking over, the
+ * same as the jog, not a mix carrying on over a track that just moved.
+ */
+export function seekDeckByHand(deckId: DeckId, sec: number) {
+  if (!engine.decks[deckId].hasTrack) return
+  if (!waveformMouseAllowed(deckId)) return
+  cancelTransitionIfEitherDeckTouched(deckId)
+  seekDeck(deckId, sec)
+}
+
+/**
+ * Mouse wheel on the waveform (v0.8.28): move the track by a fraction of a
+ * beat — a quarter per notch, a whole beat with Shift (the owner's choice).
+ * Measured in the track's own beats (`beatGrid.bpm`), not the tempo-adjusted
+ * ones, because the seek is in track seconds.
+ */
+export function nudgeDeckByBeats(deckId: DeckId, beats: number) {
+  const deck = engine.decks[deckId]
+  if (!deck.hasTrack || beats === 0) return
+  if (!waveformMouseAllowed(deckId)) return
+  const st = useStore.getState().decks[deckId]
+  const bpm = st.beatGrid?.bpm ?? st.bpm
+  if (!bpm) {
+    useStore.getState().setNotice({
+      text: `Deck ${deckId} has no BPM yet — the wheel moves by beats, so it has nothing to count.`,
+      tone: 'warn',
+      source: 'sync',
+    })
+    return
+  }
+  cancelTransitionIfEitherDeckTouched(deckId)
+  const target = deck.position + (beats * 60) / bpm
+  seekDeck(deckId, Math.max(0, Math.min(st.durationSec, target)))
+}
+
+/**
  * Live bar/downbeat correction (v0.8.8) — jumps the deck by exactly one
  * whole beat (`60 / grid.bpm` seconds), forward or back. Deliberately NOT a
  * `BeatGrid` edit: `phaseDeltaSec`'s phase math (`core/beatgrid.ts`) folds
