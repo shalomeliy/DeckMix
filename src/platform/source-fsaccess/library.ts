@@ -375,26 +375,54 @@ export async function queueLibraryAnalysis(
   let done = 0
   let failed = 0
 
+  // Identity first, for every track, before any decode (24/09). Anything keyed
+  // on `contentHash` alone — the owner's genre picks, notes, play stamps, a
+  // saved sampler slot — can only appear once its track is hashed. Hashing per
+  // track inside the analysis loop below meant a track waited behind every
+  // decode ahead of it: invisible while the cache answered in milliseconds, but
+  // the day ANALYZER_VERSION 3 re-analysed Shalom's whole library, every row he
+  // had given a genre by hand showed none for as long as the queue took. A hash
+  // is a file read and a digest; the decode is what's slow.
+  const hashes = new Map<string, string>()
+  const hashErrors = new Map<string, string>()
+  {
+    let hashNext = 0
+    let batch = new Map<string, Partial<Track>>()
+    let lastFlush = performance.now()
+    const flush = () => {
+      if (batch.size === 0 || opts.signal?.cancelled) return
+      onUpdate(batch, { done, total, failed })
+      batch = new Map()
+      lastFlush = performance.now()
+    }
+    const hasher = async () => {
+      while (hashNext < total) {
+        if (opts.signal?.cancelled) return
+        const track = tracks[hashNext++]
+        try {
+          const contentHash = await hashBytes(await (await track.handle.getFile()).arrayBuffer())
+          hashes.set(track.id, contentHash)
+          batch.set(track.id, { contentHash })
+        } catch (err) {
+          // not dropped: the analysis loop below reports it as this track's failure
+          hashErrors.set(track.id, err instanceof Error ? err.message : String(err))
+        }
+        if (batch.size >= 25 || performance.now() - lastFlush > 300) flush()
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(4, total) }, hasher))
+    flush()
+  }
+
   async function worker() {
     while (next < total) {
       if (opts.signal?.cancelled) return
       const track = tracks[next++]
       onUpdate(new Map([[track.id, { analysisState: 'analyzing' }]]), { done, total, failed })
       try {
-        const file = await track.handle.getFile()
-        const data = await file.arrayBuffer()
-        const contentHash = await hashBytes(data)
-        // Surfaced the moment the (comparatively cheap) hash is known, not
-        // bundled with the 'analyzed' patch below — decode+analyze on a
-        // cache miss is the expensive part, and anything keyed on
-        // `contentHash` alone (a saved sampler slot, a genre override, a hot
-        // cue) can resolve now instead of waiting behind it. Found by
-        // testing a real library-sized reload end-to-end: bundling the two
-        // meant a saved sampler slot near the end of a real library stayed
-        // "not yet resolved" for as long as the whole queue's decode work
-        // took, which reads exactly like "it never came back".
+        const contentHash = hashes.get(track.id)
+        if (!contentHash) throw new Error(hashErrors.get(track.id) ?? 'could not read the file')
         if (opts.signal?.cancelled) return
-        onUpdate(new Map([[track.id, { contentHash }]]), { done, total, failed })
         const hintBpm = await readTagBpm(track)
         const cacheKey = analysisCacheKey(contentHash, hintBpm)
         let analysis = await analysisCache.get(cacheKey)
@@ -408,6 +436,8 @@ export async function queueLibraryAnalysis(
         let embedding: Float32Array | undefined
         let embeddingFailed = false
         if (!analysis) {
+          // read only now: a cache hit (every track, on a normal reload) needs no bytes at all
+          const data = await (await track.handle.getFile()).arrayBuffer()
           const buffer = await engine.decode(data)
           // The embedder's copy is taken BEFORE the analyzer call, never after.
           // `analyze` transfers the buffer's own channel data to its worker,
