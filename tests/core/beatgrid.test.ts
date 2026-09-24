@@ -154,34 +154,46 @@ describe('halveGrid / doubleGrid', () => {
     expect(halveGrid(g)).toEqual({ bpm: 64, offsetSec: 0.12 })
   })
 
-  it('doubles bpm and folds offset into the new, shorter beat', () => {
-    const g: BeatGrid = { bpm: 64, offsetSec: 0.7 }
+  it('doubles bpm and folds offset into the new, shorter bar', () => {
+    const g: BeatGrid = { bpm: 64, offsetSec: 2.7 }
     const doubled = doubleGrid(g)
-    const newBeatSec = 60 / 128
+    const newBarSec = (60 / 128) * 4
     expect(doubled.bpm).toBe(128)
     expect(doubled.offsetSec).toBeGreaterThanOrEqual(0)
-    expect(doubled.offsetSec).toBeLessThan(newBeatSec)
-    expect(doubled.offsetSec).toBeCloseTo(0.7 % newBeatSec, 9)
+    expect(doubled.offsetSec).toBeLessThan(newBarSec)
+    expect(doubled.offsetSec).toBeCloseTo(2.7 % newBarSec, 9)
+  })
+
+  it('keeps which beat is the "1" when doubling (v0.8.23)', () => {
+    // 1.2s at 128 bpm is beat 2.56 of the first bar — folding into a beat
+    // (0.46875s) threw that away and moved the yellow line to 0.2625s.
+    expect(doubleGrid({ bpm: 64, offsetSec: 1.2 }).offsetSec).toBeCloseTo(1.2, 9)
   })
 })
 
 describe('shiftGrid', () => {
-  const g: BeatGrid = { bpm: 120, offsetSec: 0.1 } // beatSec = 0.5
+  const g: BeatGrid = { bpm: 120, offsetSec: 0.1 } // beatSec = 0.5, barSec = 2
 
   it('shifts forward within one beat', () => {
     expect(shiftGrid(g, 0.05).offsetSec).toBeCloseTo(0.15, 9)
   })
 
-  it('wraps a forward shift past the beat period', () => {
-    expect(shiftGrid(g, 0.45).offsetSec).toBeCloseTo(0.05, 9)
+  it('does not wrap a nudge that crosses a beat inside the bar (v0.8.23)', () => {
+    // Folding into a beat turned this into 0.05 — the bar line jumped a beat back.
+    expect(shiftGrid(g, 0.45).offsetSec).toBeCloseTo(0.55, 9)
   })
 
-  it('wraps a backward shift past zero', () => {
-    expect(shiftGrid(g, -0.2).offsetSec).toBeCloseTo(0.4, 9)
+  it('wraps a forward shift past the bar period', () => {
+    expect(shiftGrid(g, 1.95).offsetSec).toBeCloseTo(0.05, 9)
   })
 
-  it('wraps a shift larger than a full beat period', () => {
-    expect(shiftGrid(g, 1.05).offsetSec).toBeCloseTo(0.15, 9)
+  it('wraps a backward shift past zero into the last beat of the bar', () => {
+    expect(shiftGrid(g, -0.2).offsetSec).toBeCloseTo(1.9, 9)
+  })
+
+  it('keeps a bar line on beat 3 where it is when nudged (v0.8.23)', () => {
+    const onBeat3: BeatGrid = { bpm: 120, offsetSec: 1.0 }
+    expect(shiftGrid(onBeat3, 0.01).offsetSec).toBeCloseTo(1.01, 9)
   })
 })
 
@@ -190,10 +202,18 @@ describe('setDownbeatAt', () => {
     expect(setDownbeatAt(120, 0.2)).toEqual({ bpm: 120, offsetSec: 0.2 })
   })
 
-  it('folds a mark past several beats down to its phase', () => {
-    const g = setDownbeatAt(120, 2.3) // beatSec 0.5: 2.3 = 4*0.5 + 0.3
+  it('folds a mark past several bars down to its place in the bar', () => {
+    const g = setDownbeatAt(120, 4.3) // barSec 2: 4.3 = 2*2 + 0.3
     expect(g.bpm).toBe(120)
     expect(g.offsetSec).toBeCloseTo(0.3, 9)
+  })
+
+  it('a mark on beat 3 puts the yellow line on beat 3, not beat 1 (v0.8.23)', () => {
+    // The owner's bug of 24/09: beat 3 of bar 2 at 120 bpm is 3.0s. Folding
+    // into a beat gave 0 — the line stayed on beat 1.
+    const g = setDownbeatAt(120, 3.0)
+    expect(g.offsetSec).toBeCloseTo(1.0, 9)
+    expect(nextBarLineSec(2.9, g)).toBeCloseTo(3.0, 9)
   })
 })
 

@@ -18,6 +18,7 @@ src/
     hash.ts              bytesToHex — הפורמט הטהור של content‑hash (v0.4.0)
     hotcues.ts            moveHotCue — רדוקטור relocate/swap טהור (v0.4.0)
     analysis-cache.ts    resolveCacheEntry — מדיניות freshness טהורה (v0.4.0)
+    grid-corrections.ts  resolveGridCorrection — מתי תיקון גריד שמור עדיין תקף (v0.8.23)
     ports/              ה‑interfaces: audio, source, transport, analyzer, clock,
                         persistence, capabilities, ai
 
@@ -41,6 +42,7 @@ src/
     analyzer-worker/    Analyzer מעל Web Worker (v0.4.0) — decode נשאר ב‑thread הראשי
     analyze-cache-idb/  AnalysisCache לפי content‑hash, ב‑IndexedDB (v0.4.0)
     cues-idb/           בנק Hot Cues + נקודת CUE, לפי content‑hash (v0.4.0)
+    grid-corrections-idb/ תיקוני גריד ידניים, לפי content‑hash — לא בתוך מטמון הניתוח (v0.8.23)
     genre-overrides-idb/ override ז'אנר ידני — חנות ישנה (נתיב) + חנות חדשה (hash) +
                         migrate.ts (מיגרציה חד‑פעמית, v0.4.0)
     clock-audio.ts      Clock יחיד מעל audioContext.currentTime

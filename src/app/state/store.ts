@@ -26,6 +26,7 @@ export type NoticeSource =
   | 'quantize'
   | 'sync'
   | 'cues'
+  | 'grid'
   | 'padMode'
   | 'ai'
   | 'sampler'

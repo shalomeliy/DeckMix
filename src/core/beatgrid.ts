@@ -13,7 +13,9 @@ import type { BeatGrid } from '@/core/types'
  * the energy peaks) but not *bar* phase — telling beat 1 of a bar from beats 2-4
  * needs kick/snare timbre analysis this does not do. So `estimateBeatGrid` finds
  * the nearest beat, not the nearest downbeat-of-a-bar; `setDownbeatAt` is the
- * manual tool for a user who cares which beat is bar-1.
+ * manual tool for a user who cares which beat is bar-1. A detected grid's
+ * `offsetSec` therefore sits inside the first beat; a hand-edited one sits
+ * anywhere inside the first bar, and that difference is the whole edit.
  */
 
 /**
@@ -272,20 +274,31 @@ export function halveGrid(grid: BeatGrid): BeatGrid {
   return { bpm: grid.bpm / 2, offsetSec: grid.offsetSec }
 }
 
+/**
+ * One bar, in seconds — the period the three hand-edit functions below fold
+ * `offsetSec` into. Folding into a *beat* (as they did until v0.8.23) keeps
+ * where the beats fall but throws away which of them is the "1": "Set
+ * downbeat here" on beat 3 folded back to beat 1 of the first bar, and the
+ * yellow line stayed exactly where the owner had just said it was wrong.
+ */
+function barPeriodSec(bpm: number): number {
+  return (60 / bpm) * BEATS_PER_BAR
+}
+
 /** Corrects an octave-high BPM guess (the detector locked onto a subdivision). */
 export function doubleGrid(grid: BeatGrid): BeatGrid {
   const bpm = grid.bpm * 2
-  return { bpm, offsetSec: foldInto(grid.offsetSec, 60 / bpm) }
+  return { bpm, offsetSec: foldInto(grid.offsetSec, barPeriodSec(bpm)) }
 }
 
-/** Nudge the grid's phase by `deltaSec`, wrapped back into one beat period. */
+/** Nudge the grid's phase by `deltaSec`, wrapped back into one bar. */
 export function shiftGrid(grid: BeatGrid, deltaSec: number): BeatGrid {
-  return { bpm: grid.bpm, offsetSec: foldInto(grid.offsetSec + deltaSec, 60 / grid.bpm) }
+  return { bpm: grid.bpm, offsetSec: foldInto(grid.offsetSec + deltaSec, barPeriodSec(grid.bpm)) }
 }
 
-/** A new grid whose beat 0 lands exactly at `markSec`, at the given `bpm`. */
+/** A new grid whose bar line (beat 0 of a bar) lands exactly at `markSec`, at the given `bpm`. */
 export function setDownbeatAt(bpm: number, markSec: number): BeatGrid {
-  return { bpm, offsetSec: foldInto(markSec, 60 / bpm) }
+  return { bpm, offsetSec: foldInto(markSec, barPeriodSec(bpm)) }
 }
 
 /**

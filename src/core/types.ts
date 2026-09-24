@@ -114,7 +114,11 @@ export interface HotCue {
 }
 
 export interface BeatGrid {
-  /** seconds from track start to the grid's own beat 0, folded into [0, 60/bpm) */
+  /**
+   * Seconds from track start to the grid's own beat 0 — the first yellow (bar)
+   * line. Folded into one bar, [0, 4·60/bpm), since v0.8.23; a detected grid
+   * lands inside the first beat because detection only finds beats, not bars.
+   */
   offsetSec: number
   bpm: number
 }

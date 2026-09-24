@@ -30,6 +30,7 @@ const STORAGE_KEYS = [
   'deckmix:embeddingCache:',
   'deckmix:fx:racks',
   'deckmix:genreOverrides',
+  'deckmix:gridCorrection:',
   'deckmix:genreOverrides:migratedToHash',
   'deckmix:genreOverridesByHash',
   'deckmix:keyMode',

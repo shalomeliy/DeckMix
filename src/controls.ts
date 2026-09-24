@@ -53,6 +53,8 @@ import { matchesQuery } from '@/core/library-search'
 import { sortTracks } from '@/core/library-sort'
 import { getCues, putCues } from '@/platform/cues-idb/store'
 import { getTempo, putTempo } from '@/platform/tempo-idb/store'
+import { getGridCorrection, putGridCorrection } from '@/platform/grid-corrections-idb/store'
+import { ownerCorrection, resolveGridCorrection } from '@/core/grid-corrections'
 import { getExcellentPoints, markExcellent } from '@/platform/mix-ratings-idb/store'
 import { markExcellentPair } from '@/platform/mix-pairs-idb/store'
 import { clock } from '@/platform/clock-audio'
@@ -418,6 +420,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
   // playable, so a failure here means "no waveform/grid yet", never "the
   // load failed" — caught on its own, never re-thrown to this function's
   // caller (v0.4.0 acceptance criterion 3).
+  deckAnalysisPending[deckId] = track.id
   try {
     // No hash (a hashing failure above) means "not yet identified" — analysis
     // still runs so this load gets its waveform/grid, it just can't be cached
@@ -453,16 +456,23 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     const tagAgrees =
       track.bpm != null && detectedBpm != null && Math.abs(detectedBpm - track.bpm) / track.bpm <= 0.02
     const bpm = tagAgrees ? detectedBpm : (track.bpm ?? analysis.bpm)
-    const beatGrid: BeatGrid | null = analysis.beatGrid
+    const detectedGrid: BeatGrid | null = analysis.beatGrid
       ? { bpm: bpm ?? analysis.beatGrid.bpm, offsetSec: analysis.beatGrid.offsetSec }
       : null
+    // A grid the owner fixed by hand (v0.8.23) beats anything detection says,
+    // bpm included: it is the one answer here a person checked.
+    const saved = contentHash ? await loadGridCorrection(contentHash) : null
+    if (useStore.getState().decks[deckId].track?.id !== track.id) return
+    const corrected = applySavedGridResult(saved)
+    const beatGrid = corrected ?? detectedGrid
+    const deckBpm = corrected ? corrected.bpm : bpm
     patchDeck(deckId, {
-      track: { ...track, contentHash, analysisState: 'analyzed', bpm: bpm ?? undefined, durationSec },
-      bpm,
+      track: { ...track, contentHash, analysisState: 'analyzed', bpm: deckBpm ?? undefined, durationSec },
+      bpm: deckBpm,
       // Unconfirmed whenever detection didn't produce a grid it trusts — never
       // a silently-assumed-fine grid. Cleared only by the user checking or
-      // editing it (BeatGridPanel, v0.3.0 sub-step d).
-      beatGridConfirmed: analysis.beatGridConfirmed,
+      // editing it (BeatGridPanel, v0.3.0 sub-step d), or by a saved edit.
+      beatGridConfirmed: corrected ? true : analysis.beatGridConfirmed,
       beatGrid,
       peaks: analysis.peaks,
       bands: analysis.bands,
@@ -474,15 +484,21 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     const { library: libAfter, setLibrary: setLibAfter } = useStore.getState()
     setLibAfter({
       tracks: libAfter.tracks.map((t) =>
-        t.id === track.id ? { ...t, contentHash, analysisState: 'analyzed', bpm: bpm ?? t.bpm } : t,
+        t.id === track.id ? { ...t, contentHash, analysisState: 'analyzed', bpm: deckBpm ?? t.bpm } : t,
       ),
     })
   } catch (err) {
     console.error('analysis failed', err)
     if (useStore.getState().decks[deckId].track?.id !== track.id) return
     const message = err instanceof Error ? err.message : String(err)
+    // The owner's saved grid needs no analysis to draw (v0.8.23) — without
+    // this, a failed analysis hid a correction that was sitting in storage.
+    const saved = contentHash ? await loadGridCorrection(contentHash) : null
+    if (useStore.getState().decks[deckId].track?.id !== track.id) return
+    const corrected = applySavedGridResult(saved)
     patchDeck(deckId, {
       track: { ...track, contentHash, analysisState: 'failed', analysisError: message, durationSec },
+      ...(corrected ? { beatGrid: corrected, bpm: corrected.bpm, beatGridConfirmed: true } : {}),
     })
     const { library: libAfter, setLibrary: setLibAfter } = useStore.getState()
     setLibAfter({
@@ -490,6 +506,8 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
         t.id === track.id ? { ...t, contentHash, analysisState: 'failed', analysisError: message } : t,
       ),
     })
+  } finally {
+    if (deckAnalysisPending[deckId] === track.id) deckAnalysisPending[deckId] = null
   }
 }
 
@@ -792,6 +810,82 @@ export function cue(deckId: DeckId) {
     useStore.getState().patchDeck(deckId, { cuePointSec: quantizeIfOn(deckId, deck.position) })
     persistCues(deckId)
   }
+}
+
+/**
+ * Which deck's own analysis is still running, by track id. A grid set in
+ * that window is built on the tag's rounded bpm and no detected phase; saved
+ * as the owner's, it would then beat the real analysis on every later load,
+ * marked as checked (v0.8.23 review). So those edits are refused, out loud.
+ */
+const deckAnalysisPending: Record<DeckId, string | null> = { A: null, B: null }
+
+type SavedGridResult = { grid: BeatGrid } | { problem: string } | null
+
+/**
+ * The owner's saved grid for this track. Reads only — the notice for a
+ * record that can't be used is shown by `applySavedGridResult`, after the
+ * caller has checked the deck still holds this track, so a warning never
+ * lands on the next track instead.
+ */
+async function loadGridCorrection(contentHash: string): Promise<SavedGridResult> {
+  try {
+    const r = resolveGridCorrection(await getGridCorrection(contentHash))
+    if (r == null) return null
+    if ('refused' in r) return { problem: `Your saved beat grid was not used (${r.refused}) — showing the detected one.` }
+    return r
+  } catch (err) {
+    return {
+      problem: `Your saved beat grid could not be read — showing the detected one: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+}
+
+/** The grid to use, or `null`; a record that couldn't be used is said on screen — never a silent fallback. */
+function applySavedGridResult(r: SavedGridResult): BeatGrid | null {
+  if (r == null) return null
+  if ('problem' in r) {
+    useStore.getState().setNotice({ text: r.problem, tone: 'warn', source: 'grid' })
+    return null
+  }
+  return r.grid
+}
+
+/**
+ * Refuses a grid edit while this deck's analysis is still running (see
+ * `deckAnalysisPending`), with a notice. True means "go ahead".
+ */
+function gridEditAllowed(deckId: DeckId): boolean {
+  if (deckAnalysisPending[deckId] == null) return true
+  useStore.getState().setNotice({
+    text: `Deck ${deckId} is still analysing this track — edit the beat grid once it appears.`,
+    tone: 'warn',
+    source: 'grid',
+  })
+  return false
+}
+
+/** Every hand edit to a grid goes through here, so none of them is lost at the next load (v0.8.23). */
+function persistGridCorrection(deckId: DeckId) {
+  const { decks, setNotice } = useStore.getState()
+  const st = decks[deckId]
+  const hash = st.track?.contentHash
+  if (!st.beatGrid) return
+  if (!hash) {
+    setNotice({
+      text: 'Beat grid changed on screen, but this track has no identity yet, so it will not be remembered.',
+      tone: 'warn',
+      source: 'grid',
+    })
+    return
+  }
+  void putGridCorrection(hash, ownerCorrection(st.beatGrid, Date.now())).catch((err) => {
+    setNotice({
+      text: `Beat grid changed on screen but not saved: ${err instanceof Error ? err.message : String(err)}`,
+      tone: 'warn',
+      source: 'grid',
+    })
+  })
 }
 
 /** Hold CUE to preview from the cue point. Call release() when the button lifts. */
@@ -2493,6 +2587,7 @@ export function nudgeBeatGrid(deckId: DeckId, deltaSec: number = BEATGRID_NUDGE_
   if (!grid) return
   const next = shiftGrid(grid, deltaSec)
   patchDeck(deckId, { beatGrid: next, bpm: next.bpm, beatGridConfirmed: true })
+  persistGridCorrection(deckId)
 }
 
 /** Corrects an octave-low guess — see core/beatgrid.ts's halveGrid. */
@@ -2502,6 +2597,7 @@ export function halveBeatGrid(deckId: DeckId) {
   if (!grid) return
   const next = halveGrid(grid)
   patchDeck(deckId, { beatGrid: next, bpm: next.bpm, beatGridConfirmed: true })
+  persistGridCorrection(deckId)
 }
 
 /** Corrects an octave-high guess — see core/beatgrid.ts's doubleGrid. */
@@ -2511,6 +2607,7 @@ export function doubleBeatGrid(deckId: DeckId) {
   if (!grid) return
   const next = doubleGrid(grid)
   patchDeck(deckId, { beatGrid: next, bpm: next.bpm, beatGridConfirmed: true })
+  persistGridCorrection(deckId)
 }
 
 /**
@@ -2521,11 +2618,13 @@ export function doubleBeatGrid(deckId: DeckId) {
 export function setDownbeatHere(deckId: DeckId) {
   const deck = engine.decks[deckId]
   if (!deck.hasTrack) return
+  if (!gridEditAllowed(deckId)) return
   const { patchDeck, decks } = useStore.getState()
   const bpm = decks[deckId].beatGrid?.bpm ?? decks[deckId].bpm
   if (!bpm) return
   const next = setDownbeatAt(bpm, deck.position)
   patchDeck(deckId, { beatGrid: next, bpm: next.bpm, beatGridConfirmed: true })
+  persistGridCorrection(deckId)
 }
 
 /** Per-deck tap timestamps for tapTempo, seconds since the page loaded. */
@@ -2541,6 +2640,7 @@ const TAP_RESET_SEC = 2
 export function tapTempo(deckId: DeckId) {
   const deck = engine.decks[deckId]
   if (!deck.hasTrack) return
+  if (!gridEditAllowed(deckId)) return
   const now = performance.now() / 1000
   const taps = tapTimesSec[deckId]
   if (taps.length > 0 && now - taps[taps.length - 1] > TAP_RESET_SEC) taps.length = 0
@@ -2549,8 +2649,12 @@ export function tapTempo(deckId: DeckId) {
   const bpm = bpmFromTaps(taps)
   if (bpm == null) return
   const { patchDeck, decks } = useStore.getState()
-  const offsetSec = decks[deckId].beatGrid?.offsetSec ?? 0
-  patchDeck(deckId, { beatGrid: { bpm, offsetSec }, bpm, beatGridConfirmed: true })
+  // Re-folded into the new, possibly shorter bar: the stored offset is
+  // always inside the first bar (`BeatGrid.offsetSec`), and the bar line
+  // itself doesn't move.
+  const next = setDownbeatAt(bpm, decks[deckId].beatGrid?.offsetSec ?? 0)
+  patchDeck(deckId, { beatGrid: next, bpm, beatGridConfirmed: true })
+  persistGridCorrection(deckId)
 }
 
 // ————————————————————————————————————————————————————————————————
