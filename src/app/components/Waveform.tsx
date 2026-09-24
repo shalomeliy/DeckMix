@@ -28,8 +28,8 @@ interface Props {
  * vocal or synth lead reads green, hats and air read blue. It is how you spot
  * the breakdown, the drop and the intro without listening through the track.
  *
- * Red/green/blue for low/mid/high is Serato's convention and DJs read it
- * fluently, so this keeps it — and keeps it saturated. An earlier pass muted
+ * Red/green/blue for low/mid/high is a long-standing DJ convention and DJs read
+ * it fluently, so this keeps it — and keeps it saturated. An earlier pass muted
  * these off the primaries to avoid glare and the whole waveform went to mush:
  * against a near-black panel there is no glare to avoid, only contrast to win.
  */

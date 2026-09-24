@@ -66,7 +66,7 @@ function keyLabel(track: Track, mode: KeyMode): string | undefined {
 /**
  * Colour the key by its position on the Camelot wheel.
  *
- * Serato colours keys too, but its palette is arbitrary — the colour is just a
+ * A palette picked per key would be arbitrary — the colour would just be a
  * second name for the label. Deriving hue from the wheel makes it carry the
  * thing you actually care about: neighbouring numbers mix, so compatible keys
  * land on neighbouring hues and a clash is visibly far away. OKLCH keeps every
@@ -1175,10 +1175,10 @@ export function Library() {
       ) : (
         <div ref={containerRef} className="min-h-0 flex-1 overflow-auto">
           {/*
-            Sized against Serato on the same 14" panel: it fits ~31px rows with
-            ~16px type, i.e. denser *and* far more legible than a tall row full
-            of small text. Rows are 36px with 14px type — you see more tracks
-            than before and read them at a glance.
+            Sized for the owner's 14" panel: ~31px rows with ~16px type read as
+            denser *and* far more legible than a tall row full of small text.
+            Rows are 36px with 14px type — you see more tracks than before and
+            read them at a glance.
           */}
           {/* The scale rides on the table's own font-size and everything inside
               is in `em`-equivalent Tailwind steps, so rows, headers and the key

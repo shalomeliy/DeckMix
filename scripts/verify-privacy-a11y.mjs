@@ -134,7 +134,7 @@ await page.goto(URL, { waitUntil: 'domcontentloaded' })
 await page.waitForTimeout(1500)
 
 // --- Persistent disclaimer line + Privacy & Terms tab ---
-const disclaimer = page.getByRole('button', { name: /Not affiliated with Pioneer DJ\/Serato/ })
+const disclaimer = page.getByRole('button', { name: /Not affiliated with Pioneer DJ/ })
 ok('the persistent disclaimer line is visible on the main screen', await disclaimer.isVisible())
 await disclaimer.click()
 await page.waitForTimeout(150)

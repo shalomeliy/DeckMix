@@ -53,7 +53,7 @@ export const TERMS_TEXT = [
 ] as const
 
 export const TRADEMARK_NOTICE =
-  'DeckMix is an independent project, built from scratch on the open web platform. It is not affiliated with, endorsed by, or sponsored by AlphaTheta, Pioneer DJ, Serato, or rekordbox. Any product names mentioned (such as the DDJ-FLX4 controller this app talks to over Web MIDI) are the trademarks of their respective owners, named only to describe compatibility.'
+  'DeckMix is an independent project, built from scratch on the open web platform. It is not affiliated with, endorsed by, or sponsored by Pioneer DJ or its parent company AlphaTheta. Any product names mentioned (such as the DDJ-FLX4 controller this app talks to over Web MIDI) are the trademarks of their respective owners, named only to describe compatibility.'
 
 export const COPYRIGHT_NOTICE =
   'You are solely responsible for the rights to any music you play or record with DeckMix. DeckMix does not check, and cannot check, whether you have the right to use a given track.'

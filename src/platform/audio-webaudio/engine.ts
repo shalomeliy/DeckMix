@@ -20,7 +20,7 @@ interface AudioContextWithSink extends AudioContext {
 /**
  * Global audio engine. Builds a 4-channel output bus so a DJ controller's
  * built-in interface can carry master on 1/2 and headphone cue on 3/4 — the
- * same split Serato uses. Falls back to a stereo master + software-monitored
+ * split a DJ controller's sound card expects. Falls back to a stereo master + software-monitored
  * cue when the output device only exposes 2 channels.
  */
 export class AudioEngine {

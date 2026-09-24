@@ -39,9 +39,10 @@ const AUDIO_EXT = new Set([
 
 /**
  * Companion files that sit next to a real track and must never become rows of
- * their own. `.serato-stems` is Serato's stem-separation cache: every one of
- * them has a playable source file alongside it, so listing them would show
- * those songs twice.
+ * their own. The first is a stem-separation cache another DJ program leaves
+ * beside each song it processed — the extension is named only because the
+ * files are really there in the owner's folders: every one has a playable
+ * source file alongside it, so listing them would show those songs twice.
  */
 const COMPANION_EXT = new Set(['serato-stems', 'asd', 'reapeaks', 'ovw'])
 

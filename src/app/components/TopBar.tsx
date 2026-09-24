@@ -198,7 +198,7 @@ export function TopBar({
           onClick={onOpenLegal}
           className="whitespace-nowrap text-2xs text-grid-dim underline decoration-dotted underline-offset-2 transition-colors hover:text-grid-muted"
         >
-          Not affiliated with Pioneer DJ/Serato · Privacy
+          Not affiliated with Pioneer DJ · Privacy
         </button>
       </div>
     </header>

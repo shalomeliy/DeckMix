@@ -55,8 +55,8 @@ export interface Binding {
  * There is no standard, so this is a property of the hardware and belongs to the
  * mapping — not a constant every controller has to happen to agree with.
  *
- * - `twos-complement` — 1..63 is +1..+63, 127..65 is -1..-63. What Serato and
- *   rekordbox presets usually document.
+ * - `twos-complement` — 1..63 is +1..+63, 127..65 is -1..-63. The convention
+ *   MIDI controller documentation usually describes.
  * - `offset-64` — 64 is "no movement", 65 is +1, 63 is -1. What the DDJ-FLX4
  *   actually sends; see the note on FLX4_MAPPING. The sign is confirmed on the
  *   hardware too, not just the magnitude: 65 turning the wheel clockwise moves

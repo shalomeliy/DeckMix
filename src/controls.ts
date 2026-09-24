@@ -440,7 +440,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     // track this analysis was for — don't let a late result clobber it.
     if (useStore.getState().decks[deckId].track?.id !== track.id) return
 
-    // A tag written by Serato still beats our own bpm guess — v0.1.7 measured
+    // A BPM tag in the file still beats our own bpm guess — v0.1.7 measured
     // tag accuracy at 97% across the user's library, and detection is still
     // autocorrelation on an onset envelope, occasionally an octave off (see
     // core/beatgrid.ts). What v0.3.0 changes: detection is the *only* source

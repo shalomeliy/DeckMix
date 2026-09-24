@@ -8,8 +8,8 @@ export type Cancel = () => void
  * Every sync, quantize, beat-jump and beat-timed effect has to derive from one
  * source or they drift apart under load.
  *
- * Today: one implementation over `audioContext.currentTime`. An Ableton Link
- * clock (v0.19) drops in underneath without a single consumer changing.
+ * Today: one implementation over `audioContext.currentTime`. A network tempo-
+ * sync clock (v0.19) drops in underneath without a single consumer changing.
  */
 export interface Clock {
   /** seconds, monotonic */

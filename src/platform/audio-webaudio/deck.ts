@@ -224,7 +224,7 @@ export class Deck {
     this.player.seek(clamp(sec, 0, this.duration))
   }
 
-  /** Serato-style CUE: jump to cue point; hold-to-play handled by caller. */
+  /** CUE: jump to cue point; hold-to-play handled by caller. */
   cueTo(sec: number) {
     this.seek(sec)
   }

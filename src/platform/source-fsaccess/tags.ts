@@ -1,7 +1,7 @@
 /**
  * Read metadata straight out of the file headers — no audio decoding.
  *
- * A DJ library is almost always already tagged (Serato/rekordbox/iTunes write
+ * A DJ library is almost always already tagged (DJ and music programs write
  * BPM and key back into the files), so reading beats analysing: the BPM/Key/Time
  * columns fill in for the whole library in seconds instead of waiting for the
  * analysis engine (v0.3/v0.4). Analysis wins when it eventually runs — see

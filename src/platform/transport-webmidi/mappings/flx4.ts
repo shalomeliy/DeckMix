@@ -5,9 +5,9 @@ import { bindingKey, type MidiMapping } from '@/core/mapping/mapping'
  *
  * The FLX4 speaks MIDI (not HID) for its mapped controls. Deck 1 lives on MIDI
  * channel 0, deck 2 on channel 1; the mixer/browse section uses channel 6.
- * These note/CC numbers follow the layout Pioneer publishes for the FLX4 and
- * matches its rekordbox/Serato defaults, but firmware revisions vary — use the
- * MIDI monitor + Learn button in Settings to fix any control that misfires.
+ * These note/CC numbers follow the layout Pioneer publishes for the FLX4, but
+ * firmware revisions vary — use the MIDI monitor + Learn button in Settings to
+ * fix any control that misfires.
  */
 
 function deck(ch: number) {
