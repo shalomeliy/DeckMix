@@ -71,7 +71,41 @@ export function syncTempoFor(
   range: number = TEMPO_RANGE,
 ): number {
   const targetBpm = masterBpm * tempoToRate(masterTempo, range)
-  return (targetBpm / deckBpm - 1) / range
+  return (targetBpm / (deckBpm * syncMultiplier(targetBpm, deckBpm, range)) - 1) / range
+}
+
+/**
+ * The reading SYNC uses: straight whenever the fader can reach the target —
+ * so no pair that synced before v0.8.36 changes (at ±50%, a 140 under a 100
+ * would otherwise jump to double-time, and swapping which deck is master would
+ * change the answer) — and half/double only where straight is out of reach.
+ * `targetBpm` is the master's *playing* BPM, the same number `syncTempoFor` aims at.
+ */
+export function syncMultiplier(targetBpm: number, deckBpm: number, range: number = TEMPO_RANGE): 0.5 | 1 | 2 {
+  if (Math.abs(targetBpm / deckBpm - 1) <= range) return 1
+  return halfDoubleMultiplier(targetBpm, deckBpm)
+}
+
+/**
+ * Whether a deck plays against the master straight (1), half-time (2: an 85
+ * under a 170) or double-time (0.5) — whichever reading of `deckBpm` sits
+ * nearest `masterBpm`. The same three readings `recommend.ts` already offers
+ * a track under (its "half-time" chip); v0.8.36 made SYNC honour them too.
+ * Before, SYNC asked an 85 to reach 170 — a +100% fader the ±8% range clamps
+ * to 91.8 — so a pair Mix Assist had just suggested never locked, and the
+ * phase loop then corrected a half-beat it read as error, forever.
+ */
+export function halfDoubleMultiplier(masterBpm: number, deckBpm: number): 0.5 | 1 | 2 {
+  let best: 0.5 | 1 | 2 = 1
+  let bestErr = Math.abs(deckBpm - masterBpm)
+  for (const m of [2, 0.5] as const) {
+    const err = Math.abs(deckBpm * m - masterBpm)
+    if (err < bestErr) {
+      best = m
+      bestErr = err
+    }
+  }
+  return best
 }
 
 // ————————————————————————————————————————————————————————————————

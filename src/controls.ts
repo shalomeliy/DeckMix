@@ -22,6 +22,8 @@ import {
   HOT_CUE_COLORS,
   RECENTLY_REMOVED_WINDOW_SEC,
   syncTempoFor,
+  halfDoubleMultiplier,
+  syncMultiplier,
   tempoToRate,
   TRANSITION_CROSSFADE_SEC,
 } from '@/core/constants'
@@ -2815,7 +2817,20 @@ function runSyncCorrection() {
     if (!st.beatGrid || !master.beatGrid) continue
     const deck = engine.decks[id]
     const masterDeck = engine.decks[masterDeckId]
-    const delta = phaseDeltaSec(deck.position, st.beatGrid, masterDeck.position, master.beatGrid)
+    // Half-time pairs (v0.8.36): the deck's beats are read at the master's
+    // rate, so an 85 locks every beat to every other beat of a 170 instead of
+    // being "half a beat off" on every other one.
+    // Read from what the two decks are *playing*, not their native BPMs: once
+    // SYNC has matched them, the ratio is ~exactly 1, 2 or 0.5 whatever the
+    // faders or the tempo range, so this can't disagree with the choice
+    // `syncTempoFor` made (v0.8.36 review: native BPMs could, at ±16%/±50%).
+    const range = settings.values.tempoRange
+    const mult =
+      st.bpm && master.bpm
+        ? halfDoubleMultiplier(master.bpm * tempoToRate(master.tempo, range), st.bpm * tempoToRate(st.tempo, range))
+        : 1
+    const deckGrid = mult === 1 ? st.beatGrid : { ...st.beatGrid, bpm: st.beatGrid.bpm * mult }
+    const delta = phaseDeltaSec(deck.position, deckGrid, masterDeck.position, master.beatGrid)
     if (Math.abs(delta) < SYNC_PHASE_DEADBAND_SEC) continue
     deck.syncNudge(delta, SYNC_LOOP_INTERVAL_SEC)
   }
@@ -2899,6 +2914,16 @@ export function syncDeck(deckId: DeckId) {
   setTempo(deckId, tempo, { persist: false })
   patchDeck(deckId, { syncActive: true })
   ensureSyncLoop()
+  // Said out loud: the two BPM readouts now differ by 2×, which reads as "SYNC
+  // failed" unless something says why.
+  const mult = syncMultiplier(master.bpm * tempoToRate(master.tempo, settings.values.tempoRange), st.bpm, settings.values.tempoRange)
+  if (mult !== 1) {
+    setNotice({
+      text: `Deck ${deckId} synced ${mult === 2 ? 'half-time' : 'double-time'} to deck ${resolvedMaster} — ${Math.round(st.bpm)} BPM counts as ${Math.round(st.bpm * mult)}.`,
+      tone: 'info',
+      source: 'sync',
+    })
+  }
 }
 
 /**
