@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { matchGenre, parentFolderName } from '@/core/genres'
+import { genreFolderFor, matchGenre, parentFolderName } from '@/core/genres'
 
 /**
  * v0.3.2. The owner's real library is `Tracks/HipHop|House|Techno|Trance|Mizrahi|Final`
@@ -58,5 +58,17 @@ describe('parentFolderName', () => {
 
   it('reads only the immediate parent, not an outer genre folder', () => {
     expect(parentFolderName('Techno/2020/')).toBe('2020')
+  })
+})
+
+describe('genreFolderFor (25/09)', () => {
+  it('a file directly in a picked genre folder takes that folder as its genre', () => {
+    expect(matchGenre(genreFolderFor('', 'Techno'))).toBe('Techno')
+  })
+  it('a subfolder still wins over the picked folder', () => {
+    expect(genreFolderFor('House/', 'Tracks')).toBe('House')
+  })
+  it('a picked folder that is not a genre gives no genre, as before', () => {
+    expect(matchGenre(genreFolderFor('', 'Tracks'))).toBeUndefined()
   })
 })

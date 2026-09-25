@@ -1,5 +1,5 @@
 import { get, set } from 'idb-keyval'
-import { matchGenre, parentFolderName } from '@/core/genres'
+import { genreFolderFor, matchGenre, parentFolderName } from '@/core/genres'
 import { detectedKeyFields } from '@/core/key-detect'
 import type { SavedPermission } from '@/core/library-boot'
 import type { Track } from '@/core/types'
@@ -224,7 +224,7 @@ export async function scanLibrary(
           continue
         }
         const folder = parentFolderName(prefix)
-        const genre = matchGenre(folder)
+        const genre = matchGenre(genreFolderFor(prefix, root.name))
         // a file at the scan root has no folder to blame, so it is excluded
         // from the notice rather than reported as "unrecognized" — there is
         // nothing actionable to tell the owner about it

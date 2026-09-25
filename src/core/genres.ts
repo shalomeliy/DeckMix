@@ -111,3 +111,14 @@ export function parentFolderName(prefix: string): string | undefined {
   const segments = trimmed.split('/')
   return segments[segments.length - 1] || undefined
 }
+
+/**
+ * The folder a file's genre comes from: its immediate parent, or — for a file
+ * sitting directly in the folder the owner picked — that folder's own name
+ * (25/09). Shalom picked `Techno` itself rather than `Tracks`, and 42 of its 43
+ * rows showed no genre: the root had "no folder to blame", so a folder named
+ * exactly like a genre was ignored for the very files inside it.
+ */
+export function genreFolderFor(prefix: string, rootName: string | undefined): string | undefined {
+  return parentFolderName(prefix) ?? (rootName || undefined)
+}
