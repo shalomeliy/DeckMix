@@ -96,13 +96,13 @@ for (let i = 0; i < files.length; i++) {
     const t = performance.now()
     const k = detectKey(channels, audio.sampleRate)
     const ms = performance.now() - t
-    // The summed chroma, from the very code the app runs, so key profiles can
-    // be fitted and cross-checked offline (scripts/fit-key-profiles.mjs)
+    // The per-band chroma, from the very code the app runs, so key profiles
+    // can be fitted and cross-checked offline (scripts/fit-key-profiles.mjs)
     // without decoding the library again.
-    const { chroma } = await import('http://localhost:5173/src/core/key-detect.ts')
-    const c = Array.from(chroma(channels, audio.sampleRate))
+    const { bandChroma } = await import('http://localhost:5173/src/core/key-detect.ts')
+    const bands = bandChroma(channels, audio.sampleRate).map((b) => Array.from(b))
     return {
-      chroma: c,
+      bands,
       tag: tags.camelot ?? null,
       detected: k ? camelotOf(k) : null,
       margin: k ? k.margin : null,

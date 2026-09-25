@@ -12,4 +12,6 @@
  */
 // 3 (v0.8.27): `TrackAnalysis` gained `key`. A version-2 entry has none, and
 // read as "the audio picked no key" it would leave every untagged track keyless.
-export const ANALYZER_VERSION = 3
+// 4 (v0.8.30): the key detector changed (three bands) — a version-3 key is
+// the old, less accurate guess, and would stay on screen forever.
+export const ANALYZER_VERSION = 4

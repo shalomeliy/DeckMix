@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FFT_SIZE, KK_MAJOR, LIBRARY_MINOR, UNCERTAIN_MARGIN, camelotOf, detectKey, detectedKeyFields, fft, keyFromChroma, keyNameOf } from '@/core/key-detect.ts'
+import { BANDS, FFT_SIZE, KK_MAJOR, UNCERTAIN_MARGIN, bandChroma, camelotOf, detectKey, detectedKeyFields, fft, keyFromBands, keyNameOf } from '@/core/key-detect.ts'
 import { parseKey } from '@/platform/source-fsaccess/tags'
 
 const RATE = 44100
@@ -26,18 +26,42 @@ describe('fft', () => {
   })
 })
 
-describe('keyFromChroma', () => {
-  it('a chroma shaped like a profile comes back as that key, at any tonic', () => {
+describe('keyFromBands', () => {
+  const rotate = (p: readonly number[], tonic: number) => Array.from({ length: 12 }, (_, i) => p[(i - tonic + 12) % 12])
+
+  it('bands shaped like the profiles come back as that key, at any tonic', () => {
     for (let tonic = 0; tonic < 12; tonic++) {
-      const maj = Array.from({ length: 12 }, (_, i) => KK_MAJOR[(i - tonic + 12) % 12])
-      const min = Array.from({ length: 12 }, (_, i) => LIBRARY_MINOR[(i - tonic + 12) % 12])
-      expect(keyFromChroma(maj)).toMatchObject({ tonic, minor: false })
-      expect(keyFromChroma(min)).toMatchObject({ tonic, minor: true })
+      expect(keyFromBands(BANDS.map(() => rotate(KK_MAJOR, tonic)))).toMatchObject({ tonic, minor: false })
+      expect(keyFromBands(BANDS.map((b) => rotate(b.minor, tonic)))).toMatchObject({ tonic, minor: true })
     }
   })
 
-  it('a flat chroma is no key, not a guess', () => {
-    expect(keyFromChroma(new Array(12).fill(1))).toBeNull()
+  it('flat bands are no key, not a guess', () => {
+    expect(keyFromBands(BANDS.map(() => new Array(12).fill(1)))).toBeNull()
+  })
+
+  it('a band with no weight cannot move the answer', () => {
+    const muted = BANDS.findIndex((b) => b.weight === 0)
+    if (muted < 0) return // every band counts today; the check is for the day one is switched off
+    const am = BANDS.map((b) => rotate(b.minor, 9))
+    const noisy = am.map((c, k) => (k === muted ? rotate(KK_MAJOR, 2) : c))
+    expect(keyFromBands(noisy)).toMatchObject({ tonic: 9, minor: true })
+  })
+})
+
+describe('bandChroma', () => {
+  it('one chroma per band, each summing to 1', () => {
+    const c = bandChroma([tones([45, 57, 60, 64])], RATE)
+    expect(c).toHaveLength(BANDS.length)
+    for (const band of c) expect(band.reduce((a, v) => a + v, 0)).toBeCloseTo(1, 6)
+  })
+
+  it('a note is counted in the band its frequency is in', () => {
+    // A4 = 440 Hz. (Window leakage into the other bands is normalised up like
+    // any quiet band — measured that way, so not asserted away here.)
+    const c = bandChroma([tones([69])], RATE)
+    const k = BANDS.findIndex((b) => b.loHz <= 440 && 440 < b.hiHz)
+    expect(c[k][9]).toBeGreaterThan(0.9)
   })
 })
 
