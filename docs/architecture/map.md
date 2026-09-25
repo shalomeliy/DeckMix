@@ -21,6 +21,7 @@ src/
     grid-corrections.ts  resolveGridCorrection — מתי תיקון גריד שמור עדיין תקף (v0.8.23)
     key-parse.ts         parseKey/parseBpm — סולם ו-BPM כפי שתגית או אדם כותבים (עבר מ-tags.ts ב-v0.8.38)
     tag-merge.ts         מי מנצח: תגית / זיהוי / ערך שהבעלים הקליד (applyOwnerMeta, v0.8.38)
+    tempo-glide.ts       masterHasGone/glideTempoAt — מתי השיר הישן "נגמר" ואיך חוזרים לאט ל-BPM המקורי (v0.8.39)
     source-lookup.ts     beatportSearch — קישור חיפוש בלבד; האפליקציה אף פעם לא קוראת את Beatport (v0.8.38)
     ports/              ה‑interfaces: audio, source, transport, analyzer, clock,
                         persistence, capabilities, ai

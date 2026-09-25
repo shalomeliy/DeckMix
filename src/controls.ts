@@ -69,6 +69,7 @@ import type { ParsedKey } from '@/core/key-parse'
 import { hashBytes, hashFile } from '@/platform/source-fsaccess/hash'
 import { settings } from '@/platform/settings-idb/store'
 import { DEFAULTS, FIELD_BY_KEY, secPerRev, type Settings } from '@/core/settings'
+import { GLIDE_BACK_SEC, glideTempoAt, masterHasGone } from '@/core/tempo-glide'
 import {
   hasMixEntryNear,
   isOrdinalLabel,
@@ -260,6 +261,9 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     })
     return
   }
+  // The glide belongs to the track that was synced in, not to the deck — a new
+  // track landing mid-glide would otherwise be dragged toward the old one's speed.
+  cancelTempoGlide(deckId)
   // Only this function's own message is cleared. It used to clear the notice
   // outright, which threw away whatever else was up there — the
   // "your audio device is not connected" warning is set at startup and was
@@ -391,6 +395,10 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
   // persist, refreshing FX beat-sync time) is for a genuine fader touch, not
   // for re-applying a value that was already this track's saved tempo a
   // moment ago.
+  // Again, not only at the top: the awaits above leave a window where the old
+  // track, still synced and playing, can have a glide started on it — which
+  // would then drag this new track from the old one's tempo (v0.8.39 review).
+  cancelTempoGlide(deckId)
   engine.decks[deckId].setTempo(storedTempo ?? 0)
   if (startSec > 0) engine.decks[deckId].seek(startSec)
   patchDeck(deckId, {
@@ -769,6 +777,7 @@ export function togglePlay(deckId: DeckId) {
     useStore.getState().setNotice({ text: `Transition cancelled — deck ${deckId} was touched by hand.`, tone: 'info', source: 'sync' })
     return
   }
+  if (!deck.playing) autoSyncOnPlay(deckId)
   deck.togglePlay()
   useStore.getState().patchDeck(deckId, { playing: deck.playing })
   if (deck.playing) maybeAutoMaster(deckId)
@@ -777,6 +786,7 @@ export function togglePlay(deckId: DeckId) {
 export function play(deckId: DeckId) {
   const deck = engine.decks[deckId]
   if (!deck.hasTrack || deck.playing) return
+  autoSyncOnPlay(deckId)
   deck.play()
   useStore.getState().patchDeck(deckId, { playing: true })
   maybeAutoMaster(deckId)
@@ -1287,6 +1297,8 @@ export function setTempo(deckId: DeckId, tempo: number, opts: { persist?: boolea
   // `setMasterDeck`, `activeTransition` is already cleared — so this only
   // ever fires for a genuine manual touch of the tempo fader.
   cancelTransitionIfOutgoingDeckTouched(deckId)
+  // A hand on the fader (or SYNC, which comes through here) outranks the glide.
+  cancelTempoGlide(deckId)
   const t = Math.max(-1, Math.min(1, tempo))
   engine.decks[deckId].setTempo(t)
   useStore.getState().patchDeck(deckId, { tempo: t, syncActive: false })
@@ -2788,6 +2800,7 @@ function ensureSyncLoop() {
   clock.subscribe((t) => {
     if (t - last < SYNC_LOOP_INTERVAL_SEC) return
     last = t
+    glideWhenMasterHasGone()
     runSyncCorrection()
     updateSyncedSamplerLoops()
   })
@@ -2812,6 +2825,151 @@ function updateSyncedSamplerLoops() {
     if (slot.mode !== 'loop' || !slot.syncEnabled || !slot.playing || !slot.bpm) return
     engine.sampler.setRate(i, samplerSyncRate(masterBpm, slot.bpm, true))
   })
+}
+
+// ————————————————————————————————————————————————————————————————
+// Auto SYNC in, glide back out (v0.8.39, Shalom 25/09). Play on a deck while
+// the other plays syncs it; once the other track is gone, the synced one
+// becomes master and slides back to its own BPM over GLIDE_BACK_SEC. Without
+// this a synced-in track kept the outgoing one's tempo to its end, and every
+// track after it inherited the drift.
+// ————————————————————————————————————————————————————————————————
+
+/** Transient like `activeTransition` — nothing here is serializable. */
+const tempoGlides: Partial<Record<DeckId, { from: number; startSec: number }>> = {}
+
+/** Called just before a deck starts playing. The automatic mix does its own SYNC, so it is left alone. */
+function autoSyncOnPlay(deckId: DeckId) {
+  if (!cfg.autoSyncGlide || activeTransition) return
+  const other: DeckId = deckId === 'A' ? 'B' : 'A'
+  const { decks } = useStore.getState()
+  if (decks[deckId].syncActive || !decks[other].playing) return
+  // syncDeck says out loud when it cannot (no BPM, no grid) — the same
+  // notice a SYNC press gives, so a refused auto-sync is not a silent one.
+  syncDeck(deckId)
+}
+
+function cancelTempoGlide(deckId: DeckId) {
+  delete tempoGlides[deckId]
+}
+
+function startTempoGlide(deckId: DeckId) {
+  const st = useStore.getState().decks[deckId]
+  // Already at its own speed: nothing to glide, and nothing worth announcing.
+  if (!st.track || Math.abs(st.tempo) < 1e-4) return
+  tempoGlides[deckId] = { from: st.tempo, startSec: engine.currentTime }
+  useStore.getState().setNotice({
+    text: `Deck ${deckId} is gliding back to its own tempo${st.bpm ? ` (${st.bpm.toFixed(1)} BPM)` : ''} over ${GLIDE_BACK_SEC} s. Touching its tempo fader or SYNC stops the glide.`,
+    tone: 'info',
+    source: 'sync',
+  })
+  ensureGlideTicker()
+}
+
+let glideTickerStarted = false
+/**
+ * Ten steps a second, not one: at the sync loop's 1 s a 16% glide over 30 s
+ * moves in 0.5% jumps, which is a pitch step an ear catches. At 0.1 s each
+ * step is well under what anyone hears.
+ */
+function ensureGlideTicker() {
+  if (glideTickerStarted) return
+  glideTickerStarted = true
+  let last = 0
+  clock.subscribe((now) => {
+    if (now - last < 0.1) return
+    last = now
+    // The switch "turns all of this off" — a glide already running included.
+    if (!cfg.autoSyncGlide) {
+      cancelTempoGlide('A')
+      cancelTempoGlide('B')
+      return
+    }
+    for (const id of ['A', 'B'] as DeckId[]) {
+      const g = tempoGlides[id]
+      if (!g) continue
+      // A paused deck, or one braking to a stop, is left alone: writing a rate
+      // now would cancel the vinyl brake ramp and play on at full speed. The
+      // tempo catches up on the first tick after it plays again.
+      if (!engine.decks[id].playing) continue
+      const elapsed = now - g.startSec
+      const tempo = glideTempoAt(g.from, 0, elapsed, GLIDE_BACK_SEC)
+      engine.decks[id].setTempo(tempo)
+      useStore.getState().patchDeck(id, { tempo })
+      if (useStore.getState().masterDeckId === id) refreshFxTimeForMasterTempo()
+      // Same tick, including the last one — following from the 1 s sync loop
+      // left a follower 1 s behind, in audible steps, and stranded it there
+      // once the glide was deleted.
+      followGlidingMaster(id)
+      if (elapsed >= GLIDE_BACK_SEC) delete tempoGlides[id]
+    }
+  })
+}
+
+/**
+ * Consecutive sync ticks (1 s apart) the master has read as gone. Two, not
+ * one: a crossfader cut or a fader chop that happens to land on a tick is a
+ * trick, not the end of the song — and a master handed over by mistake cannot
+ * be taken back, since the old deck is left unsynced (v0.8.39 review).
+ */
+let masterGoneTicks = 0
+
+/** "When the old song is over" — the synced deck takes over as master and glides home. Left to the automatic mix while one runs; `finishTransition` starts that glide itself. */
+function glideWhenMasterHasGone() {
+  if (!cfg.autoSyncGlide || activeTransition) {
+    masterGoneTicks = 0
+    return
+  }
+  const { decks, masterDeckId, mixer } = useStore.getState()
+  if (!masterDeckId) return
+  const master = decks[masterDeckId]
+  const gone = masterHasGone(masterDeckId, {
+    playing: master.playing,
+    channelVolume: mixer.channels[masterDeckId].volume,
+    crossfader: mixer.crossfader,
+  })
+  masterGoneTicks = gone ? masterGoneTicks + 1 : 0
+  if (masterGoneTicks < 2) return
+  masterGoneTicks = 0
+  for (const id of ['A', 'B'] as DeckId[]) {
+    if (id === masterDeckId) continue
+    const st = decks[id]
+    if (!st.syncActive || !st.playing) continue
+    setMasterDeck(id)
+    startTempoGlide(id)
+  }
+}
+
+/**
+ * A track synced in *during* a glide must move with it — SYNC matches tempo
+ * once, when pressed, and the phase loop can only nudge, never follow a
+ * master that keeps changing speed. Limited to a gliding master on purpose:
+ * a synced deck following a hand-moved master fader is a separate change.
+ */
+function followGlidingMaster(glidingId: DeckId) {
+  const { decks, masterDeckId, patchDeck } = useStore.getState()
+  if (masterDeckId !== glidingId) return
+  const master = decks[masterDeckId]
+  if (!master.bpm) return
+  for (const id of ['A', 'B'] as DeckId[]) {
+    if (id === masterDeckId) continue
+    const st = decks[id]
+    if (!st.syncActive || !st.bpm) continue
+    // Clamped like setTempo: past the fader's end the readout would show a
+    // speed the fader cannot. Said out loud, since the deck then stops keeping up.
+    const wanted = syncTempoFor(master.bpm, master.tempo, st.bpm, settings.values.tempoRange)
+    const tempo = Math.max(-1, Math.min(1, wanted))
+    if (Math.abs(tempo - st.tempo) < 1e-4) continue
+    if (tempo !== wanted && Math.abs(st.tempo) < 1) {
+      useStore.getState().setNotice({
+        text: `Deck ${id} can't follow deck ${masterDeckId}'s glide any further — its tempo fader is at the end of its range.`,
+        tone: 'warn',
+        source: 'sync',
+      })
+    }
+    engine.decks[id].setTempo(tempo)
+    patchDeck(id, { tempo })
+  }
 }
 
 function runSyncCorrection() {
@@ -2854,6 +3012,9 @@ function runSyncCorrection() {
  */
 export function syncDeck(deckId: DeckId) {
   if (!engine.decks[deckId].hasTrack) return
+  // The gliding deck is always master, so the press below ends in "already
+  // master" before reaching setTempo — and the glide notice promises SYNC stops it.
+  cancelTempoGlide(deckId)
   // This function's own internal caller (`startAutoTransition`'s
   // seek-then-sync handoff) only ever targets the *incoming* deck, so this
   // can only cancel on a genuine manual SYNC tap on the outgoing deck.
@@ -3328,6 +3489,7 @@ function finishTransition() {
   useStore.setState({ activeTransition: null })
   setMasterDeck(t.toDeckId)
   pause(t.fromDeckId)
+  if (cfg.autoSyncGlide) startTempoGlide(t.toDeckId)
 
   const fromTrack = useStore.getState().decks[t.fromDeckId].track
   if (fromTrack) {

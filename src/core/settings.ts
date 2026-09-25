@@ -93,6 +93,8 @@ export interface Settings {
   onLoadPlayhead: OnLoadPlayhead
   /** Mouse drag / wheel on the waveform while in SYNC or an auto transition. */
   waveformMouseInSync: WaveformMouseInSync
+  /** v0.8.39: Play on a deck while the other plays turns SYNC on by itself; once the other track is gone, the tempo glides back to the track's own BPM. On by default (Shalom, 25/09). */
+  autoSyncGlide: boolean
   /** Refuse to load a track onto a deck that is playing. */
   lockPlayingDeck: boolean
   /** Chosen audio output device, or null for the system default. */
@@ -125,6 +127,7 @@ export const DEFAULTS: Settings = {
   onLoadPlayhead: 'start',
   waveformMouseInSync: 'likeJog',
   lockPlayingDeck: true,
+  autoSyncGlide: true,
   outputDeviceId: null,
   hintMode: true, // temporary — user asked for hints on by default until further notice (2026-09-04)
   sourceCheck: false,
@@ -326,6 +329,13 @@ export const FIELDS: Field[] = [
       { value: 'likeJog', label: 'Like the jog wheel — takes over' },
       { value: 'blocked', label: 'Blocked, with a message' },
     ],
+  },
+  {
+    kind: 'toggle',
+    key: 'autoSyncGlide',
+    label: 'Auto SYNC in, glide back out',
+    help: 'Play on one deck while the other is playing turns SYNC on by itself. When the other track is gone — stopped, its fader down, or the crossfader fully away — this track slides back to its own BPM over 30 seconds.',
+    group: 'feel',
   },
   {
     kind: 'toggle',
