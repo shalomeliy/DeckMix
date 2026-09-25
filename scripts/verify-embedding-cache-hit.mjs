@@ -158,10 +158,15 @@ async function waitForEmbedded(opts = {}) {
       await page.waitForTimeout(100)
     }
   }
+  // v0.8.32: a cache MISS no longer computes the embedding in the analysis
+  // pass — `queueEmbeddingBackfill` does it right after — so scan 1 waits for
+  // the embedding to settle too. Scan 2 does not: on a hit the vector must
+  // already be on the row the moment analysis settles, which is the bug above.
   const deadline = Date.now() + 20000
   while (Date.now() < deadline) {
     const t = await readTrack()
-    if (t?.analysisState === 'analyzed') return t
+    const settled = !opts.untilEmbedded || t?.embeddingState === 'embedded' || t?.embeddingState === 'failed'
+    if (t?.analysisState === 'analyzed' && settled) return t
     await page.waitForTimeout(300)
   }
   throw new Error('timed out waiting for analysisState to reach "analyzed"')
@@ -169,7 +174,7 @@ async function waitForEmbedded(opts = {}) {
 
 // ── scan 1: genuine cache miss ──────────────────────────────────────────────
 await folderButton.click()
-const afterFirst = await waitForEmbedded()
+const afterFirst = await waitForEmbedded({ untilEmbedded: true })
 ok('scan 1 (miss): embedding present', afterFirst?.hasEmbedding === true, JSON.stringify(afterFirst))
 ok('scan 1 (miss): embeddingState is embedded', afterFirst?.embeddingState === 'embedded', afterFirst?.embeddingState)
 

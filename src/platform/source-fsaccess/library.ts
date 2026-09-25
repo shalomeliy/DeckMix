@@ -5,9 +5,10 @@ import type { SavedPermission } from '@/core/library-boot'
 import type { Track } from '@/core/types'
 import { readTags } from '@/platform/source-fsaccess/tags'
 import { analysisCacheKey } from '@/core/analysis-cache'
+import { takeNextForAnalysis } from '@/core/analysis-order'
 import { hashBytes } from '@/platform/source-fsaccess/hash'
 import { engine } from '@/platform/audio-webaudio/engine'
-import { pcmFromAudioBuffer, pcmCopyFromAudioBuffer } from '@/platform/analyzer-js/analyze'
+import { pcmFromAudioBuffer } from '@/platform/analyzer-js/analyze'
 import { analyzerWorker } from '@/platform/analyzer-worker'
 import { analysisCache } from '@/platform/analyze-cache-idb/store'
 import { classicalEmbedder } from '@/platform/embed-classical'
@@ -372,11 +373,19 @@ export interface AnalysisQueueProgress {
 export async function queueLibraryAnalysis(
   tracks: Track[],
   onUpdate: (patch: Map<string, Partial<Track>>, progress: AnalysisQueueProgress) => void,
-  opts: { concurrency?: number; signal?: { cancelled: boolean } } = {},
+  opts: {
+    concurrency?: number
+    signal?: { cancelled: boolean }
+    /** asked at every pick: true = take this track ahead of queue order (`core/analysis-order.ts`) */
+    needsFirst?: (trackId: string) => boolean
+    /** settles once `needsFirst` can answer — the tag pass. Awaited before the first decode. */
+    priorityReady?: Promise<unknown>
+  } = {},
 ): Promise<void> {
   const concurrency = opts.concurrency ?? 2
   const total = tracks.length
-  let next = 0
+  const remaining = [...tracks]
+  const needsFirst = opts.needsFirst ?? (() => false)
   let done = 0
   let failed = 0
 
@@ -419,10 +428,19 @@ export async function queueLibraryAnalysis(
     flush()
   }
 
+  // Until the tags are in, every track looks like it lacks BPM and key, and
+  // the first picks fall back to folder order. Caught by
+  // scripts/verify-analysis-priority.mjs: the untagged track went third of
+  // five. Reading tags is byte-range peeks, and it overlaps the hash pass
+  // above, so this wait is usually already over. A tag pass that throws must
+  // not stall the analysis, hence the catch — it only costs the ordering.
+  await opts.priorityReady?.catch(() => {})
+
   async function worker() {
-    while (next < total) {
+    for (;;) {
       if (opts.signal?.cancelled) return
-      const track = tracks[next++]
+      const track = takeNextForAnalysis(remaining, (t) => needsFirst(t.id))
+      if (!track) return
       onUpdate(new Map([[track.id, { analysisState: 'analyzing' }]]), { done, total, failed })
       try {
         const contentHash = hashes.get(track.id)
@@ -431,42 +449,22 @@ export async function queueLibraryAnalysis(
         const hintBpm = await readTagBpm(track)
         const cacheKey = analysisCacheKey(contentHash, hintBpm)
         let analysis = await analysisCache.get(cacheKey)
-        // v0.8.5 M3: resolved on BOTH branches below (cache hit and miss) —
-        // M1 only ever set this on a miss, so a track whose analysis was
-        // already cached (every track analyzed before v0.8.5 existed, i.e.
-        // most of a real library on a normal reload) never got an embedding
-        // at all. `queueEmbeddingBackfill` below is the actual backfill pass
-        // for those; this `get` just picks up whatever it (or an earlier
-        // session) already computed, so a reload doesn't forget it.
-        let embedding: Float32Array | undefined
-        let embeddingFailed = false
         if (!analysis) {
           // read only now: a cache hit (every track, on a normal reload) needs no bytes at all
           const data = await (await track.handle.getFile()).arrayBuffer()
           const buffer = await engine.decode(data)
-          // The embedder's copy is taken BEFORE the analyzer call, never after.
-          // `analyze` transfers the buffer's own channel data to its worker,
-          // and from then on `copyFromChannel` on that AudioBuffer returns
-          // full-length silence, not an error. That ordering wrote 349
-          // all-zero embeddings for Shalom's library on 20/09, when
-          // ANALYZER_VERSION 2 re-analysed every track, and "more like this"
-          // then compared nothing for three days (found 23/09 in his own
-          // Chrome: 349 of 355 cached vectors were zero).
-          const embedPcm = pcmCopyFromAudioBuffer(buffer)
           analysis = await analyzerWorker.analyze(pcmFromAudioBuffer(buffer), { hintBpm })
           await analysisCache.put(cacheKey, analysis)
-          // v0.8.5: piggybacks on this exact decode rather than a second
-          // queue/pass — `workshop-output/PLAN.md` §3. A failure here never
-          // fails the track's analysis (BPM/waveform already succeeded).
-          try {
-            embedding = await classicalEmbedder.embed(embedPcm)
-            await embeddingCache.put(contentHash, classicalEmbedder.modelId, embedding)
-          } catch {
-            embeddingFailed = true
-          }
-        } else {
-          embedding = (await embeddingCache.get(contentHash, classicalEmbedder.modelId)) ?? undefined
         }
+        // The embedding is never computed here, only picked up if already cached
+        // (v0.8.32). Measured 25/09 on 20 of the owner's tracks
+        // (scripts/measure-analysis-time.mjs): 8.5s per track, 85% of it the
+        // embedding, 0.5s for BPM+key. Computing it in this pass made every row
+        // wait ~8s for a BPM it needed ~1s for — and after an ANALYZER_VERSION
+        // bump it recomputed embeddings that were still valid in their own
+        // cache (keyed by EMBEDDER_VERSION, which didn't move). Tracks without
+        // one are `queueEmbeddingBackfill`'s job, which runs once this settles.
+        const embedding = (await embeddingCache.get(contentHash, classicalEmbedder.modelId)) ?? undefined
         done++
         if (opts.signal?.cancelled) return
         // Raw detected values, not resolved against `track` here — `track` is
@@ -486,11 +484,7 @@ export async function queueLibraryAnalysis(
                 durationSec: analysis.durationSec,
                 // offered, not applied: the caller's `fillDetectedKey` lets a key tag win
                 ...(analysis.key ? detectedKeyFields(analysis.key) : {}),
-                ...(embedding
-                  ? { embedding, embeddingState: 'embedded' as const }
-                  : embeddingFailed
-                    ? { embeddingState: 'failed' as const }
-                    : {}),
+                ...(embedding ? { embedding, embeddingState: 'embedded' as const } : {}),
               },
             ],
           ]),
@@ -514,15 +508,16 @@ export async function queueLibraryAnalysis(
 }
 
 /**
- * Fourth pass, v0.8.5 M3: fills the gap `queueLibraryAnalysis` above
- * deliberately left open — a track whose analysis was already cached before
- * this feature existed never went through the cache-miss branch that
- * computes an embedding, so on a real library (already analyzed in earlier
- * sessions) almost nothing has one after a normal reload. Decided with
+ * Fourth pass (v0.8.5 M3): the "more like this" embedding for every analyzed
+ * track that doesn't have one yet. Decided with
  * Shalom (15/09, `HANDOFF.md`): runs automatically, in the background,
  * right after `queueLibraryAnalysis` settles — never gated behind a manual
  * action, never running *during* the main scan (the caller is responsible
  * for sequencing, not this function).
+ *
+ * Since v0.8.32 this is also the *only* place an embedding is computed: the
+ * main queue stopped doing it (8s of a track's 8.5s, measured), so a library's
+ * BPM and keys all land first and "more like this" fills in behind them.
  *
  * Only re-decodes tracks that actually need it — `analysisState === 'analyzed'`
  * (so BPM/waveform work is never repeated) and no `embedding` yet. Deliberately
@@ -553,11 +548,21 @@ export async function queueEmbeddingBackfill(
         // already resolved for this track — same invariant `loadTrackToDeck`
         // and the rest of this file already rely on.
         const contentHash = track.contentHash as string
-        const file = await track.handle.getFile()
-        const data = await file.arrayBuffer()
-        const buffer = await engine.decode(data)
-        const embedding = await classicalEmbedder.embed(pcmFromAudioBuffer(buffer))
-        await embeddingCache.put(contentHash, classicalEmbedder.modelId, embedding)
+        // Cache first: a backfill cancelled by a rescan has already stored
+        // the vector for the track it was on, then dropped the store patch.
+        // Without this the next scan spends ~7s recomputing it.
+        let embedding = await embeddingCache.get(contentHash, classicalEmbedder.modelId)
+        if (!embedding) {
+          const file = await track.handle.getFile()
+          const data = await file.arrayBuffer()
+          const buffer = await engine.decode(data)
+          // This decode feeds the embedder alone. If it ever feeds a second
+          // Worker too, copy the PCM *before* the first transfer: afterwards
+          // Chromium's copyFromChannel returns zeros and throws nothing, which
+          // wrote 349 all-zero embeddings for Shalom's library on 20/09.
+          embedding = await classicalEmbedder.embed(pcmFromAudioBuffer(buffer))
+          await embeddingCache.put(contentHash, classicalEmbedder.modelId, embedding)
+        }
         done++
         if (opts.signal?.cancelled) return
         onUpdate(new Map([[track.id, { embedding, embeddingState: 'embedded' }]]), { done, total, failed })

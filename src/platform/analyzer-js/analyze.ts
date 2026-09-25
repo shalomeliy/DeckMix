@@ -31,34 +31,6 @@ export function pcmFromAudioBuffer(buffer: AudioBuffer): PcmData {
 }
 
 /**
- * Like `pcmFromAudioBuffer`, but copies each channel explicitly via
- * `copyFromChannel` instead of `getChannelData`. Needed wherever the same
- * decoded `AudioBuffer` feeds two separate Worker calls that each transfer
- * their `PcmData`'s buffers away (v0.8.5 — `queueLibraryAnalysis` calling
- * both `analyzerWorker.analyze` and `classicalEmbedder.embed`, see
- * `workshop-output/PLAN.md` §3): repeated `getChannelData()` calls are not
- * guaranteed by spec to return independent arrays (MDN: whether the same
- * object comes back is implementation-defined), so relying on it for a
- * *second*, separately-transferred read risks handing a worker an already
- * -detached, zero-length array instead of real audio. `copyFromChannel` is
- * the spec-sanctioned way to get an explicit, owned copy.
- *
- * It has to be taken *before* any transfer, though. Once `pcmFromAudioBuffer`'s
- * arrays have gone to a worker, Chromium's `copyFromChannel` on that buffer
- * fills the copy with zeros and throws nothing. Measured 23/09 in the owner's
- * Chrome: 14039 before the transfer, 0 after, same length.
- */
-export function pcmCopyFromAudioBuffer(buffer: AudioBuffer): PcmData {
-  const channels: Float32Array[] = []
-  for (let c = 0; c < buffer.numberOfChannels; c++) {
-    const data = new Float32Array(buffer.length)
-    buffer.copyFromChannel(data, c)
-    channels.push(data)
-  }
-  return { channels, sampleRate: buffer.sampleRate }
-}
-
-/**
  * Everything the waveform needs, in a single pass over the samples.
  *
  * Peaks and bands used to be two functions, each starting by flattening the

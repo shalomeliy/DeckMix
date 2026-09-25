@@ -446,7 +446,8 @@ export function Library() {
     // `void`, not `await` — sampler-slot resolution finishes whenever the
     // audio engine actually starts; it must never gate the library scan.
     void ctl.resolveSamplerSlots({ silent: true })
-    await Promise.all([applyTags(queued, scan), applyAnalysisQueue(queued, scan)])
+    const tagged = applyTags(queued, scan)
+    await Promise.all([tagged, applyAnalysisQueue(queued, scan, tagged)])
     if (!scan.cancelled) void ctl.resolveSamplerSlots()
     void applyEmbeddingBackfill(scan)
   }
@@ -496,7 +497,8 @@ export function Library() {
     // matching call — almost nothing has a `contentHash` yet at this point.
     // `void`, not `await` — see `runScan`'s matching call for why (23/09 fix).
     void ctl.resolveSamplerSlots({ silent: true })
-    await Promise.all([applyTags(queued, scan), applyAnalysisQueue(queued, scan)])
+    const tagged = applyTags(queued, scan)
+    await Promise.all([tagged, applyAnalysisQueue(queued, scan, tagged)])
     if (!scan.cancelled) void ctl.resolveSamplerSlots()
     void applyEmbeddingBackfill(scan)
   }
@@ -557,7 +559,7 @@ export function Library() {
    * on the track: same "existing wins" rule `applyTags` uses, so whichever
    * pass fills in `bpm` first, a tag never loses to a detected guess.
    */
-  async function applyAnalysisQueue(tracks: Track[], scan: { cancelled: boolean }) {
+  async function applyAnalysisQueue(tracks: Track[], scan: { cancelled: boolean }, tagged: Promise<void>) {
     // Fetched once up front, not per track: this is the actual fix for the
     // v0.3.2 move bug on genre. `applyGenreOverrides` above already applied
     // the path-keyed store for tracks that haven't moved; a track that HAS
@@ -611,17 +613,33 @@ export function Library() {
         // queue settles (below) is what actually reports for real.
         if ([...patch.values()].some((p) => p.contentHash)) void ctl.resolveSamplerSlots({ silent: true })
       },
-      { signal: scan },
+      { signal: scan, needsFirst: lacksBpmOrKey, priorityReady: tagged },
     )
+  }
+
+  // Read against the live store, not `tracks`: the tag pass fills BPM/key in
+  // while this queue runs, and a row its tags already completed can wait. The
+  // lookup is rebuilt only when the store's array changes, because the queue
+  // asks once per remaining track at every pick.
+  let lookupFor: Track[] | null = null
+  let lookup = new Map<string, Track>()
+  function lacksBpmOrKey(id: string): boolean {
+    const current = useStore.getState().library.tracks
+    if (current !== lookupFor) {
+      lookup = new Map(current.map((t) => [t.id, t]))
+      lookupFor = current
+    }
+    const t = lookup.get(id)
+    return !!t && (t.bpm == null || t.camelot == null)
   }
 
   /**
    * Fourth pass (v0.8.5 M3), fire-and-forget after the other three settle
    * (`runScan`/`addFiles` above — `void`, never awaited by the caller: this
-   * is real background work, nothing else waits on it). Fills in the
-   * embedding `applyAnalysisQueue`'s cache-hit branch could only read, never
-   * compute — in practice almost the whole library on the first scan after
-   * this version, since every track analyzed before v0.8.5 hits that branch.
+   * is real background work, nothing else waits on it). Computes the
+   * embedding for every track `applyAnalysisQueue` couldn't find one for in
+   * the cache — since v0.8.32 that pass only ever reads embeddings, never
+   * computes them, so BPM and key land for the whole library first.
    * Reads `library.tracks` fresh from the store rather than taking the
    * `queued` array the other two passes use: that array is a snapshot frozen
    * at `analysisState:'queued'` for the whole scan (`runScan`, above), so
@@ -1787,7 +1805,7 @@ function SimilarBtn({ track, onFindSimilar }: { track: Track; onFindSimilar: () 
   const title = track.embedding
     ? 'Find similar tracks'
     : track.embeddingState === 'failed'
-      ? `Similarity analysis failed${track.embeddingError ? `: ${track.embeddingError}` : ''} — still listed; loading it to a deck tries again.`
+      ? `Similarity analysis failed${track.embeddingError ? `: ${track.embeddingError}` : ''} — still listed; reloading the page tries again.`
       : 'Not yet analyzed for similarity'
   return (
     <button
