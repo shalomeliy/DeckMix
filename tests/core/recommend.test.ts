@@ -7,6 +7,7 @@ import {
   mixRecommendations,
   orderMixList,
   pinDeckTracks,
+  tempoStepText,
   type DeckMixState,
   type MixMatch, excellentStripHint } from '@/core/recommend'
 import type { Track } from '@/core/types'
@@ -409,7 +410,7 @@ describe('excellentStripEntries (v0.8.17)', () => {
 describe('orderMixList (v0.8.10)', () => {
   const tracks = ['a', 'b', 'c', 'd', 'e'].map((id) => track(id, 128))
   const match = (played?: boolean) => ({
-    strong: true, deck: 'A' as const, multiplier: 1 as const, refBpm: 128, trackBpm: 128, ...(played ? { played } : {}),
+    strong: true, deck: 'A' as const, multiplier: 1 as const, refBpm: 128, trackBpm: 128, tempoStep: 0, ...(played ? { played } : {}),
   })
   const matches = new Map([['a', match()], ['b', match(true)], ['c', match()], ['d', match(true)]])
   const ids = (l: Track[]) => l.map((t) => t.id)
@@ -463,7 +464,7 @@ describe('matchReasons / matchTier (v0.8.11)', () => {
   // soundScore: measured but not in the top three, so it adds no reason of its
   // own (v0.8.18) and the cases below keep testing only what they name.
   const m = (over: Partial<MixMatch> = {}): MixMatch => ({
-    strong: true, deck: 'A', multiplier: 1, refBpm: 128, trackBpm: 128, keyMatch: true, soundScore: 0.5, ...over,
+    strong: true, deck: 'A', multiplier: 1, refBpm: 128, trackBpm: 128, tempoStep: 0, keyMatch: true, soundScore: 0.5, ...over,
   })
 
   it('says the track is faster/slower than the deck, with an explicit sign', () => {
@@ -513,7 +514,7 @@ describe('matchReasons / matchTier (v0.8.11)', () => {
 describe('orderMixList tiers (v0.8.11)', () => {
   const t = ['a', 'b', 'c', 'd'].map((id) => track(id, 128))
   const mm = (strong: boolean, played?: boolean): MixMatch => ({
-    strong, deck: 'A', multiplier: 1, refBpm: 128, trackBpm: 128, ...(played ? { played } : {}),
+    strong, deck: 'A', multiplier: 1, refBpm: 128, trackBpm: 128, tempoStep: 0, ...(played ? { played } : {}),
   })
   const matches = new Map([['a', mm(false)], ['b', mm(true, true)], ['c', mm(true)], ['d', mm(false)]])
   const ids = (l: Track[]) => l.map((x) => x.id)
@@ -616,3 +617,84 @@ describe('sound similarity in suggestions (v0.8.18)', () => {
     expect(orderMixList(tracks, r.matches, { hidePlayed: false, keepOrder: true }).map((t) => t.id)).toEqual(['far', 'near'])
   })
 })
+
+// v0.8.37: the tempo buttons. `tempoStep` is against the deck's *track* BPM,
+// not its fader, so riding the fader never reshuffles the rows.
+describe('tempo direction (v0.8.37)', () => {
+  const deckA = (tempo = 0): DeckMixState => ({ id: 'A', playing: true, bpm: 128, tempo, trackId: 'playing' })
+  const lib = [track('playing', 128), track('up1', 129.5), track('up3', 131.5), track('same', 128), track('down2', 125.5)]
+  const recs = (tempo = 0) => mixRecommendations([deckA(tempo), { id: 'B', playing: false, bpm: null, tempo: 0, trackId: null }], lib).matches
+  const ids = (l: Track[]) => l.map((t) => t.id)
+  const order = (direction: 'faster' | 'same' | 'slower' | null) =>
+    ids(orderMixList(lib, recs(), { hidePlayed: false, keepOrder: false, direction }))
+
+  it('tempoStep is the track against the deck track, at the winning multiplier', () => {
+    expect(recs().get('up3')!.tempoStep).toBeCloseTo(131.5 / 128 - 1, 9)
+    const half = mixRecommendations([deckA()], [track('h', 64.5)]).matches.get('h')!
+    expect(half.multiplier).toBe(2)
+    expect(half.tempoStep).toBeCloseTo(129 / 128 - 1, 9)
+  })
+
+  it('does not move with the fader', () => {
+    expect(recs(0.2).get('up3')!.tempoStep).toBeCloseTo(recs(0).get('up3')!.tempoStep, 12)
+  })
+
+  it('faster: faster rows lead, smallest step first; the rest are kept, not hidden', () => {
+    const o = order('faster')
+    expect(o.slice(0, 2)).toEqual(['up1', 'up3'])
+    expect(o).toHaveLength(4)
+  })
+
+  it('slower: slower rows lead', () => {
+    expect(order('slower')[0]).toBe('down2')
+  })
+
+  it('same: closest tempo first', () => {
+    expect(order('same')[0]).toBe('same')
+  })
+
+  it('no button: the order is what it was before this version', () => {
+    expect(order(null)).toEqual(ids(orderMixList(lib, recs(), { hidePlayed: false, keepOrder: false })))
+  })
+
+  it('says it in words', () => {
+    const m = recs()
+    expect(tempoStepText(m.get('up3')!)).toBe("3% faster than deck A's track")
+    expect(tempoStepText(m.get('down2')!)).toBe("2% slower than deck A's track")
+    expect(tempoStepText(m.get('same')!)).toBe("same tempo as deck A's track")
+  })
+
+  // v0.8.37 review: the tier still beats the direction, and a column sort still beats both.
+  const mk = (step: number, over: Partial<MixMatch> = {}): MixMatch => ({
+    strong: true, deck: 'A', multiplier: 1, refBpm: 128, trackBpm: 128, tempoStep: step, ...over,
+  })
+  const five = ['fresh', 'playedFast', 'looseFast', 's1', 's2'].map((id) => track(id, 128))
+  const tiered = new Map<string, MixMatch>([
+    ['fresh', mk(-0.01)],
+    ['playedFast', mk(0.01, { played: true })],
+    ['looseFast', mk(0.02, { strong: false })],
+  ])
+  it('a faster played or loose row never jumps above a fresh tight one', () => {
+    expect(ids(orderMixList(five, tiered, { hidePlayed: false, keepOrder: false, direction: 'faster' }))).toEqual([
+      'fresh', 'looseFast', 'playedFast',
+    ])
+  })
+  it('a column sort (keepOrder) ignores the direction', () => {
+    expect(ids(orderMixList(five, tiered, { hidePlayed: false, keepOrder: true, direction: 'faster' }))).toEqual([
+      'fresh', 'playedFast', 'looseFast',
+    ])
+  })
+  it('hidePlayed still hides with a direction on', () => {
+    expect(ids(orderMixList(five, tiered, { hidePlayed: true, keepOrder: false, direction: 'faster' }))).not.toContain('playedFast')
+  })
+  it('same: equal steps fall back to sound, closest first', () => {
+    const tie = new Map<string, MixMatch>([['s1', mk(0, { soundScore: 0.2 })], ['s2', mk(0, { soundScore: 0.9 })]])
+    expect(ids(orderMixList(five, tie, { hidePlayed: false, keepOrder: false, direction: 'same' }))).toEqual(['s2', 's1'])
+  })
+  it('with a button on, the row names one tempo reason, not two that disagree', () => {
+    const r = matchReasons(mk(0.03, { refBpm: 132, trackBpm: 132 }), { trackTempo: true })
+    expect(r[0]).toBe("3% faster than deck A's track")
+    expect(r.join(' ')).not.toMatch(/same tempo as deck A/)
+  })
+})
+

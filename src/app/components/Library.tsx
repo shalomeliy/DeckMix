@@ -31,6 +31,7 @@ import {
   orderMixList,
   pinDeckTracks,
   type MixMatch,
+  type TempoDirection,
 } from '@/core/recommend'
 import { getExcellentFollowUps } from '@/platform/mix-pairs-idb/store'
 import { settings } from '@/platform/settings-idb/store'
@@ -122,6 +123,9 @@ export function Library() {
   // v0.8.10: drop already-played suggestions instead of ranking them last.
   // Same local-state shape as `mixOnly` — a view choice, not a setting.
   const [hidePlayed, setHidePlayed] = useState(false)
+  // v0.8.37: faster / same / slower — orders Mix Only, never filters it.
+  // Local view state like `mixOnly`; clicking the lit button turns it off.
+  const [tempoDirection, setTempoDirection] = useState<TempoDirection | null>(null)
   // "More like this" (v0.8.5 M3): a seed track id, or null when not active.
   // Same local-state shape as `mixOnly` — a view filter, not something any
   // other part of the app needs to know about.
@@ -682,7 +686,7 @@ export function Library() {
   const list = similarTo
     ? orderBySimilarMatches(preMixList, similarMatches)
     : mixOnly
-      ? orderMixList(preMixList, recs, { hidePlayed, keepOrder: library.sortKey != null })
+      ? orderMixList(preMixList, recs, { hidePlayed, keepOrder: library.sortKey != null, direction: tempoDirection })
       : preMixList
   // v0.8.21: `list` stays the suggestions alone — the empty-state copy below
   // is about them — and the decks' tracks ride on top only in what's drawn.
@@ -714,6 +718,11 @@ export function Library() {
       : []),
     ...(mixOnly && !similarTo ? [{ label: 'Mix Only', clear: () => setMixOnly(false) }] : []),
     ...(mixOnly && !similarTo && hidePlayed ? [{ label: 'Played hidden', clear: () => setHidePlayed(false) }] : []),
+    // A column sort wins over the tempo order (`keepOrder`), so the chip only
+    // claims an order the table is actually in.
+    ...(mixOnly && !similarTo && tempoDirection && library.sortKey == null && anyPlaying && recs.size > 0
+      ? [{ label: `Tempo: ${tempoDirection}`, clear: () => setTempoDirection(null) }]
+      : []),
     ...(activeCrate ? [{ label: `Crate: ${activeCrate.name}`, clear: () => ctl.setActiveCrate(null) }] : []),
     ...(similarToTrack
       ? [{ label: `Similar to: ${similarToTrack.title ?? similarToTrack.name}`, clear: () => setSimilarTo(null) }]
@@ -936,6 +945,35 @@ export function Library() {
             when there is something to say — a "0 played" badge on a fresh
             session would read as a fault. It is also the way back: hidden
             tracks are named and counted here, never just gone. */}
+        {/* v0.8.37: the tempo buttons — Mix Only only, the one list they order.
+            Hidden while a column sort is on: that sort wins, and a lit button
+            that changes nothing is the silent skip this app refuses. */}
+        {anyPlaying && mixOnly && !similarTo && recs.size > 0 && library.sortKey == null && (
+          <span className="inline-flex gap-0.5" role="group" aria-label="Order suggestions by tempo">
+            {(
+              [
+                ['faster', 'faster', 'Suggestions a little faster than the playing track first, smallest step first — to lift the floor.'],
+                ['same', 'same', 'Suggestions closest in tempo to the playing track first — to hold the floor.'],
+                ['slower', 'slower', 'Suggestions a little slower than the playing track first — to bring the floor down.'],
+              ] as const
+            ).map(([dir, label, title]) => (
+              <Button
+                key={dir}
+                variant="toggle"
+                size="sm"
+                active={tempoDirection === dir}
+                aria-pressed={tempoDirection === dir}
+                tone="var(--color-live)"
+                onClick={() => setTempoDirection((d) => (d === dir ? null : dir))}
+                title={`${title} Compared with the track's own BPM, so riding the fader doesn't reshuffle the list. Click again to turn off.`}
+              >
+                {/* the arrow is decoration: a screen reader says "faster", not "upwards arrow faster" */}
+                <span aria-hidden="true">{dir === 'faster' ? '↑ ' : dir === 'same' ? '→ ' : '↓ '}</span>
+                {label}
+              </Button>
+            ))}
+          </span>
+        )}
         {anyPlaying && mixOnly && !similarTo && recommendations.playedCount > 0 && (
           // Mix Only only: that is the one list it reorders/hides, so outside
           // it the badge would report a state the table doesn't show.
@@ -1333,6 +1371,7 @@ export function Library() {
                   track={t}
                   selected={t.id === library.selectedId}
                   match={recs.get(t.id)}
+                  tempoOrdered={mixOnly && !similarTo && tempoDirection != null && library.sortKey == null}
                   keyMode={keyMode}
                   onSelect={() => ctl.selectTrack(t.id)}
                   onFindSimilar={() => setSimilarTo(t.id)}
@@ -1494,6 +1533,7 @@ function Row({
   track,
   selected,
   match,
+  tempoOrdered,
   keyMode,
   onSelect,
   onFindSimilar,
@@ -1504,6 +1544,8 @@ function Row({
   track: Track
   selected: boolean
   match?: MixMatch
+  /** v0.8.37: a tempo button is ordering the list — the reasons then say each row's step, so the order is never a mystery. */
+  tempoOrdered?: boolean
   removableFromCrateId: string | null
   keyMode: KeyMode
   onSelect: () => void
@@ -1524,7 +1566,7 @@ function Row({
   const chipLabel = match?.multiplier === 2 ? 'half-time' : match?.multiplier === 0.5 ? 'double-time' : null
   // v0.8.11: one source (`matchReasons`) for the tooltip, the sr-only text and
   // the selected-row line, so they cannot say different things.
-  const reasons = match ? matchReasons(match).join(' · ') : null
+  const reasons = match ? matchReasons(match, { trackTempo: tempoOrdered }).join(' · ') : null
   const matchTitle = match
     ? `Suggested${match.strong ? '' : ' (loose match)'} · ${reasons}`
     : undefined

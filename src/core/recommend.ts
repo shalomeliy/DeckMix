@@ -60,7 +60,27 @@ export interface MixMatch {
   soundTop?: boolean
   /** v0.8.18: set when the playing deck's own track has no embedding — then no row can be compared, and the reason names the deck, not the row. */
   deckSoundUnanalyzed?: boolean
+  /**
+   * v0.8.37: how much faster (+) or slower (−) this track is than the matched
+   * deck's *track*, as a fraction, at the winning multiplier — 0.02 = 2% faster.
+   * Against the track's own BPM, not the fader: the tempo buttons order by it,
+   * and a number that followed the fader would reshuffle the rows while the
+   * owner rides it (the reason `matchTier` never sorted by tempo).
+   */
+  tempoStep: number
 }
+
+/**
+ * The tempo buttons (v0.8.37). Shalom asked for "Mix Assist by energy"; 19
+ * of his own 1–10 ratings agreed best with BPM (Spearman 0.64 — his energy is
+ * mostly genre, and his genres climb in tempo) and with nothing the waveform
+ * could measure beyond it (scripts/experiment-energy.mjs). So the buttons say
+ * what they do — faster / same / slower — rather than promising "energy".
+ */
+export type TempoDirection = 'faster' | 'same' | 'slower'
+
+/** Below this, a step is "the same tempo" — under what a DJ hears as a change. */
+export const SAME_TEMPO_STEP = 0.005
 
 /**
  * How many suggestions get the ≈ mark. A fixed count, not a cosine
@@ -153,6 +173,7 @@ export function mixRecommendations(
     .filter((d) => d.playing && d.bpm != null && d.trackId)
     .map((d) => ({
       deck: d.id,
+      nativeBpm: d.bpm!,
       bpm: d.bpm! * (1 + d.tempo * TEMPO_RANGE),
       trackId: d.trackId!,
       camelot: d.camelot ?? null,
@@ -221,6 +242,7 @@ export function mixRecommendations(
       multiplier: bestMult,
       refBpm: Math.round(best.bpm),
       trackBpm: Math.round(t.bpm),
+      tempoStep: (t.bpm * bestMult) / best.nativeBpm - 1,
     }
     const refEmbedding = embeddingById.get(best.trackId)
     const soundScore = soundSimilarity(refEmbedding, t.embedding)
@@ -280,9 +302,15 @@ function soundSimilarity(a: Float32Array | undefined, b: Float32Array | undefine
  * A track with no key gets "key unknown", never "key clashes": nothing was
  * compared, so nothing can be said to clash.
  */
-export function matchReasons(match: MixMatch): string[] {
+export function matchReasons(match: MixMatch, opts?: { trackTempo?: boolean }): string[] {
   const out: string[] = []
-  if (match.multiplier === 2) out.push(`half-time (${match.trackBpm}→${match.refBpm})`)
+  // v0.8.37: while a tempo button orders the list, the tempo reason is the
+  // one the order uses (track against track). Showing both put "same tempo as
+  // deck A" (fader included) and "3% faster" (fader excluded) on one row.
+  if (opts?.trackTempo) {
+    const scale = match.multiplier === 2 ? ' · half-time' : match.multiplier === 0.5 ? ' · double-time' : ''
+    out.push(tempoStepText(match) + scale)
+  } else if (match.multiplier === 2) out.push(`half-time (${match.trackBpm}→${match.refBpm})`)
   else if (match.multiplier === 0.5) out.push(`double-time (${match.trackBpm}→${match.refBpm})`)
   else {
     // The track's tempo relative to the deck, so "+2" reads as "2 BPM faster
@@ -310,10 +338,11 @@ export function matchReasons(match: MixMatch): string[] {
  * and fresh next, anything already loaded last. Played beats strong — a track
  * you already used is not the best next pick however well it fits.
  *
- * Deliberately no finer ordering by tempo distance: `refBpm` follows the
- * deck's live tempo fader, so sorting on it would make rows jump while the
+ * Deliberately no finer ordering by tempo distance here: `refBpm` follows
+ * the deck's live tempo fader, so sorting on it would make rows jump while the
  * owner rides the fader. A tier only flips at the 3% line, which the dot
- * already does.
+ * already does. The tempo buttons (v0.8.37) order *within* a tier on
+ * `tempoStep` instead, which leaves the fader out for exactly this reason.
  */
 export function matchTier(match: MixMatch): 0 | 1 | 2 {
   if (match.played) return 2
@@ -333,7 +362,7 @@ export function matchTier(match: MixMatch): 0 | 1 | 2 {
 export function orderMixList(
   tracks: Track[],
   matches: ReadonlyMap<string, MixMatch>,
-  opts: { hidePlayed: boolean; keepOrder: boolean },
+  opts: { hidePlayed: boolean; keepOrder: boolean; direction?: TempoDirection | null },
 ): Track[] {
   const suggested = tracks.filter((t) => matches.has(t.id))
   const shown = opts.hidePlayed ? suggested.filter((t) => matches.get(t.id)?.played !== true) : suggested
@@ -350,7 +379,28 @@ export function orderMixList(
     if (sa === undefined || sb === undefined) return Number(sa === undefined) - Number(sb === undefined)
     return sb - sa
   }
-  return [0, 1, 2].flatMap((n) => shown.filter((t) => tier(t) === n).sort(bySound))
+  // v0.8.37: a tempo button, when on, orders within each tier instead of
+  // sound — fit still comes first, as above. Rows that go the chosen way lead,
+  // smallest step first (a set climbs a little at a time); the rest follow in
+  // sound order, so nothing is hidden, only moved down.
+  const dir = opts.direction
+  const byDirection = (a: Track, b: Track) => {
+    const sa = matches.get(a.id)!.tempoStep
+    const sb = matches.get(b.id)!.tempoStep
+    // sound breaks a tie: whole-number tags put many rows at exactly the same step
+    if (dir === 'same') return Math.abs(sa) - Math.abs(sb) || bySound(a, b)
+    const goes = (s: number) => (dir === 'faster' ? s > SAME_TEMPO_STEP : s < -SAME_TEMPO_STEP)
+    if (goes(sa) !== goes(sb)) return goes(sa) ? -1 : 1
+    return goes(sa) ? Math.abs(sa) - Math.abs(sb) : bySound(a, b)
+  }
+  return [0, 1, 2].flatMap((n) => shown.filter((t) => tier(t) === n).sort(dir ? byDirection : bySound))
+}
+
+/** "2% faster than deck A's track" — the reason line under a row, so the tempo order is never a mystery. */
+export function tempoStepText(match: MixMatch): string {
+  const pct = Math.round(Math.abs(match.tempoStep) * 100)
+  if (Math.abs(match.tempoStep) < SAME_TEMPO_STEP || pct === 0) return `same tempo as deck ${match.deck}'s track`
+  return `${pct}% ${match.tempoStep > 0 ? 'faster' : 'slower'} than deck ${match.deck}'s track`
 }
 
 /**
