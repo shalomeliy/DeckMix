@@ -17,4 +17,7 @@
 // 5 (v0.8.33): tempos decoded at 44.1kHz were 0.23% slow (the envelope's
 // frame rate was assumed, not computed). The cache key doesn't carry the decode
 // rate, so a version-4 entry written on such a machine can't be told apart.
-export const ANALYZER_VERSION = 5
+// 6 (v0.8.34): a track with no BPM tag gets its tempo from the four-band
+// estimator (core/tempo-estimate.ts) — right on 96.8% of the owner's tagged
+// tracks tested blind, against 56.3% before (both in-app, scripts/measure-bpm-blind.mjs). A version-5 blind BPM is the old guess.
+export const ANALYZER_VERSION = 6

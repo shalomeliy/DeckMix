@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { detectBeatGrid } from '@/platform/analyzer-js/beat'
+import { estimateBeatGrid } from '@/core/beatgrid'
+import { buildOnsetEnvelope, detectBeatGrid } from '@/platform/analyzer-js/beat'
 
 /** A kick-like click train: a decaying 60Hz burst on every beat. */
 function clicks(bpm: number, sampleRate: number, seconds: number): Float32Array {
@@ -33,4 +34,15 @@ describe('detectBeatGrid does not depend on the decode rate', () => {
       expect(Math.abs(g!.grid.bpm - 128)).toBeLessThan(0.05)
     })
   }
+})
+
+// v0.8.34: the blind estimator must never touch a tagged track — the tag path
+// is exactly `estimateBeatGrid` with the hint, as before. A regression here
+// shifts every grid the owner has already checked by ear.
+describe('a tagged track bypasses the blind estimator', () => {
+  it('equals estimateBeatGrid on the same envelope with the tag as hint', () => {
+    const pcm = { channels: [clicks(124, 48000, 40)], sampleRate: 48000 }
+    const { onsets, framesPerSec } = buildOnsetEnvelope(pcm)
+    expect(detectBeatGrid(pcm, { hintBpm: 124 })).toEqual(estimateBeatGrid(onsets, framesPerSec, { hintBpm: 124 }))
+  })
 })

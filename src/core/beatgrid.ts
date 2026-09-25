@@ -124,14 +124,24 @@ export interface BeatGridEstimate {
 export function estimateBeatGrid(
   onsets: Float32Array,
   framesPerSec: number,
-  opts?: { minBpm?: number; maxBpm?: number; hintBpm?: number | null },
+  opts?: {
+    minBpm?: number
+    maxBpm?: number
+    hintBpm?: number | null
+    /** how far (as a fraction) the refine may move off `hintBpm` — see the default's note below */
+    hintWindow?: number
+  },
 ): BeatGridEstimate | null {
   if (onsets.length < 64) return null
   // A file tag names the tempo; the tag is usually a rounded label of it. Skip
   // the blind search (which can lock on a wrong multiple — 163 for a track
   // tagged 100) and find the exact tempo near the tag, then the phase at it.
   if (opts?.hintBpm != null && opts.hintBpm > 0) {
-    const bpm = refineBpm(onsets, framesPerSec, opts.hintBpm, 0.019)
+    // 1.9% by default: a tag is a rounded label (a 127.4 track tagged 128). A
+    // blind estimate is already to 0.25 BPM and passes a tighter window —
+    // with 1.9% it was pulled onto a neighbouring peak (105 → 106.62) on 6
+    // of the 348 tracks scripts/measure-bpm-blind.mjs checks.
+    const bpm = refineBpm(onsets, framesPerSec, opts.hintBpm, opts.hintWindow ?? 0.019)
     const { bins, binFrames } = foldOnsets(onsets, (60 / bpm) * framesPerSec)
     let bestBin = 0
     for (let b = 1; b < bins.length; b++) if (bins[b] > bins[bestBin]) bestBin = b

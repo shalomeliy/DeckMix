@@ -5,6 +5,7 @@
  * it also converts `AudioBuffer`s (25/09, v0.8.33).
  */
 import { estimateBeatGrid, type BeatGridEstimate } from '@/core/beatgrid'
+import { TEMPO_TIE_MARGIN, estimateTempo, multiBandOnset } from '@/core/tempo-estimate'
 import type { PcmData } from '@/core/ports/analyzer'
 
 /** Rare path: files with more than two channels. */
@@ -25,7 +26,12 @@ const FRAMES_PER_SEC = 200
  * candidate tempos, finding phase, quantizing to the result — is pure and
  * lives in `core/beatgrid.ts` so it can be unit tested without any.
  */
-export function buildOnsetEnvelope(pcm: PcmData): { onsets: Float32Array; framesPerSec: number } {
+export function buildOnsetEnvelope(pcm: PcmData): {
+  onsets: Float32Array
+  framesPerSec: number
+  /** RMS per frame below 150Hz, 150–600Hz, 600Hz–3kHz, above 3kHz — for the blind tempo (`core/tempo-estimate.ts`). */
+  bands: Float32Array[]
+} {
   const sr = pcm.sampleRate
   // channels averaged inline: flattening to a full-length mono copy first cost
   // 63MB on a 6-minute stereo track, for an envelope we throw away immediately
@@ -43,18 +49,48 @@ export function buildOnsetEnvelope(pcm: PcmData): { onsets: Float32Array; frames
   const rc = 1 / (2 * Math.PI * 200)
   const alpha = dt / (rc + dt)
   let lp = 0
-  const env: number[] = []
   const frame = Math.floor(sr / FRAMES_PER_SEC)
+  const frames = Math.floor(len / frame)
+  // Float64, as the old number[] was: rounding each frame to 32 bits before
+  // the difference below moved tagged tracks' refine by a 0.01 BPM step (v0.8.34 review).
+  const env = new Float64Array(frames)
+  const bands = [0, 1, 2, 3].map(() => new Float32Array(frames))
+  // One-pole splits, the same cheap kind the waveform colour uses: they only have
+  // to say *when* a band gets louder, not what is in it.
+  const onePole = (hz: number) => dt / (1 / (2 * Math.PI * hz) + dt)
+  const a1 = onePole(150)
+  const a2 = onePole(600)
+  const a3 = onePole(3000)
+  let l1 = 0
+  let l2 = 0
+  let l3 = 0
   let acc = 0
+  let b0 = 0
+  let b1 = 0
+  let b2 = 0
+  let b3 = 0
   let n = 0
-  for (let i = 0; i < len; i++) {
+  let f = 0
+  for (let i = 0; i < frames * frame; i++) {
     const v = multi ? mixAt(chans, i, invCh) : stereo ? (ch0[i] + ch1[i]) * 0.5 : ch0[i]
     lp += alpha * (v - lp)
     acc += lp * lp
+    l1 += a1 * (v - l1)
+    l2 += a2 * (v - l2)
+    l3 += a3 * (v - l3)
+    b0 += l1 * l1
+    b1 += (l2 - l1) * (l2 - l1)
+    b2 += (l3 - l2) * (l3 - l2)
+    b3 += (v - l3) * (v - l3)
     if (++n === frame) {
-      env.push(Math.sqrt(acc / frame))
-      acc = 0
+      env[f] = Math.sqrt(acc / frame)
+      bands[0][f] = Math.sqrt(b0 / frame)
+      bands[1][f] = Math.sqrt(b1 / frame)
+      bands[2][f] = Math.sqrt(b2 / frame)
+      bands[3][f] = Math.sqrt(b3 / frame)
+      acc = b0 = b1 = b2 = b3 = 0
       n = 0
+      f++
     }
   }
 
@@ -69,7 +105,7 @@ export function buildOnsetEnvelope(pcm: PcmData): { onsets: Float32Array; frames
   // every tempo 0.23% slow (a 128 tag read 127.72). 48kHz divides evenly,
   // which is why the owner's machine never showed it.
   // tests/platform/beat-envelope-rate.test.ts.
-  return { onsets, framesPerSec: sr / frame }
+  return { onsets, framesPerSec: sr / frame, bands }
 }
 
 /**
@@ -83,6 +119,18 @@ export function detectBeatGrid(
   pcm: PcmData,
   opts?: { minBpm?: number; maxBpm?: number; hintBpm?: number | null },
 ): BeatGridEstimate | null {
-  const { onsets, framesPerSec } = buildOnsetEnvelope(pcm)
-  return estimateBeatGrid(onsets, framesPerSec, opts)
+  const { onsets, framesPerSec, bands } = buildOnsetEnvelope(pcm)
+  if (opts?.hintBpm != null && opts.hintBpm > 0) return estimateBeatGrid(onsets, framesPerSec, opts)
+  // No tag: the tempo comes from the four-band estimator, then goes down the
+  // exact path a tag does — the grid's fine BPM and phase are still found on
+  // the kick envelope, which is what the owner's grids were tuned against.
+  const tempo = estimateTempo(multiBandOnset(bands), framesPerSec, opts)
+  if (tempo == null) return estimateBeatGrid(onsets, framesPerSec, opts)
+  const grid = estimateBeatGrid(onsets, framesPerSec, { ...opts, hintBpm: tempo.bpm, hintWindow: 0.005 })
+  // The tag path only asks whether the *phase* is clear — for a tag the tempo
+  // is given. Here it was guessed, so a tie with an unrelated tempo is also
+  // "unconfirmed". Without this every blind grid read confident, wrong ones
+  // included (v0.8.34 review: 348 of 348). Shalom chose tie-only over flagging
+  // every untagged track (25/09).
+  return grid && { ...grid, confident: grid.confident && tempo.margin >= TEMPO_TIE_MARGIN }
 }
