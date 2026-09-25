@@ -19,6 +19,9 @@ src/
     hotcues.ts            moveHotCue — רדוקטור relocate/swap טהור (v0.4.0)
     analysis-cache.ts    resolveCacheEntry — מדיניות freshness טהורה (v0.4.0)
     grid-corrections.ts  resolveGridCorrection — מתי תיקון גריד שמור עדיין תקף (v0.8.23)
+    key-parse.ts         parseKey/parseBpm — סולם ו-BPM כפי שתגית או אדם כותבים (עבר מ-tags.ts ב-v0.8.38)
+    tag-merge.ts         מי מנצח: תגית / זיהוי / ערך שהבעלים הקליד (applyOwnerMeta, v0.8.38)
+    source-lookup.ts     beatportSearch — קישור חיפוש בלבד; האפליקציה אף פעם לא קוראת את Beatport (v0.8.38)
     ports/              ה‑interfaces: audio, source, transport, analyzer, clock,
                         persistence, capabilities, ai
 
@@ -32,7 +35,7 @@ src/
       library.ts        File System Access — pick/scan/restore, idb-keyval לתיקייה,
                         readLibraryTags (פאס תגיות שני, batched), queueLibraryAnalysis
                         (פאס שלישי, רקע, v0.4.0)
-      tags.ts           ★ readTags — ID3v2/MP4/Vorbis/RIFF/AIFF, parseKey → Camelot.
+      tags.ts           ★ readTags — ID3v2/MP4/Vorbis/RIFF/AIFF, parseKey (מ-core/key-parse) → Camelot.
                         byte-range reads בלבד, אף פעם לא decode ולא כתיבה לקבצים
       hash.ts           hashFile/hashBytes — SHA‑256 על בייטים (v0.4.0)
     transport-webmidi/
@@ -42,6 +45,7 @@ src/
     analyzer-worker/    Analyzer מעל Web Worker (v0.4.0) — decode נשאר ב‑thread הראשי
     analyze-cache-idb/  AnalysisCache לפי content‑hash, ב‑IndexedDB (v0.4.0)
     cues-idb/           בנק Hot Cues + נקודת CUE, לפי content‑hash (v0.4.0)
+    track-meta-idb/     הערה, מתי נוגן, ו-BPM/סולם שהבעלים הקליד (owner, v0.8.38) — לפי content‑hash
     grid-corrections-idb/ תיקוני גריד ידניים, לפי content‑hash — לא בתוך מטמון הניתוח (v0.8.23)
     genre-overrides-idb/ override ז'אנר ידני — חנות ישנה (נתיב) + חנות חדשה (hash) +
                         migrate.ts (מיגרציה חד‑פעמית, v0.4.0)
@@ -53,7 +57,8 @@ src/
     state/store.ts      zustand — כל ה‑UI state. patchDeck/patchChannel/patchMixer/set*
     hooks/useRenderLoop.ts   נרשם ל‑Clock ומושך position מהמנוע ל‑store
     components/         TopBar, Deck, Mixer, Library, Waveform, Platter, PadGrid,
-                        controls.tsx (Button/Knob/Fader), KeysScreen (v0.8.24 — מהטבלה ב-core/hints.ts)
+                        controls.tsx (Button/Knob/Fader), KeysScreen (v0.8.24 — מהטבלה ב-core/hints.ts),
+                        SourceCheckPanel (v0.8.38 — בדיקת BPM/סולם מול Beatport, מתחת לרשימה)
 ```
 
 הגבולות נאכפים ע"י `dependency-cruiser` (`.dependency-cruiser.cjs`), לא ע"י מוסכמה —

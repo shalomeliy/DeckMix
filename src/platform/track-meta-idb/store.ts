@@ -8,13 +8,16 @@
  * there is no legacy path-keyed predecessor to migrate from; this store
  * started hash-keyed.
  */
-import { get, set } from 'idb-keyval'
+import { get, set, update } from 'idb-keyval'
+import type { OwnerTempoKey } from '@/core/tag-merge'
 
 const KEY = 'deckmix:trackMeta'
 
 export interface TrackMeta {
   note?: string
   lastPlayedAt?: number
+  /** v0.8.38: BPM/key the owner typed from the "check against Beatport" panel — see `applyOwnerMeta`. */
+  owner?: OwnerTempoKey
 }
 
 /**
@@ -26,11 +29,20 @@ export interface TrackMeta {
 export async function getTrackMetaByHash(): Promise<Map<string, TrackMeta>> {
   try {
     const stored = await get<Record<string, TrackMeta>>(KEY)
-    return new Map(Object.entries(stored ?? {}))
+    live = new Map(Object.entries(stored ?? {}))
   } catch {
-    return new Map()
+    live = new Map()
   }
+  return live
 }
+
+/**
+ * The map the last `getTrackMetaByHash` returned, kept in step with owner
+ * BPM/key edits (v0.8.38). The Library's analysis pass reads it once at scan
+ * start and merges from it for the whole scan; without this, a value the owner
+ * typed — or took back — mid-scan was undone by that pass's stale copy.
+ */
+let live: Map<string, TrackMeta> | null = null
 
 /**
  * Persist a note, keyed by content hash. Throws on failure so the caller
@@ -54,4 +66,31 @@ export async function setTrackNote(contentHash: string, note: string): Promise<v
 export async function setLastPlayed(contentHash: string, ts: number): Promise<void> {
   const stored = await get<Record<string, TrackMeta>>(KEY)
   await set(KEY, { ...(stored ?? {}), [contentHash]: { ...stored?.[contentHash], lastPlayedAt: ts } })
+}
+
+/**
+ * The owner's own BPM/key for a track (v0.8.38). `undefined` for a field
+ * removes it ("back to original"); a record left with no field is removed
+ * whole. `update` rather than the get-then-set the two setters above use: a
+ * load stamping `lastPlayedAt` in the same instant would otherwise drop one of
+ * the two writes. Throws on failure, same contract as `setTrackNote`.
+ */
+export async function setOwnerTempoKey(contentHash: string, patch: OwnerTempoKey, clear: { bpm?: boolean; key?: boolean } = {}): Promise<void> {
+  let written: TrackMeta | null = null
+  await update<Record<string, TrackMeta>>(KEY, (stored) => {
+    const all = { ...(stored ?? {}) }
+    const meta = { ...all[contentHash] }
+    const owner: OwnerTempoKey = { ...meta.owner, ...patch }
+    if (clear.bpm) delete owner.bpm
+    if (clear.key) {
+      delete owner.key
+      delete owner.camelot
+    }
+    if (owner.bpm == null && !owner.key && !owner.camelot) delete meta.owner
+    else meta.owner = owner
+    all[contentHash] = meta
+    written = meta
+    return all
+  })
+  if (live && written) live.set(contentHash, written)
 }

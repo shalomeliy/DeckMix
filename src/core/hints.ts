@@ -222,8 +222,15 @@ const HINT_BASE = {
       { key: 'Esc in the search box', does: 'drop the column tag first, then clear the text' },
     ],
   },
+  'library.checkSource': {
+    text: 'Check this track’s BPM and key against Beatport. Opens a Beatport search for the artist and title in a new tab, and this panel, where you type what Beatport shows. Nothing changes until you press Update. Values you type lose the * or ? mark and survive a rescan; Back to original drops them. Turn the ↗ on or off in Settings › Library.',
+    gestures: [
+      { key: 'Enter in a field', does: 'update' },
+      { key: 'Esc', does: 'close the panel, keeping ours' },
+    ],
+  },
   'library.rows': {
-    text: 'Click a row to select it. Click the Genre cell to change it. The two buttons on the right load straight to deck A or B.',
+    text: 'Click a row to select it. Click the Genre cell to change it. The two buttons on the right load straight to deck A or B. With Settings › Library › Check BPM and key against Beatport on, ↗ beside the BPM checks it.',
     gestures: [
       { mouse: 'Double-click a row', does: 'load it (a suggestion goes to the empty deck, otherwise deck A)' },
       { mouse: 'Drag a row onto a deck', does: 'load it there' },

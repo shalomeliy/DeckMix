@@ -13,6 +13,8 @@
  * Read-only — nothing is ever written back to the user's files.
  */
 
+import { parseBpm, parseKey } from '@/core/key-parse'
+
 export interface TrackTags {
   /**
    * The file could not be READ — deleted mid-scan, permission withdrawn, the
@@ -92,9 +94,7 @@ function num(raw: string | undefined): number | undefined {
 /** BPM values outside this are tag noise (0, 1, 999, ms-per-beat, …). */
 function bpmValue(raw: string | number | undefined): number | undefined {
   const v = typeof raw === 'number' ? raw : num(raw)
-  if (v == null) return undefined
-  if (v < 40 || v > 220) return undefined
-  return Math.round(v * 100) / 100
+  return v == null ? undefined : parseBpm(v)
 }
 
 function text(raw: string | undefined): string | undefined {
@@ -107,59 +107,10 @@ function text(raw: string | undefined): string | undefined {
 
 // ------------------------------------------------------------------- musical
 
-// Camelot wheel, indexed 1..12. Used both to normalise spelling (Gb → F#) and
-// to give the recommender a comparable code.
-const CAMELOT_MAJOR = ['B', 'F#', 'Db', 'Ab', 'Eb', 'Bb', 'F', 'C', 'G', 'D', 'A', 'E']
-const CAMELOT_MINOR = ['Abm', 'Ebm', 'Bbm', 'Fm', 'Cm', 'Gm', 'Dm', 'Am', 'Em', 'Bm', 'F#m', 'Dbm']
-// pitch class (C=0) → Camelot number
-const MAJOR_PC = [8, 3, 10, 5, 12, 7, 2, 9, 4, 11, 6, 1]
-const MINOR_PC = [5, 12, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10]
-const NOTE_PC: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }
-
-export interface ParsedKey {
-  key: string
-  camelot: string
-}
-
-/**
- * Accepts musical (`Am`, `F#m`, `Bb`, `A minor`), Camelot (`8A`) and Open Key
- * (`1m`) spellings — DJ software disagrees about which it writes.
- */
-export function parseKey(raw: string | undefined): ParsedKey | null {
-  const s = raw?.trim().replace(/\s+/g, ' ')
-  if (!s) return null
-
-  const camelot = /^(\d{1,2})\s*([ABab])$/.exec(s)
-  if (camelot) {
-    const n = Number(camelot[1])
-    if (n < 1 || n > 12) return null
-    const minor = camelot[2].toUpperCase() === 'A'
-    return { key: (minor ? CAMELOT_MINOR : CAMELOT_MAJOR)[n - 1], camelot: `${n}${minor ? 'A' : 'B'}` }
-  }
-
-  const openKey = /^(\d{1,2})\s*([mdMD])$/.exec(s)
-  if (openKey) {
-    const n = Number(openKey[1])
-    if (n < 1 || n > 12) return null
-    const minor = openKey[2].toLowerCase() === 'm'
-    const c = ((n + 6) % 12) + 1
-    return { key: (minor ? CAMELOT_MINOR : CAMELOT_MAJOR)[c - 1], camelot: `${c}${minor ? 'A' : 'B'}` }
-  }
-
-  const musical = /^([A-Ga-g])\s*([#♯b♭]?)\s*(m|min|minor|maj|major|d|M)?$/.exec(s)
-  if (musical) {
-    let pc = NOTE_PC[musical[1].toUpperCase()]
-    if (musical[2] === '#' || musical[2] === '♯') pc = (pc + 1) % 12
-    else if (musical[2] === 'b' || musical[2] === '♭') pc = (pc + 11) % 12
-    const q = musical[3] ?? ''
-    // a bare `M` means major; a bare `m` (or min/minor) means minor
-    const minor = q === 'm' || q.toLowerCase() === 'min' || q.toLowerCase() === 'minor'
-    const c = (minor ? MINOR_PC : MAJOR_PC)[pc]
-    return { key: (minor ? CAMELOT_MINOR : CAMELOT_MAJOR)[c - 1], camelot: `${c}${minor ? 'A' : 'B'}` }
-  }
-
-  return null
-}
+// `parseKey` moved to core/key-parse.ts in v0.8.38 — the owner types keys into
+// the Library's check panel (app layer) and they must read exactly the way a
+// tag does. Re-exported so existing imports keep working.
+export { parseKey, type ParsedKey } from '@/core/key-parse'
 
 function applyKey(tags: TrackTags, raw: string | undefined) {
   if (tags.camelot) return

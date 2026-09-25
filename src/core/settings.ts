@@ -99,6 +99,8 @@ export interface Settings {
   outputDeviceId: string | null
   /** Show a "?" beside every control, with a short explanation on hover/focus. */
   hintMode: boolean
+  /** v0.8.38: a ↗ beside each track's BPM that opens a Beatport search and a panel to type what it says. Off by default (Shalom, 25/09). */
+  sourceCheck: boolean
 }
 
 export const DEFAULTS: Settings = {
@@ -125,6 +127,7 @@ export const DEFAULTS: Settings = {
   lockPlayingDeck: true,
   outputDeviceId: null,
   hintMode: true, // temporary — user asked for hints on by default until further notice (2026-09-04)
+  sourceCheck: false,
 }
 
 // ————————————————————————————————————————————————————————————————
@@ -404,6 +407,13 @@ export const FIELDS: Field[] = [
     max: 1.5,
     step: 0.05,
     unit: '×',
+  },
+  {
+    kind: 'toggle',
+    key: 'sourceCheck',
+    label: 'Check BPM and key against Beatport',
+    help: 'Adds ↗ beside each track’s BPM. It opens a Beatport search for the track in a new tab and a panel where you type what Beatport shows. The app never reads Beatport itself; values you type are kept even when this is off.',
+    group: 'library',
   },
 
   {

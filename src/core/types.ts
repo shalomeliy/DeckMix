@@ -21,9 +21,17 @@ export interface Track {
   /**
    * `'detected'` when `key`/`camelot` came from the audio, not a tag
    * (v0.8.27) — the Key column marks it, and a tag read later replaces it.
-   * Undefined means a tag, or no key at all.
+   * `'owner'` when the owner typed it (v0.8.38): unmarked like a tag, and
+   * nothing — tag or detection — replaces it. Undefined means a tag, or no key.
    */
-  keySource?: 'detected'
+  keySource?: 'detected' | 'owner'
+  /**
+   * `'owner'` when the owner typed `bpm` himself (v0.8.38, the Library's
+   * "check against Beatport" panel). It then beats both a tag and detection,
+   * and survives a rescan (`track-meta-idb`). Undefined means a tag, the
+   * analysis, or no BPM.
+   */
+  bpmSource?: 'owner'
   /** Set with `keySource: 'detected'` when the audio barely picked this key over the next one (`UNCERTAIN_MARGIN`). */
   keyUncertain?: boolean
   /**

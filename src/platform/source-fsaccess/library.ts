@@ -257,6 +257,30 @@ export async function readTagBpm(track: Track): Promise<number | null> {
   }
 }
 
+/**
+ * The BPM and key a rescan would give this track, ignoring anything the owner
+ * typed (v0.8.38, "back to original"): the file's tag first, else the cached
+ * analysis — the same precedence `mergeTagPatch`/`mergeAnalysisPatch` apply.
+ * A field neither source has comes back `undefined`, which the row shows as
+ * "–", never a leftover of the owner's value. The analysis is only read from
+ * the cache, never re-run: a track with no cached result just has no detected
+ * value until the queue reaches it again.
+ */
+export async function readOriginalTempoKey(track: Track, contentHash: string | undefined): Promise<Partial<Track>> {
+  const tags = await readTags(await track.handle.getFile())
+  // `readTags` reports a file it could not open as `unreadable` rather than
+  // throwing. Reading that as "no tag" would delete the owner's value and put
+  // back a guess — or nothing — without a word (found in review).
+  if (tags.unreadable) throw new Error('the file could not be read, so its original values are unknown')
+  const analysis = contentHash ? await analysisCache.get(analysisCacheKey(contentHash, tags.bpm ?? null)) : null
+  const detectedKey = analysis?.key ? detectedKeyFields(analysis.key) : {}
+  const tagKey = tags.key || tags.camelot ? { key: tags.key, camelot: tags.camelot } : null
+  return {
+    bpm: tags.bpm ?? analysis?.bpm ?? undefined,
+    ...(tagKey ?? detectedKey),
+  }
+}
+
 export async function readTrackData(track: Track): Promise<ArrayBuffer> {
   const file = await track.handle.getFile()
   return await file.arrayBuffer()

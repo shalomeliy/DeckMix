@@ -45,6 +45,7 @@ import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
 import {
   setLastPlayed as persistLastPlayedByHash,
   setTrackNote as persistTrackNoteByHash,
+  setOwnerTempoKey,
 } from '@/platform/track-meta-idb/store'
 import {
   deleteCrateRecord,
@@ -60,10 +61,11 @@ import { ownerCorrection, resolveGridCorrection } from '@/core/grid-corrections'
 import { getExcellentPoints, markExcellent } from '@/platform/mix-ratings-idb/store'
 import { markExcellentPair } from '@/platform/mix-pairs-idb/store'
 import { clock } from '@/platform/clock-audio'
-import { readTagBpm, readTrackData } from '@/platform/source-fsaccess/library'
+import { readOriginalTempoKey, readTagBpm, readTrackData } from '@/platform/source-fsaccess/library'
 import { analysisCacheKey } from '@/core/analysis-cache'
 import { detectedKeyFields } from '@/core/key-detect'
-import { fillDetectedKey, withLatestKey } from '@/core/tag-merge'
+import { applyOwnerMeta, clearOwnerMeta, fillDetectedKey, labelAgrees, withLatestKey } from '@/core/tag-merge'
+import type { ParsedKey } from '@/core/key-parse'
 import { hashBytes, hashFile } from '@/platform/source-fsaccess/hash'
 import { settings } from '@/platform/settings-idb/store'
 import { DEFAULTS, FIELD_BY_KEY, secPerRev, type Settings } from '@/core/settings'
@@ -457,8 +459,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     // that stays on the beats; a bigger gap is an octave/detection miss, where
     // the tag still wins as before.
     const detectedBpm = analysis.beatGrid?.bpm ?? null
-    const tagAgrees =
-      track.bpm != null && detectedBpm != null && Math.abs(detectedBpm - track.bpm) / track.bpm <= 0.02
+    const tagAgrees = labelAgrees(track, detectedBpm)
     const bpm = tagAgrees ? detectedBpm : (track.bpm ?? analysis.bpm)
     const detectedGrid: BeatGrid | null = analysis.beatGrid
       ? { bpm: bpm ?? analysis.beatGrid.bpm, offsetSec: analysis.beatGrid.offsetSec }
@@ -497,7 +498,14 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     setLibAfter({
       tracks: libAfter.tracks.map((t) =>
         t.id === track.id
-          ? fillDetectedKey({ ...t, contentHash, analysisState: 'analyzed', bpm: deckBpm ?? t.bpm }, detectedKey)
+          ? fillDetectedKey(
+              // The owner's typed BPM stays what the row shows (v0.8.38): the deck
+              // still plays the refined tempo (the 2% rule above), but a row that
+              // said 125 when he typed 125 and then read 124.93 after a load
+              // would look like his edit had been quietly changed.
+              { ...t, contentHash, analysisState: 'analyzed', bpm: t.bpmSource === 'owner' ? t.bpm : (deckBpm ?? t.bpm) },
+              detectedKey,
+            )
           : t,
       ),
     })
@@ -3603,6 +3611,83 @@ async function persistTrackNote(trackId: string, note: string): Promise<void> {
     })
   }
   await persistTrackNoteByHash(hash, note)
+}
+
+/**
+ * The owner's own BPM and/or key for a track (v0.8.38) — typed from what
+ * Beatport shows, in the Library's check panel. Same shape as `setTrackNote`:
+ * the row changes at once, the value is kept by content hash, and a failed
+ * save is said on screen with the track's name. A deck holding the track takes
+ * the key at once (`setLibrary` → `decksFollowLibraryKeys`); the BPM only on
+ * its next load — Shalom's decision (25/09), so a playing track and a deck
+ * synced to it never jump mid-mix. The panel says so.
+ */
+export async function setTrackTempoKey(trackId: string, value: { bpm?: number; key?: ParsedKey }): Promise<boolean> {
+  const { library, setLibrary, setNotice } = useStore.getState()
+  const track = library.tracks.find((t) => t.id === trackId)
+  if (!track) return false
+  const owner = { bpm: value.bpm, key: value.key?.key, camelot: value.key?.camelot }
+  setLibrary({ tracks: library.tracks.map((t) => (t.id === trackId ? applyOwnerMeta(t, owner) : t)) })
+  try {
+    await persistOwnerTempoKey(trackId, owner, {})
+    return true
+  } catch (err) {
+    setNotice({
+      text: `BPM/key for "${track.title ?? track.name}" applied but not saved: ${err instanceof Error ? err.message : String(err)}`,
+      tone: 'warn',
+      source: 'library',
+    })
+    return false
+  }
+}
+
+/**
+ * "Back to original" (v0.8.38): drops what the owner typed and puts back what
+ * a rescan would show — the file's tag, else the analysis. Awaited before the
+ * row changes, unlike `setTrackTempoKey`: the original has to be read from the
+ * file first, and a row that briefly showed "–" would read as data lost.
+ */
+export async function revertTrackTempoKey(trackId: string, fields: { bpm: boolean; key: boolean }) {
+  const { setNotice } = useStore.getState()
+  const track = useStore.getState().library.tracks.find((t) => t.id === trackId)
+  if (!track) return
+  try {
+    const hash = await ensureContentHash(trackId)
+    const original = await readOriginalTempoKey(track, hash)
+    await setOwnerTempoKey(hash, {}, fields)
+    const { library, setLibrary } = useStore.getState()
+    setLibrary({ tracks: library.tracks.map((t) => (t.id === trackId ? clearOwnerMeta(t, original, fields) : t)) })
+  } catch (err) {
+    setNotice({
+      text: `"${track.title ?? track.name}" kept your BPM/key — going back to the original failed: ${err instanceof Error ? err.message : String(err)}`,
+      tone: 'warn',
+      source: 'library',
+    })
+  }
+}
+
+async function persistOwnerTempoKey(
+  trackId: string,
+  owner: { bpm?: number; key?: string; camelot?: string },
+  clear: { bpm?: boolean; key?: boolean },
+): Promise<void> {
+  if (!useStore.getState().library.tracks.some((t) => t.id === trackId)) return // rescanned since — nothing to persist against
+  const hash = await ensureContentHash(trackId)
+  // Only the fields the owner actually typed: `undefined` would erase a value
+  // he set earlier for the other field.
+  const patch = Object.fromEntries(Object.entries(owner).filter(([, v]) => v !== undefined))
+  await setOwnerTempoKey(hash, patch, clear)
+}
+
+/** The track's content hash, computed once on demand and kept on the track — same path as `persistTrackNote`. */
+async function ensureContentHash(trackId: string): Promise<string> {
+  const track = useStore.getState().library.tracks.find((t) => t.id === trackId)
+  if (!track) throw new Error('the track is no longer in the library')
+  if (track.contentHash) return track.contentHash
+  const hash = await hashFile(track.handle)
+  const { library, setLibrary } = useStore.getState()
+  setLibrary({ tracks: library.tracks.map((t) => (t.id === trackId ? { ...t, contentHash: hash } : t)) })
+  return hash
 }
 
 /**

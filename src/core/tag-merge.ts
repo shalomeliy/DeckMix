@@ -105,3 +105,75 @@ export function decksFollowLibraryKeys<D extends { track: Track | null }>(
   }
   return out
 }
+
+/** What the owner typed for a track (v0.8.38), as stored by content hash in `track-meta-idb`. */
+export interface OwnerTempoKey {
+  bpm?: number
+  key?: string
+  camelot?: string
+}
+
+/**
+ * Puts the owner's own values on a track. They beat a tag and a detection,
+ * so this runs *after* the other merges, and it has to hold whichever pass
+ * lands later: a key marked `'owner'` is never replaced by `mergeTagPatch`
+ * (it only replaces `'detected'`) nor by `fillDetectedKey` (it only fills an
+ * empty key), and `mergeAnalysisPatch` keeps a `bpm` that is already set.
+ * Returns the same track when there is nothing to apply.
+ */
+export function applyOwnerMeta(track: Track, owner: OwnerTempoKey | undefined): Track {
+  if (!owner || (owner.bpm == null && !owner.key && !owner.camelot)) return track
+  const out: Track = { ...track }
+  if (owner.bpm != null) {
+    out.bpm = owner.bpm
+    out.bpmSource = 'owner'
+  }
+  if (owner.key || owner.camelot) {
+    out.key = owner.key
+    out.camelot = owner.camelot
+    out.keySource = 'owner'
+    delete out.keyUncertain
+  }
+  return out
+}
+
+/**
+ * The undo of `applyOwnerMeta`: the owner pressed "back to original", so the
+ * track takes the values a rescan would give it — `original` is the file tag,
+ * else the analysis (the caller reads both, `controls.ts`). A field the owner
+ * never set is left exactly as it is.
+ */
+export function clearOwnerMeta(track: Track, original: Partial<Track>, fields: { bpm: boolean; key: boolean }): Track {
+  const out: Track = { ...track }
+  if (fields.bpm && out.bpmSource === 'owner') {
+    delete out.bpmSource
+    out.bpm = original.bpm
+  }
+  if (fields.key && out.keySource === 'owner') {
+    out.key = original.key
+    out.camelot = original.camelot
+    if (original.keySource) out.keySource = original.keySource
+    else delete out.keySource
+    if (original.keyUncertain != null) out.keyUncertain = original.keyUncertain
+    else delete out.keyUncertain
+  }
+  return out
+}
+
+/**
+ * Whether the deck may play our refined tempo instead of the track's labelled
+ * BPM (the 20/09 rule in `loadTrackToDeck`): a label is a rounded number, so a
+ * detection close to it is the same tempo, measured finer.
+ *
+ * "Close" is 2% for a tag. For a BPM the owner typed (v0.8.38) it is 0.5% —
+ * enough for Beatport's whole-number rounding and no more. Detection is still
+ * steered by the *file's* tag (it is the analysis hint and cache key), so with
+ * a tag of 128 and the owner's 126 it settles near 127.9 — inside 2% of 126,
+ * and the deck would have played the tag's tempo while the row said 126
+ * (found in review).
+ */
+export function labelAgrees(track: Pick<Track, 'bpm' | 'bpmSource'>, detectedBpm: number | null): boolean {
+  if (track.bpm == null || detectedBpm == null) return false
+  const tolerance = track.bpmSource === 'owner' ? 0.005 : 0.02
+  return Math.abs(detectedBpm - track.bpm) / track.bpm <= tolerance
+}

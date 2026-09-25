@@ -44,10 +44,11 @@ const NAMED: Record<string, Named[]> = {
   'src/app/components/Library.tsx': [
     { token: 'draggable', count: 1, gesture: 'library.rows' },
     { token: 'onDoubleClick=', count: 1, gesture: 'library.rows' },
-    { token: 'onDoubleClick=', count: 2, exempt: 'stops a row double-click inside the genre/note cell editors' },
+    { token: 'onDoubleClick=', count: 3, exempt: 'stops a row double-click inside the genre/note cell editors and on the ↗ Beatport link' },
     { token: 'onKeyDown=', count: 1, gesture: 'library.rows' },
     { token: 'onKeyDown=', count: 1, gesture: 'library.search' }, // Esc: tag first, then text
   ],
+  'src/app/components/SourceCheckPanel.tsx': [{ token: 'onKeyDown=', count: 1, gesture: 'library.checkSource' }],
   'src/app/components/Deck.tsx': [{ token: 'onDrop=', count: 1, gesture: 'library.rows' }],
   'src/app/components/Waveform.tsx': [
     // v0.8.28: wheel = quarter beat, Shift+wheel = whole beat

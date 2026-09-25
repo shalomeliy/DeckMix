@@ -20,7 +20,7 @@ import { bootCopy, bootFor, bootForScanError } from '@/core/library-boot'
 import { findSimilarTracks, orderBySimilarMatches } from '@/core/embedding-search'
 import { libraryEmptyCopy } from '@/core/library-list-copy'
 import { SEARCH_COLUMN_LABEL, columnSearchHint, type SearchColumn } from '@/core/library-search'
-import { mergeAnalysisPatch, mergeTagPatch } from '@/core/tag-merge'
+import { applyOwnerMeta, mergeAnalysisPatch, mergeTagPatch } from '@/core/tag-merge'
 import {
   excellentStripEntries,
   excellentStripHint,
@@ -42,6 +42,8 @@ import type { Track } from '@/core/types'
 import type { SortDir, SortKey } from '@/core/library-sort'
 import { useVirtualRows } from '@/app/hooks/useVirtualRows'
 import { Button, HintIcon } from '@/app/components/controls'
+import { SourceCheckPanel } from '@/app/components/SourceCheckPanel'
+import { beatportSearch } from '@/core/source-lookup'
 import { CratesRail } from '@/app/components/CratesRail'
 
 /** Matches the `h-9` row height below — fixed regardless of `libraryTextScale`, which only scales font-size (see the comment on the table itself). */
@@ -71,6 +73,7 @@ const UNDECODABLE_TITLE =
 /** The Key cell's tooltip: which key, and whether a person or the audio said so. */
 function keyTitle(track: Track, label: string): string {
   const name = track.camelot && track.key ? `${track.key} · Camelot ${track.camelot}` : label
+  if (track.keySource === 'owner') return `${name} — set by you`
   if (track.keySource !== 'detected') return name
   return track.keyUncertain
     ? `${name} — detected from the audio, uncertain: the music barely picks this key over another (no key tag in the file)`
@@ -130,9 +133,11 @@ export function Library() {
   // Same local-state shape as `mixOnly` — a view filter, not something any
   // other part of the app needs to know about.
   const [similarTo, setSimilarTo] = useState<string | null>(null)
+  // v0.8.38: the track whose BPM/key the owner is checking against Beatport — see SourceCheckPanel.
+  const [checking, setChecking] = useState<string | null>(null)
   // Which key notation to show. DJs are split between musical and Camelot and
   // nobody wants to relearn theirs, so it's a preference that sticks.
-  const { keyMode, libraryTextScale } = useSettings()
+  const { keyMode, libraryTextScale, sourceCheck } = useSettings()
   /**
    * Three clicks cycle a column: asc -> desc -> off (back to scan order).
    * Clicking a *different* column always starts it fresh at asc, rather
@@ -595,12 +600,18 @@ export function Library() {
             const hash = p.contentHash ?? t.contentHash
             const override = hash ? hashOverrides.get(hash) : undefined
             const meta = hash ? trackMetaByHash.get(hash) : undefined
-            return {
-              ...merged,
-              ...(override ? { genre: override } : {}),
-              ...(meta?.note != null ? { note: meta.note } : {}),
-              ...(meta?.lastPlayedAt != null ? { lastPlayedAt: meta.lastPlayedAt } : {}),
-            }
+            // v0.8.38: the owner's own BPM/key goes on last, over tag and detection.
+            // The map is live (`setOwnerTempoKey` updates it), so a value typed or
+            // a "back to original" pressed mid-scan is what this sees.
+            return applyOwnerMeta(
+              {
+                ...merged,
+                ...(override ? { genre: override } : {}),
+                ...(meta?.note != null ? { note: meta.note } : {}),
+                ...(meta?.lastPlayedAt != null ? { lastPlayedAt: meta.lastPlayedAt } : {}),
+              },
+              meta?.owner,
+            )
           }),
         })
         // A saved sampler slot's track can be anywhere in a real library —
@@ -1375,6 +1386,7 @@ export function Library() {
                   keyMode={keyMode}
                   onSelect={() => ctl.selectTrack(t.id)}
                   onFindSimilar={() => setSimilarTo(t.id)}
+                  onCheckSource={sourceCheck ? () => setChecking(t.id) : undefined}
                   removableFromCrateId={removableFromCrateId}
                   loadedOnA={aHash != null && aHash === t.contentHash}
                   loadedOnB={bHash != null && bHash === t.contentHash}
@@ -1393,6 +1405,9 @@ export function Library() {
         </div>
         )}
       </div>
+      {/* Stays open if the setting is turned off mid-check — closing it under the
+          owner's hands would drop what he was typing. */}
+      {checking && <SourceCheckPanel key={checking} trackId={checking} onClose={() => setChecking(null)} />}
     </section>
   )
 }
@@ -1537,6 +1552,7 @@ function Row({
   keyMode,
   onSelect,
   onFindSimilar,
+  onCheckSource,
   removableFromCrateId,
   loadedOnA,
   loadedOnB,
@@ -1551,6 +1567,8 @@ function Row({
   onSelect: () => void
   /** M3: seeds "more like this" with this row's track. */
   onFindSimilar: () => void
+  /** v0.8.38: opens the Beatport check for this row; absent while Settings › Library has it off. */
+  onCheckSource?: () => void
   /** v0.8.2: this row's track is currently loaded on deck A/B (loaded, not necessarily playing — paused counts). */
   loadedOnA: boolean
   loadedOnB: boolean
@@ -1598,6 +1616,10 @@ function Row({
       // App.tsx (which deck is a separate, unresolved product question).
       tabIndex={0}
       onKeyDown={(e) => {
+        // Only a key pressed on the row itself: Enter on the ↗ link inside it
+        // (v0.8.38) was cancelled here, so the link could not be opened from the
+        // keyboard at all — found in review.
+        if (e.target !== e.currentTarget) return
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
           onSelect()
@@ -1609,7 +1631,7 @@ function Row({
       // name (title/artist/bpm/key) instead of replacing it, which aria-label
       // would have done.
       aria-describedby={matchDescId}
-      className={`h-9 cursor-grab border-b border-hairline/50 outline-none transition-colors active:cursor-grabbing focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-[-2px] ${
+      className={`group h-9 cursor-grab border-b border-hairline/50 outline-none transition-colors active:cursor-grabbing focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] focus-visible:outline-offset-[-2px] ${
         selected ? 'bg-accent/15' : 'hover:bg-surface-2'
       }`}
     >
@@ -1757,8 +1779,33 @@ function Row({
       <td className="py-1.5 pr-2 text-2xs uppercase text-grid-dim">{track.kind}</td>
       {/* BPM is a primary mixing datum, not metadata — it reads at full brightness */}
       <td className="tnum py-1.5 pr-2 text-right font-medium text-grid-text">
+        {onCheckSource && (
+          // A real link, not window.open: a click on a link is never blocked as a
+          // popup, so there is no "blocked" case to lose silently.
+          <a
+            href={beatportSearch(track).url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => {
+              e.stopPropagation()
+              onSelect()
+              onCheckSource()
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+            aria-label={`Check BPM and key of ${track.title ?? track.name} on Beatport`}
+            title="Check BPM and key on Beatport"
+            className={`float-left inline-grid h-6 w-6 place-items-center rounded-[var(--radius-xs)] font-normal text-grid-dim hover:bg-surface-2 hover:text-accent focus-visible:opacity-100 focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] ${
+              selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+            }`}
+          >
+            ↗
+          </a>
+        )}
         {track.bpm ? (
-          track.bpm.toFixed(0)
+          <span title={track.bpmSource === 'owner' ? `${track.bpm} BPM — set by you` : undefined}>
+            {track.bpm.toFixed(0)}
+            {track.bpmSource === 'owner' && <span className="sr-only"> (set by you)</span>}
+          </span>
         ) : track.analysisState === 'failed' ? (
           // v0.8.27: the 6px dot beside the name was the only sign, and a "–" here read as
           // "no tag" — the owner could not tell a file the browser cannot open from one nobody tagged
