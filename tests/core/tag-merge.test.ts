@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fillDetectedKey, mergeAnalysisPatch, mergeTagPatch, withLatestKey } from '@/core/tag-merge'
+import { decksFollowLibraryKeys, fillDetectedKey, followLibraryKey, mergeAnalysisPatch, mergeTagPatch, withLatestKey } from '@/core/tag-merge'
 import type { Track } from '@/core/types'
 
 const track = (over: Partial<Track> = {}): Track =>
@@ -84,5 +84,52 @@ describe('both merge orders (v0.8.27 review)', () => {
     const onDeck = fillDetectedKey(withLatestKey(deckSnapshot, libraryNow), analysisPatch)
     expect(onDeck).toMatchObject({ key: 'Am', camelot: '8A' })
     expect(onDeck.keySource).toBeUndefined()
+  })
+})
+
+describe('followLibraryKey (v0.8.35)', () => {
+  it('a key the library learns after the deck loaded reaches the deck', () => {
+    const onDeck = track({ bpm: 128 })
+    const next = followLibraryKey(onDeck, track({ key: 'Am', camelot: '8A' }))
+    expect(next).toMatchObject({ key: 'Am', camelot: '8A', bpm: 128 })
+  })
+
+  it('a key tag read later replaces the guess the deck was showing', () => {
+    const guessed = track({ key: 'Dm', camelot: '7A', keySource: 'detected', keyUncertain: true })
+    const next = followLibraryKey(guessed, track({ key: 'Am', camelot: '8A' }))
+    expect(next.key).toBe('Am')
+    expect(next.keySource).toBeUndefined()
+    expect(next.keyUncertain).toBeUndefined()
+  })
+
+  it('returns the same object when nothing differs, so the deck does not re-render', () => {
+    const onDeck = track({ key: 'Am', camelot: '8A' })
+    expect(followLibraryKey(onDeck, track({ key: 'Am', camelot: '8A', genre: 'Techno' }))).toBe(onDeck)
+    expect(followLibraryKey(onDeck, undefined)).toBe(onDeck)
+  })
+
+  it('a library row with no key never wipes the key the deck already has', () => {
+    const onDeck = track({ key: 'Dm', camelot: '7A', keySource: 'detected' })
+    expect(followLibraryKey(onDeck, track())).toBe(onDeck)
+  })
+})
+
+// What the store's `setLibrary` runs. Before v0.8.35 it touched the library
+// alone, so a track loaded onto a deck before its key was known stayed "key
+// unknown" on the deck for the rest of the set.
+describe('decksFollowLibraryKeys (v0.8.35)', () => {
+  const decks = () => ({ A: { track: track({ id: 'a' }), playing: true }, B: { track: track({ id: 'b' }), playing: false } })
+
+  it('a key found after load reaches the deck holding that track, and only that deck', () => {
+    const next = decksFollowLibraryKeys(decks(), [track({ id: 'a', key: 'Am', camelot: '8A' }), track({ id: 'b' })])
+    expect(next.A.track.camelot).toBe('8A')
+    expect(next.A.playing).toBe(true)
+    expect(next.B.track.key).toBeUndefined()
+  })
+
+  it('returns the same decks object when no key changed', () => {
+    const before = decks()
+    expect(decksFollowLibraryKeys(before, [track({ id: 'a', genre: 'House' })])).toBe(before)
+    expect(decksFollowLibraryKeys({ A: { track: null }, B: { track: null } }, [track()]).A.track).toBeNull()
   })
 })

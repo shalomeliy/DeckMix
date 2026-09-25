@@ -15,6 +15,7 @@ import type { Capabilities } from '@/core/ports'
 import { detectCapabilities } from '@/platform/capabilities'
 import { emptySamplerSlot, SAMPLER_SLOT_COUNT, type SamplerSlot } from '@/core/sampler'
 import { FX_TIME_STEPS } from '@/core/fx'
+import { decksFollowLibraryKeys } from '@/core/tag-merge'
 import type { SearchColumn } from '@/core/library-search'
 import type { SortDir, SortKey } from '@/core/library-sort'
 import type { CrateRecord } from '@/platform/crates-idb/store'
@@ -502,7 +503,18 @@ export const useStore = create<AppState>((set) => ({
       fx: rack === 0 ? [{ ...s.fx[0], ...patch }, s.fx[1]] : [s.fx[0], { ...s.fx[1], ...patch }],
     })),
   set: (key, value) => set({ [key]: value } as Partial<AppState>),
-  setLibrary: (patch) => set((s) => ({ library: { ...s.library, ...patch } })),
+  // Every library write passes here — the tag pass, the background queue, a
+  // deck's own analysis — so this is the one place a deck's copy of its track
+  // can keep up with the key the library learns later (v0.8.35). Each writer
+  // remembering to also patch the decks is how the gap opened in the first
+  // place.
+  setLibrary: (patch) =>
+    set((s) => {
+      const library = { ...s.library, ...patch }
+      if (!patch.tracks) return { library }
+      const decks = decksFollowLibraryKeys(s.decks, patch.tracks)
+      return decks === s.decks ? { library } : { library, decks }
+    }),
   setMidi: (patch) => set((s) => ({ midi: { ...s.midi, ...patch } })),
   setOutput: (patch) => set((s) => ({ output: { ...s.output, ...patch } })),
   setNotice: (notice) => set({ notice }),

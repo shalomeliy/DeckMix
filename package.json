@@ -1,7 +1,7 @@
 {
   "name": "deckmix",
   "private": true,
-  "version": "0.8.33",
+  "version": "0.8.35",
   "license": "UNLICENSED",
   "type": "module",
   "scripts": {

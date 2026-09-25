@@ -1,4 +1,4 @@
-import type { Track } from '@/core/types'
+import type { DeckId, Track } from '@/core/types'
 
 /**
  * Folds a tag-read patch into a track that may already carry analysis
@@ -61,4 +61,47 @@ export function mergeAnalysisPatch(track: Track, patch: Partial<Track>): Track {
 export function withLatestKey(track: Track, latest: Track | undefined): Track {
   if (!latest || (!latest.key && !latest.camelot)) return track
   return { ...track, key: latest.key, camelot: latest.camelot, keySource: latest.keySource, keyUncertain: latest.keyUncertain }
+}
+
+/**
+ * The standing half of `withLatestKey` (v0.8.35): the deck's copy of a track
+ * follows the library's key every time the library changes, not only at the
+ * one moment the deck's own analysis finishes. A cached analysis finishes in
+ * milliseconds — before the tag pass or the background key detection has
+ * reached the track — and the deck then said "key unknown" for the rest of
+ * the set while the library row next to it showed the key.
+ *
+ * Returns the same object when nothing differs, so a library write that did
+ * not touch this track's key does not re-render the deck.
+ */
+export function followLibraryKey(deckTrack: Track, latest: Track | undefined): Track {
+  if (
+    !latest ||
+    (latest.key === deckTrack.key &&
+      latest.camelot === deckTrack.camelot &&
+      latest.keySource === deckTrack.keySource &&
+      latest.keyUncertain === deckTrack.keyUncertain)
+  )
+    return deckTrack
+  return withLatestKey(deckTrack, latest)
+}
+
+/**
+ * `followLibraryKey` for every deck at once — what the store's `setLibrary`
+ * runs on each write of `tracks`. Pure and here rather than inline in the
+ * store so the tests reach it without a DOM. Returns the same `decks` object
+ * when no deck's key changed.
+ */
+export function decksFollowLibraryKeys<D extends { track: Track | null }>(
+  decks: Record<DeckId, D>,
+  tracks: readonly Track[],
+): Record<DeckId, D> {
+  let out = decks
+  for (const id of Object.keys(decks) as DeckId[]) {
+    const deckTrack = decks[id].track
+    if (!deckTrack) continue
+    const next = followLibraryKey(deckTrack, tracks.find((t) => t.id === deckTrack.id))
+    if (next !== deckTrack) out = { ...out, [id]: { ...out[id], track: next } }
+  }
+  return out
 }
