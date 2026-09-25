@@ -69,6 +69,7 @@ const NAMED: Record<string, Named[]> = {
   'src/app/components/KeysScreen.tsx': [{ token: "addEventListener('keydown'", count: 1, exempt: ESC_CLOSES }],
   'src/app/components/SetHistory.tsx': [{ token: "addEventListener('keydown'", count: 1, exempt: ESC_CLOSES }],
   'src/app/components/Settings.tsx': [{ token: "addEventListener('keydown'", count: 1, exempt: ESC_CLOSES }],
+  'src/app/components/TaggingScreen.tsx': [{ token: "addEventListener('keydown'", count: 1, exempt: ESC_CLOSES }],
 }
 
 /** Comments name gestures too ("already draggable"); only code counts. */

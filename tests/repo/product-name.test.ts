@@ -41,6 +41,9 @@ const STORAGE_KEYS = [
   'deckmix:sampler:bank',
   'deckmix:sampler:recording:',
   'deckmix:settings',
+  // v0.9.0: the owner's tags, the ground truth the bar/vocal detectors are graded on.
+  'deckmix:tag:bar:',
+  'deckmix:tag:vocal:',
   'deckmix:tempo2:',
   'deckmix:trackMeta',
 ]

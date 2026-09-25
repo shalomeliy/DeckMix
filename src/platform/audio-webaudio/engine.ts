@@ -33,6 +33,12 @@ export class AudioEngine {
 
   private masterBus: GainNode
   /**
+   * The tagging screen's player (v0.9.0) — its own input into master, so a
+   * clip under test never passes through a deck, its fader, the crossfader or
+   * its tempo. Nothing on a deck changes while Shalom tags.
+   */
+  readonly previewBus: GainNode
+  /**
    * What `wireOutput()` actually reads from — always present, downstream of
    * whatever's currently routed to master (nothing, by default: `masterBus`
    * connects to it directly). This is the seam `setFxRouting('master')`
@@ -59,6 +65,13 @@ export class AudioEngine {
     this.ctx = new AudioContext({ latencyHint: bootLatencyHint() }) as AudioContextWithSink
     this.masterBus = this.ctx.createGain()
     this.masterPostFx = this.ctx.createGain()
+    // After the master FX chain, not into `masterBus`: master FX would colour
+    // the clicks, and master volume at 0 would make the screen silent with
+    // nothing saying why (v0.9.0 review). A master *recording* taps
+    // `masterPostFx` and still hears it — the screen says so.
+    this.previewBus = this.ctx.createGain()
+    this.previewBus.gain.value = 0.8
+    this.previewBus.connect(this.masterPostFx)
     this.cueBus = this.ctx.createGain()
     this.decks = {
       A: new Deck(this.ctx, 'A'),

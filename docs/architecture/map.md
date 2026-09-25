@@ -21,6 +21,7 @@ src/
     grid-corrections.ts  resolveGridCorrection — מתי תיקון גריד שמור עדיין תקף (v0.8.23)
     key-parse.ts         parseKey/parseBpm — סולם ו-BPM כפי שתגית או אדם כותבים (עבר מ-tags.ts ב-v0.8.38)
     tag-merge.ts         מי מנצח: תגית / זיהוי / ערך שהבעלים הקליד (applyOwnerMeta, v0.8.38)
+    tagging.ts           pickBarSample/pickVocalSample/dropSpots — מסך התיוג: אילו שירים, איפה לנגן, מה נשמר (v0.9.0)
     tempo-glide.ts       masterHasGone/glideTempoAt — מתי השיר הישן "נגמר" ואיך חוזרים לאט ל-BPM המקורי (v0.8.39)
     source-lookup.ts     beatportSearch — קישור חיפוש בלבד; האפליקציה אף פעם לא קוראת את Beatport (v0.8.38)
     ports/              ה‑interfaces: audio, source, transport, analyzer, clock,
@@ -47,6 +48,7 @@ src/
     analyze-cache-idb/  AnalysisCache לפי content‑hash, ב‑IndexedDB (v0.4.0)
     cues-idb/           בנק Hot Cues + נקודת CUE, לפי content‑hash (v0.4.0)
     track-meta-idb/     הערה, מתי נוגן, ו-BPM/סולם שהבעלים הקליד (owner, v0.8.38) — לפי content‑hash
+    tagging-idb/        התיוגים של הבעלים ("איפה ה-1", שירה) — אמת-המידה, לפי content‑hash (v0.9.0)
     grid-corrections-idb/ תיקוני גריד ידניים, לפי content‑hash — לא בתוך מטמון הניתוח (v0.8.23)
     genre-overrides-idb/ override ז'אנר ידני — חנות ישנה (נתיב) + חנות חדשה (hash) +
                         migrate.ts (מיגרציה חד‑פעמית, v0.4.0)
@@ -59,6 +61,7 @@ src/
     hooks/useRenderLoop.ts   נרשם ל‑Clock ומושך position מהמנוע ל‑store
     components/         TopBar, Deck, Mixer, Library, Waveform, Platter, PadGrid,
                         controls.tsx (Button/Knob/Fader), KeysScreen (v0.8.24 — מהטבלה ב-core/hints.ts),
+                        TaggingScreen (v0.9.0 — מסך התיוג, audio-webaudio/tag-player.ts מנגן),
                         SourceCheckPanel (v0.8.38 — בדיקת BPM/סולם מול Beatport, מתחת לרשימה)
 ```
 

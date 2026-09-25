@@ -103,6 +103,8 @@ export interface Settings {
   hintMode: boolean
   /** v0.8.38: a ↗ beside each track's BPM that opens a Beatport search and a panel to type what it says. Off by default (Shalom, 25/09). */
   sourceCheck: boolean
+  /** v0.9.0: the top bar's "Tag" button, which opens the tagging screen. Off by default — Shalom (25/09): a screen that covers the decks has no place in a live set. */
+  taggingMode: boolean
 }
 
 export const DEFAULTS: Settings = {
@@ -131,6 +133,7 @@ export const DEFAULTS: Settings = {
   outputDeviceId: null,
   hintMode: true, // temporary — user asked for hints on by default until further notice (2026-09-04)
   sourceCheck: false,
+  taggingMode: false,
 }
 
 // ————————————————————————————————————————————————————————————————
@@ -423,6 +426,13 @@ export const FIELDS: Field[] = [
     key: 'sourceCheck',
     label: 'Check BPM and key against Beatport',
     help: 'Adds ↗ beside each track’s BPM. It opens a Beatport search for the track in a new tab and a panel where you type what Beatport shows. The app never reads Beatport itself; values you type are kept even when this is off.',
+    group: 'library',
+  },
+  {
+    kind: 'toggle',
+    key: 'taggingMode',
+    label: 'Tagging (where is the "1", vocals)',
+    help: 'Adds a "Tag" button to the top bar. It opens a screen where you mark which beat is the "1" and whether a short clip has vocals, so the app can be measured against your ears. Off during a set: the screen covers the decks.',
     group: 'library',
   },
 

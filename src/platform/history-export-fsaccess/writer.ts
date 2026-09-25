@@ -32,3 +32,22 @@ export async function saveSetHistoryText(text: string, suggestedName: string): P
   await writable.close()
   return 'ok'
 }
+
+const JSON_FILE_TYPES = [{ description: 'JSON file', accept: { 'application/json': ['.json'] } }]
+
+/** v0.9.0's tag export — the same new-file-only rule as the setlist above. */
+export async function saveTagsJson(text: string, suggestedName: string): Promise<'ok' | 'cancelled'> {
+  const picker = getSaveFilePicker()
+  if (typeof picker !== 'function') throw new Error('this browser has no file save dialog')
+  let handle: FileSystemFileHandle
+  try {
+    handle = await picker({ suggestedName, types: JSON_FILE_TYPES })
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') return 'cancelled'
+    throw err
+  }
+  const writable = await handle.createWritable()
+  await writable.write(text)
+  await writable.close()
+  return 'ok'
+}

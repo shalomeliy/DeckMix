@@ -5,6 +5,7 @@ import { initAudio, toggleAiControl, toggleQuantize } from '@/controls'
 import { midi } from '@/platform/transport-webmidi/manager'
 import { settings } from '@/platform/settings-idb/store'
 import { useStore } from '@/app/state/store'
+import { useSettings } from '@/app/hooks/useSettings'
 import { Button, HintIcon, Pill, type PillTone } from '@/app/components/controls'
 
 export function TopBar({
@@ -12,12 +13,15 @@ export function TopBar({
   onOpenLegal,
   onOpenHistory,
   onOpenKeys,
+  onOpenTagging,
 }: {
   onOpenSettings: () => void
   onOpenLegal: () => void
   onOpenHistory: () => void
   onOpenKeys: () => void
+  onOpenTagging: () => void
 }) {
+  const taggingMode = useSettings().taggingMode
   const audioReady = useStore((s) => s.audioReady)
   const historyCount = useStore((s) => s.history.length)
   const quantize = useStore((s) => s.quantize)
@@ -185,6 +189,13 @@ export function TopBar({
         <Button variant="ghost" size="sm" onClick={onOpenKeys}>
           Keys
         </Button>
+        {/* v0.9.0: only when Settings › Library › Tagging is on — a screen
+            that covers the decks has no business one click away mid-set. */}
+        {taggingMode && (
+          <Button variant="ghost" size="sm" onClick={onOpenTagging}>
+            Tag
+          </Button>
+        )}
         <span className="relative inline-flex">
           <Button variant="ghost" size="sm" onClick={onOpenSettings}>
             Settings

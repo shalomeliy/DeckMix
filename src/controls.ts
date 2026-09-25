@@ -16,7 +16,7 @@ import {
 import { encodeWav } from '@/core/wav'
 import { saveMasterRecording, saveSplitMasterRecording } from '@/platform/recorder-fsaccess/writer'
 import { formatSetHistory } from '@/core/set-history'
-import { saveSetHistoryText } from '@/platform/history-export-fsaccess/writer'
+import { saveSetHistoryText, saveTagsJson } from '@/platform/history-export-fsaccess/writer'
 import {
   BEATGRID_NUDGE_SEC,
   HOT_CUE_COLORS,
@@ -70,6 +70,22 @@ import { hashBytes, hashFile } from '@/platform/source-fsaccess/hash'
 import { settings } from '@/platform/settings-idb/store'
 import { DEFAULTS, FIELD_BY_KEY, secPerRev, type Settings } from '@/core/settings'
 import { GLIDE_BACK_SEC, glideTempoAt, masterHasGone } from '@/core/tempo-glide'
+import {
+  LOOP_BARS,
+  TAG_SCHEMA,
+  VOCAL_CLIP_SEC,
+  dropSpots,
+  gridWithOneOn,
+  tagsExportText,
+  vocalSpotSec,
+  type BarAnswer,
+  type BarTag,
+  type SampleEntry,
+  type VocalAnswer,
+  type VocalTag,
+} from '@/core/tagging'
+import { getAllTags, putBarTag, putVocalTag } from '@/platform/tagging-idb/store'
+import { TagPlayer } from '@/platform/audio-webaudio/tag-player'
 import {
   hasMixEntryNear,
   isOrdinalLabel,
@@ -4276,3 +4292,237 @@ export function cancelAiProposal() {
   useStore.getState().patchAi({ phase: 'idle', proposal: null, clarifyQuestion: null, declineReason: null, input: '' })
 }
 
+
+// ————————————————————————————————————————————————————————————————
+// Tagging (v0.9.0) — Shalom marks the "1" and vocals on a sample the app
+// picks; the answers are what v0.9.1's detectors get graded on. Behind
+// Settings › Library › Tagging, off by default: the screen covers the decks.
+// Its audio goes through `engine.previewBus`, never a deck — nothing on a
+// deck moves while he tags.
+// ————————————————————————————————————————————————————————————————
+
+let tagPlayer: TagPlayer | null = null
+function getTagPlayer(): TagPlayer {
+  tagPlayer ??= new TagPlayer(engine.ctx, engine.previewBus)
+  return tagPlayer
+}
+
+/**
+ * Bumped by every `tagPrepare` and by `tagClose`. A prepare takes seconds
+ * (read, decode, analyse); one that finishes after a newer one started must
+ * not become the current song, or the next answer is saved against a track
+ * the screen is not showing (v0.9.0 review — the screen's own guard only hid it).
+ */
+let tagSeq = 0
+
+/** The song on the tagging screen. Module state, like `activeTransition`: an `AudioBuffer` is not store material. */
+let tagCurrent: {
+  entry: SampleEntry
+  name: string
+  contentHash: string
+  buffer: AudioBuffer
+  detectorGrid: BeatGrid | null
+  shownGrid: BeatGrid | null
+  spots: number[]
+} | null = null
+
+export interface TagTrackView {
+  name: string
+  genre: string
+  holdout: boolean
+  contentHash: string
+  /** `null` when neither detection nor the owner has a grid for it — the screen says so and offers only "skip". */
+  bpm: number | null
+  spots: number[]
+  durationSec: number
+}
+
+function tagFail(text: string): null {
+  useStore.getState().setNotice({ text, tone: 'warn', source: 'tagging' })
+  return null
+}
+
+/** Read, hash and decode one sample track, and find where to play it. `null` means it could not be prepared, with the reason on screen. */
+export async function tagPrepare(entry: SampleEntry, opts: { needGrid: boolean }): Promise<TagTrackView | null> {
+  tagStop()
+  tagCurrent = null
+  const seq = ++tagSeq
+  await initAudio()
+  const track = useStore.getState().library.tracks.find((t) => t.id === entry.trackId)
+  if (!track) return tagFail(`"${entry.trackId}" is no longer in the library — skipped.`)
+  const name = track.title ?? track.name
+  let buffer: AudioBuffer
+  let contentHash: string
+  try {
+    const data = await readTrackData(track)
+    contentHash = await hashBytes(data) // before decode: decode neuters `data`
+    buffer = await engine.decode(data)
+  } catch (err) {
+    return tagFail(`"${name}" could not be opened for tagging: ${err instanceof Error ? err.message : String(err)}`)
+  }
+  let detectorGrid: BeatGrid | null = null
+  let shownGrid: BeatGrid | null = null
+  let spots: number[] = []
+  if (opts.needGrid) {
+    try {
+      const hintBpm = await readTagBpm(track)
+      const cacheKey = analysisCacheKey(contentHash, hintBpm)
+      let analysis = await analysisCache.get(cacheKey)
+      if (!analysis) {
+        // Copies, not views: the worker transfers what it is given, and this
+        // buffer still has to play.
+        const pcm = pcmFromAudioBuffer(buffer)
+        analysis = await analyzerWorker.analyze({ ...pcm, channels: pcm.channels.map((c) => c.slice()) }, { hintBpm })
+        await analysisCache.put(cacheKey, analysis)
+      }
+      detectorGrid = analysis.beatGrid
+      const saved = applySavedGridResult(await loadGridCorrection(contentHash))
+      shownGrid = saved ?? detectorGrid
+      if (shownGrid) {
+        const bands = analysis.bands
+        const energy = new Float32Array(bands.length / 3)
+        for (let i = 0; i < energy.length; i++) energy[i] = bands[3 * i] + bands[3 * i + 1] + bands[3 * i + 2]
+        spots = dropSpots(energy, buffer.duration, shownGrid)
+      }
+    } catch (err) {
+      return tagFail(`"${name}" could not be analysed for tagging: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+  if (seq !== tagSeq) return null // a newer song was asked for meanwhile — this one is dropped, not shown
+  tagCurrent = { entry, name, contentHash, buffer, detectorGrid, shownGrid, spots }
+  return {
+    name,
+    genre: entry.genre,
+    holdout: entry.holdout,
+    contentHash,
+    bpm: shownGrid?.bpm ?? null,
+    spots,
+    durationSec: buffer.duration,
+  }
+}
+
+/** Loop the spot, loud click on beat `loudBeat` (0–3) of the shown grid. */
+export function tagPlayBars(spotIndex: number, loudBeat: number) {
+  const c = tagCurrent
+  if (!c) return
+  if (!c.shownGrid || c.spots.length === 0) {
+    tagFail(`"${c.name}" has no beat grid to play clicks on.`)
+    return
+  }
+  getTagPlayer().playBars(c.buffer, c.spots[spotIndex % c.spots.length], LOOP_BARS, c.shownGrid, loudBeat)
+}
+
+export function tagPlayVocal() {
+  const c = tagCurrent
+  if (!c) return
+  getTagPlayer().playClip(c.buffer, vocalSpotSec(c.entry.trackId, c.buffer.duration), VOCAL_CLIP_SEC)
+}
+
+export function tagStop() {
+  tagPlayer?.stop()
+}
+
+/** The screen closed: stop, and let the decoded song go — it can be ~100 MB, and the set that follows needs the memory. */
+export function tagClose() {
+  tagStop()
+  tagSeq++
+  tagCurrent = null
+}
+
+/**
+ * The song an answer is for, checked against the one the screen shows. A
+ * mismatch is refused out loud: saving it would write a wrong answer, and for
+ * the "1" a wrong grid, that nothing on screen would ever reveal.
+ */
+function tagTarget(shownHash: string): NonNullable<typeof tagCurrent> | null {
+  const c = tagCurrent
+  if (c && c.contentHash === shownHash) return c
+  tagFail('That answer was not saved: the song on screen is no longer the one loaded for tagging. Press Continue to reload it.')
+  return null
+}
+
+/**
+ * Save the "1" answer. A beat answer is also the owner's grid correction —
+ * ROADMAP.md: one store, the tag *is* the fix — and a deck that has this
+ * track on it takes the new grid at once, instead of at its next load.
+ */
+export async function tagSaveBar(shownHash: string, answer: BarAnswer): Promise<boolean> {
+  const c = tagTarget(shownHash)
+  if (!c) return false
+  if (!c.shownGrid && typeof answer === 'number') {
+    tagFail(`"${c.name}" has no beat grid, so a beat cannot be saved for it — skip it instead.`)
+    return false
+  }
+  const { setNotice } = useStore.getState()
+  const tag: BarTag = {
+    schema: TAG_SCHEMA,
+    contentHash: c.contentHash,
+    trackId: c.entry.trackId,
+    name: c.name,
+    genre: c.entry.genre,
+    holdout: c.entry.holdout,
+    answer,
+    detectorGrid: c.detectorGrid,
+    shownGrid: c.shownGrid ?? { bpm: 0, offsetSec: 0 },
+    taggedAt: Date.now(),
+  }
+  try {
+    await putBarTag(tag)
+    if (typeof answer === 'number' && c.shownGrid) {
+      const grid = gridWithOneOn(c.shownGrid, answer)
+      await putGridCorrection(c.contentHash, ownerCorrection(grid, tag.taggedAt))
+      const { decks, patchDeck } = useStore.getState()
+      for (const id of ['A', 'B'] as DeckId[]) {
+        if (decks[id].track?.contentHash === c.contentHash) patchDeck(id, { beatGrid: grid, bpm: grid.bpm, beatGridConfirmed: true })
+      }
+    }
+    return true
+  } catch (err) {
+    setNotice({ text: `Tag for "${c.name}" was not saved: ${err instanceof Error ? err.message : String(err)}`, tone: 'warn', source: 'tagging' })
+    return false
+  }
+}
+
+export async function tagSaveVocal(shownHash: string, answer: VocalAnswer): Promise<boolean> {
+  const c = tagTarget(shownHash)
+  if (!c) return false
+  try {
+    await putVocalTag({
+      schema: TAG_SCHEMA,
+      contentHash: c.contentHash,
+      trackId: c.entry.trackId,
+      name: c.name,
+      genre: c.entry.genre,
+      holdout: c.entry.holdout,
+      atSec: vocalSpotSec(c.entry.trackId, c.buffer.duration),
+      answer,
+      taggedAt: Date.now(),
+    })
+    return true
+  } catch (err) {
+    useStore.getState().setNotice({ text: `Vocal tag for "${c.name}" was not saved: ${err instanceof Error ? err.message : String(err)}`, tone: 'warn', source: 'tagging' })
+    return false
+  }
+}
+
+/** Every tag so far, or `null` with the reason on screen — never an empty list standing in for "could not read". */
+export async function tagLoadAll(): Promise<{ bar: BarTag[]; vocal: VocalTag[] } | null> {
+  try {
+    return await getAllTags()
+  } catch (err) {
+    return tagFail(`Saved tags could not be read: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+export async function tagExport(): Promise<void> {
+  const all = await tagLoadAll()
+  if (!all) return
+  const { setNotice } = useStore.getState()
+  const day = new Date().toISOString().slice(0, 10)
+  try {
+    const r = await saveTagsJson(tagsExportText(all.bar, all.vocal, Date.now()), `deckmix-tags-${day}.json`)
+    if (r === 'ok') setNotice({ text: `Exported ${all.bar.length} "1" tags and ${all.vocal.length} vocal tags.`, tone: 'info', source: 'tagging' })
+  } catch (err) {
+    setNotice({ text: `Tags were not exported: ${err instanceof Error ? err.message : String(err)}`, tone: 'warn', source: 'tagging' })
+  }
+}

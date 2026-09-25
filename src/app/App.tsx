@@ -6,6 +6,7 @@ import { Mixer } from '@/app/components/Mixer'
 import { SettingsScreen } from '@/app/components/Settings'
 import { SetHistoryScreen } from '@/app/components/SetHistory'
 import { KeysScreen } from '@/app/components/KeysScreen'
+import { TaggingScreen } from '@/app/components/TaggingScreen'
 import { TopBar } from '@/app/components/TopBar'
 import { TransitionRatingPrompt } from '@/app/components/TransitionRatingPrompt'
 import * as ctl from '@/controls'
@@ -21,12 +22,15 @@ export default function App() {
   const [settingsGroup, setSettingsGroup] = useState<'hardware' | 'legal'>('hardware')
   const [historyOpen, setHistoryOpen] = useState(false)
   const [keysOpen, setKeysOpen] = useState(false)
+  const [taggingOpen, setTaggingOpen] = useState(false)
   // The Keys screen covers the decks: a key tried from its table must not
   // play, cue or load a deck the owner can't see (v0.8.24 review).
   const keysOpenRef = useRef(false)
   useEffect(() => {
-    keysOpenRef.current = keysOpen
-  }, [keysOpen])
+    // The tagging screen covers the decks too, and its clip plays through
+    // master — a stray key must not start a deck under it.
+    keysOpenRef.current = keysOpen || taggingOpen
+  }, [keysOpen, taggingOpen])
   const notice = useStore((s) => s.notice)
   const setNotice = useStore((s) => s.setNotice)
   const storageNotice = useStore((s) => s.storageNotice)
@@ -205,6 +209,7 @@ export default function App() {
         }}
         onOpenHistory={() => setHistoryOpen(true)}
         onOpenKeys={() => setKeysOpen(true)}
+        onOpenTagging={() => setTaggingOpen(true)}
       />
       {/* Anything the app refused or quietly substituted says so here. It sits
           under the top bar rather than in a corner toast because a refusal the
@@ -254,6 +259,7 @@ export default function App() {
       )}
       {historyOpen && <SetHistoryScreen onClose={() => setHistoryOpen(false)} />}
       {keysOpen && <KeysScreen onClose={() => setKeysOpen(false)} />}
+      {taggingOpen && <TaggingScreen onClose={() => setTaggingOpen(false)} />}
     </div>
   )
 }
