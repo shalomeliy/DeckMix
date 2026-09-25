@@ -39,14 +39,6 @@ describe('keyFromBands', () => {
   it('flat bands are no key, not a guess', () => {
     expect(keyFromBands(BANDS.map(() => new Array(12).fill(1)))).toBeNull()
   })
-
-  it('a band with no weight cannot move the answer', () => {
-    const muted = BANDS.findIndex((b) => b.weight === 0)
-    if (muted < 0) return // every band counts today; the check is for the day one is switched off
-    const am = BANDS.map((b) => rotate(b.minor, 9))
-    const noisy = am.map((c, k) => (k === muted ? rotate(KK_MAJOR, 2) : c))
-    expect(keyFromBands(noisy)).toMatchObject({ tonic: 9, minor: true })
-  })
 })
 
 describe('bandChroma', () => {
@@ -74,6 +66,26 @@ describe('detectKey on synthetic audio', () => {
   it('C major tones → 8B', () => {
     const k = detectKey([tones([48, 60, 64, 67, 55, 72, 65, 62])], RATE)
     expect(k && camelotOf(k)).toBe('8B')
+  })
+
+  it('no bass at all, with noise underneath, still finds the key (v0.8.30 review)', () => {
+    // Every band is normalised to a full vote, so a track with an empty bass
+    // band sends noise there at full weight. Flat noise correlates with no
+    // key in particular, so it must not be able to move the answer.
+    const noisy = (midi: number[]) => {
+      const x = tones(midi, 20)
+      let seed = 1
+      for (let i = 0; i < x.length; i++) {
+        seed = (seed * 16807) % 2147483647
+        x[i] += 0.01 * ((seed / 2147483647) * 2 - 1)
+      }
+      return x
+    }
+    // every note between 500 and 1000 Hz: C5 D5 E5 G5/A5 B5
+    const am = detectKey([noisy([72, 74, 76, 81, 83])], RATE)
+    const c = detectKey([noisy([72, 74, 76, 77, 79])], RATE)
+    expect(am && camelotOf(am)).toBe('8A')
+    expect(c && camelotOf(c)).toBe('8B')
   })
 
   it('too short or silent says nothing', () => {

@@ -63,7 +63,7 @@ export const FFT_SIZE = 8192
 const SEGMENT_SEC = 12
 /** Frames quieter than this (mean magnitude per bin) are silence or a fade — their chroma is noise. */
 const SILENT_FRAME = 1e-4
-/** How close to a note's centre a bin must sit to count for it (see `chroma`). */
+/** How close to a note's centre a bin must sit to count for it (see `bandChroma`). */
 const CENTRE_SEMITONES = 0.25
 
 export interface DetectedKey {
