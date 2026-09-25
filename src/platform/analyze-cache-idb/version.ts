@@ -1,5 +1,5 @@
 /**
- * Bump this whenever `core/beatgrid.ts` or `analyzer-js/analyze.ts` changes
+ * Bump this whenever `core/beatgrid.ts`, `analyzer-js/beat.ts` or `analyzer-js/analyze.ts` changes
  * meaningfully enough that a previously-cached `TrackAnalysis` might no
  * longer match what analysis would produce today (e.g. a `CONFIDENCE_RATIO`
  * retuning, a bug fix in the onset envelope). A cache entry stamped with an
@@ -14,4 +14,7 @@
 // read as "the audio picked no key" it would leave every untagged track keyless.
 // 4 (v0.8.30): the key detector changed (three bands) — a version-3 key is
 // the old, less accurate guess, and would stay on screen forever.
-export const ANALYZER_VERSION = 4
+// 5 (v0.8.33): tempos decoded at 44.1kHz were 0.23% slow (the envelope's
+// frame rate was assumed, not computed). The cache key doesn't carry the decode
+// rate, so a version-4 entry written on such a machine can't be told apart.
+export const ANALYZER_VERSION = 5

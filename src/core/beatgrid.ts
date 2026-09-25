@@ -3,9 +3,9 @@ import type { BeatGrid } from '@/core/types'
 /**
  * Beat-grid detection, phase, and quantize math — kept out of `platform/` so it
  * can be tested without an `AudioContext`, the same move `core/scratch.ts` made
- * for platter math in v0.2.2. `platform/analyzer-js/analyze.ts` still owns turning
- * an `AudioBuffer` into an onset envelope (that part touches the DOM API and has
- * to stay platform-side); everything from the envelope onward is pure and lives
+ * for platter math in v0.2.2. `platform/analyzer-js/beat.ts` still owns turning
+ * decoded samples into an onset envelope (a per-sample loop over PCM that
+ * stays platform-side); everything from the envelope onward is pure and lives
  * here.
  *
  * What this can and cannot find, stated plainly rather than left to be assumed:
@@ -108,7 +108,7 @@ export interface BeatGridEstimate {
 /**
  * Estimate a beat grid from an onset envelope.
  *
- * `onsets` is a positive-only difference envelope (see `analyze.ts`'s
+ * `onsets` is a positive-only difference envelope (see `beat.ts`'s
  * `buildOnsetEnvelope`), sampled at `framesPerSec`. BPM comes from the same
  * lag-autocorrelation scoring `detectBpm` used before this module existed — it
  * was already pure, only ever touching `onsets`, so it moved here unchanged.
