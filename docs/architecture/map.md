@@ -60,6 +60,7 @@ src/
     state/store.ts      zustand — כל ה‑UI state. patchDeck/patchChannel/patchMixer/set*
     hooks/useRenderLoop.ts   נרשם ל‑Clock ומושך position מהמנוע ל‑store
     components/         TopBar, Deck, Mixer, Library, Waveform, Platter, PadGrid,
+                        WaveformOverview (v0.12.0 — פס כל השיר, קיפול ב-core/waveform-overview.ts),
                         controls.tsx (Button/Knob/Fader), KeysScreen (v0.8.24 — מהטבלה ב-core/hints.ts),
                         TaggingScreen (v0.9.0 — מסך התיוג, audio-webaudio/tag-player.ts מנגן),
                         SourceCheckPanel (v0.8.38 — בדיקת BPM/סולם מול Beatport, מתחת לרשימה)

@@ -92,6 +92,14 @@ const HINT_BASE = {
       { mouse: 'Shift + mouse wheel on the waveform', does: 'move the track a whole beat per notch' },
     ],
   },
+  // v0.12.0: the whole-track strip above the scrolling waveform.
+  'deck.overview': {
+    text: 'The whole track, start to end. The dark part has already played. Click to jump there, or drag along it to travel through the track.',
+    gestures: [
+      { mouse: 'Click the overview', does: 'jump the playhead there' },
+      { mouse: 'Drag along the overview', does: 'travel through the track' },
+    ],
+  },
   // v0.9.1: the tagging screen's marker. Only while that screen shows a song's waveform.
   'tagging.marker': {
     text: 'Tagging: the yellow line is the "1". Click or drag on the waveform to move it; it snaps to the nearest beat.',

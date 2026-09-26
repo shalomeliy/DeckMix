@@ -10,6 +10,7 @@ import { PadGrid } from '@/app/components/PadGrid'
 import { Platter } from '@/app/components/Platter'
 import { TransitionPointsPanel } from '@/app/components/TransitionPointsPanel'
 import { Waveform } from '@/app/components/Waveform'
+import { WaveformOverview } from '@/app/components/WaveformOverview'
 
 const DECK_COLOR: Record<DeckId, string> = { A: 'var(--color-deck-a)', B: 'var(--color-deck-b)' }
 
@@ -319,6 +320,16 @@ export function Deck({ deckId }: { deckId: DeckId }) {
           )}
         </div>
       </header>
+
+      <WaveformOverview
+        deckId={deckId}
+        peaks={deck.peaks}
+        bands={deck.bands}
+        positionSec={deck.positionSec}
+        durationSec={deck.durationSec}
+        hotCues={deck.hotCues}
+        color={color}
+      />
 
       <Waveform
         deckId={deckId}
