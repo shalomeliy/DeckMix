@@ -69,7 +69,13 @@ const NAMED: Record<string, Named[]> = {
   'src/app/components/KeysScreen.tsx': [{ token: "addEventListener('keydown'", count: 1, exempt: ESC_CLOSES }],
   'src/app/components/SetHistory.tsx': [{ token: "addEventListener('keydown'", count: 1, exempt: ESC_CLOSES }],
   'src/app/components/Settings.tsx': [{ token: "addEventListener('keydown'", count: 1, exempt: ESC_CLOSES }],
-  'src/app/components/TaggingScreen.tsx': [{ token: "addEventListener('keydown'", count: 1, exempt: ESC_CLOSES }],
+  'src/app/components/TaggingScreen.tsx': [
+    { token: "addEventListener('keydown'", count: 1, exempt: ESC_CLOSES },
+    // v0.9.1: arrows move the "1", Shift makes the step small, Space plays
+    { token: "addEventListener('keydown'", count: 1, gesture: 'tagging.marker' },
+    { token: 'e.shiftKey', count: 1, gesture: 'tagging.marker' },
+    { token: "addEventListener('keyup'", count: 1, exempt: 'swallows Space on release, so a still-focused button is not pressed by it' },
+  ],
 }
 
 /** Comments name gestures too ("already draggable"); only code counts. */

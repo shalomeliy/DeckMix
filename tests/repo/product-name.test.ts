@@ -43,6 +43,8 @@ const STORAGE_KEYS = [
   'deckmix:settings',
   // v0.9.0: the owner's tags, the ground truth the bar/vocal detectors are graded on.
   'deckmix:tag:bar:',
+  // v0.9.1: the "1" marked on the waveform — its own prefix, so a re-tag never overwrites the 4-button answer it is compared with.
+  'deckmix:tag:mark:',
   'deckmix:tag:vocal:',
   'deckmix:tempo2:',
   'deckmix:trackMeta',

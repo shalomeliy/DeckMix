@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   BAR_PER_GENRE,
   HOLDOUT_PER_GENRE,
+  MARK_SCHEMA,
+  markBeatOf,
+  snapToBeat,
+  startGrid,
+  startMarkSec,
+  tagsExportText,
   VOCAL_CLIP_SEC,
   dropSpots,
   gridWithOneOn,
@@ -91,5 +97,48 @@ describe('vocalSpotSec', () => {
       expect(at + VOCAL_CLIP_SEC).toBeLessThanOrEqual(204 + 1e-9)
       expect(vocalSpotSec(id, 240)).toBe(at)
     }
+  })
+})
+
+describe('v0.9.1 waveform marker', () => {
+  const g = { bpm: 120, offsetSec: 0.3 } // beat = 0.5 s, bar = 2 s
+
+  it('snapToBeat: a press lands on the nearest beat, either side', () => {
+    expect(snapToBeat(10.52, g)).toBeCloseTo(10.3)
+    expect(snapToBeat(10.56, g)).toBeCloseTo(10.8)
+    expect(snapToBeat(0.1, g)).toBeCloseTo(0.3)
+  })
+
+  it('snapToBeat keeps a fine shift: snapping on a grid through the marker never undoes it', () => {
+    const mark = 20.3 + 0.01
+    expect(snapToBeat(21.2, { bpm: 120, offsetSec: mark })).toBeCloseTo(21.31)
+  })
+
+  it('startMarkSec: the bar line the jump lands on, two bars after the spot', () => {
+    expect(startMarkSec(4.3, g)).toBeCloseTo(8.3)
+  })
+
+  it('startGrid: the detector, unless the owner changed the tempo', () => {
+    const det = { bpm: 120, offsetSec: 0.3 }
+    // A phase-only correction is ignored — v0.9.0's first answers moved three bar lines to wrong places.
+    expect(startGrid(det, { bpm: 120, offsetSec: 1.1 })).toBe(det)
+    const halved = { bpm: 60, offsetSec: 0.3 }
+    expect(startGrid(det, halved)).toBe(halved)
+    expect(startGrid(null, halved)).toBe(halved)
+    expect(startGrid(null, null)).toBe(null)
+  })
+
+  it('markBeatOf: which beat of a bar the mark is on, and by how much it misses', () => {
+    expect(markBeatOf(8.3, g)).toEqual({ beat: 0, errSec: expect.closeTo(0, 6) })
+    const r = markBeatOf(9.32, g)
+    expect(r.beat).toBe(2)
+    expect(r.errSec).toBeCloseTo(0.02)
+    expect(markBeatOf(-0.2, g).beat).toBe(3)
+  })
+
+  it('export keeps the old 4-button answers under their old name, beside the new ones', () => {
+    const out = JSON.parse(tagsExportText([], [], [], 1))
+    expect(out.schema).toBe(MARK_SCHEMA)
+    expect(Object.keys(out)).toEqual(expect.arrayContaining(['bar', 'mark', 'vocal']))
   })
 })

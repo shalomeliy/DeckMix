@@ -71,20 +71,24 @@ import { settings } from '@/platform/settings-idb/store'
 import { DEFAULTS, FIELD_BY_KEY, secPerRev, type Settings } from '@/core/settings'
 import { GLIDE_BACK_SEC, glideTempoAt, masterHasGone } from '@/core/tempo-glide'
 import {
-  LOOP_BARS,
+  MARK_SCHEMA,
+  PLAY_BARS,
+  PLAY_LEAD_BARS,
   TAG_SCHEMA,
   VOCAL_CLIP_SEC,
   dropSpots,
-  gridWithOneOn,
+  startGrid,
+  startMarkSec,
   tagsExportText,
   vocalSpotSec,
-  type BarAnswer,
   type BarTag,
+  type MarkAnswer,
+  type MarkTag,
   type SampleEntry,
   type VocalAnswer,
   type VocalTag,
 } from '@/core/tagging'
-import { getAllTags, putBarTag, putVocalTag } from '@/platform/tagging-idb/store'
+import { getAllTags, putMarkTag, putVocalTag } from '@/platform/tagging-idb/store'
 import { TagPlayer } from '@/platform/audio-webaudio/tag-player'
 import {
   hasMixEntryNear,
@@ -4294,8 +4298,9 @@ export function cancelAiProposal() {
 
 
 // ————————————————————————————————————————————————————————————————
-// Tagging (v0.9.0) — Shalom marks the "1" and vocals on a sample the app
-// picks; the answers are what v0.9.1's detectors get graded on. Behind
+// Tagging (v0.9.0; the "1" on the waveform since v0.9.1) — Shalom marks the
+// "1" and vocals on a sample the app picks; the answers are what v0.9.5's
+// detectors get graded on. Behind
 // Settings › Library › Tagging, off by default: the screen covers the decks.
 // Its audio goes through `engine.previewBus`, never a deck — nothing on a
 // deck moves while he tags.
@@ -4322,8 +4327,10 @@ let tagCurrent: {
   contentHash: string
   buffer: AudioBuffer
   detectorGrid: BeatGrid | null
+  /** The grid the marker starts on — `startGrid` in core/tagging.ts. */
   shownGrid: BeatGrid | null
-  spots: number[]
+  /** The owner's saved phase correction `startGrid` did not start from — a save replaces it. */
+  replaced: BeatGrid | null
 } | null = null
 
 export interface TagTrackView {
@@ -4332,9 +4339,15 @@ export interface TagTrackView {
   holdout: boolean
   contentHash: string
   /** `null` when neither detection nor the owner has a grid for it — the screen says so and offers only "skip". */
-  bpm: number | null
-  spots: number[]
+  grid: BeatGrid | null
+  /** Where the marker starts for each drop spot, biggest jump in energy first. Empty with no grid. */
+  marks: number[]
   durationSec: number
+  /** The deck waveform's own data, from the same analysis — `null` for the vocal question, which does not analyse. */
+  peaks: Float32Array | null
+  bands: Float32Array | null
+  /** The song had a phase correction of the owner's that the marker does not start from, and saving will replace. */
+  replacesCorrection: boolean
 }
 
 function tagFail(text: string): null {
@@ -4362,7 +4375,10 @@ export async function tagPrepare(entry: SampleEntry, opts: { needGrid: boolean }
   }
   let detectorGrid: BeatGrid | null = null
   let shownGrid: BeatGrid | null = null
-  let spots: number[] = []
+  let marks: number[] = []
+  let peaks: Float32Array | null = null
+  let bands: Float32Array | null = null
+  let replaced: BeatGrid | null = null
   if (opts.needGrid) {
     try {
       const hintBpm = await readTagBpm(track)
@@ -4377,39 +4393,61 @@ export async function tagPrepare(entry: SampleEntry, opts: { needGrid: boolean }
       }
       detectorGrid = analysis.beatGrid
       const saved = applySavedGridResult(await loadGridCorrection(contentHash))
-      shownGrid = saved ?? detectorGrid
+      shownGrid = startGrid(detectorGrid, saved ?? detectorGrid)
+      // A saved phase that `startGrid` passed over is said on screen and kept in the tag — saving overwrites it.
+      if (saved && shownGrid !== saved && Math.abs(saved.offsetSec - (shownGrid?.offsetSec ?? NaN)) > 1e-6) replaced = saved
+      peaks = analysis.peaks
+      bands = analysis.bands
       if (shownGrid) {
-        const bands = analysis.bands
-        const energy = new Float32Array(bands.length / 3)
-        for (let i = 0; i < energy.length; i++) energy[i] = bands[3 * i] + bands[3 * i + 1] + bands[3 * i + 2]
-        spots = dropSpots(energy, buffer.duration, shownGrid)
+        const b = analysis.bands
+        const energy = new Float32Array(b.length / 3)
+        for (let i = 0; i < energy.length; i++) energy[i] = b[3 * i] + b[3 * i + 1] + b[3 * i + 2]
+        const g = shownGrid
+        const beatSec = 60 / g.bpm
+        marks = dropSpots(energy, buffer.duration, g).map((spot) => {
+          // Back by whole beats, not clamped — a clamp would leave the marker off the grid.
+          let m = startMarkSec(spot, g)
+          while (m > buffer.duration) m -= beatSec
+          return m
+        })
       }
     } catch (err) {
       return tagFail(`"${name}" could not be analysed for tagging: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
   if (seq !== tagSeq) return null // a newer song was asked for meanwhile — this one is dropped, not shown
-  tagCurrent = { entry, name, contentHash, buffer, detectorGrid, shownGrid, spots }
+  tagCurrent = { entry, name, contentHash, buffer, detectorGrid, shownGrid, replaced }
   return {
     name,
     genre: entry.genre,
     holdout: entry.holdout,
     contentHash,
-    bpm: shownGrid?.bpm ?? null,
-    spots,
+    grid: shownGrid,
+    marks,
     durationSec: buffer.duration,
+    peaks,
+    bands,
+    replacesCorrection: replaced != null,
   }
 }
 
-/** Loop the spot, loud click on beat `loudBeat` (0–3) of the shown grid. */
-export function tagPlayBars(spotIndex: number, loudBeat: number) {
+/** "Play from here": two bars before the marker, eight in all, a loud click on every "1" counted from the marker. `false` = nothing played. */
+export function tagPlayFrom(markSec: number): boolean {
   const c = tagCurrent
-  if (!c) return
-  if (!c.shownGrid || c.spots.length === 0) {
+  if (!c) return false
+  if (!c.shownGrid) {
     tagFail(`"${c.name}" has no beat grid to play clicks on.`)
-    return
+    return false
   }
-  getTagPlayer().playBars(c.buffer, c.spots[spotIndex % c.spots.length], LOOP_BARS, c.shownGrid, loudBeat)
+  const beatSec = 60 / c.shownGrid.bpm
+  const startSec = Math.max(0, markSec - PLAY_LEAD_BARS * BEATS_PER_BAR * beatSec)
+  getTagPlayer().playFrom(c.buffer, startSec, PLAY_BARS * BEATS_PER_BAR * beatSec, beatSec, markSec)
+  return true
+}
+
+/** Where the tagging sound is in the track right now, or `null` — polled by the screen for its moving line. */
+export function tagPlayheadSec(): number | null {
+  return tagPlayer?.positionSec() ?? null
 }
 
 export function tagPlayVocal() {
@@ -4441,44 +4479,63 @@ function tagTarget(shownHash: string): NonNullable<typeof tagCurrent> | null {
   return null
 }
 
+export interface MarkInput {
+  answer: MarkAnswer
+  /** Required for 'marked'. */
+  markSec: number | null
+  startMarkSec: number | null
+  answerMs: number
+  plays: number
+}
+
 /**
- * Save the "1" answer. A beat answer is also the owner's grid correction —
- * ROADMAP.md: one store, the tag *is* the fix — and a deck that has this
- * track on it takes the new grid at once, instead of at its next load.
+ * Save the "1" as marked on the waveform (v0.9.1). A marked answer is also
+ * the owner's grid correction — ROADMAP.md: one store, the tag *is* the fix —
+ * and a deck that has this track on it takes the new grid at once. That is
+ * also how the three wrong corrections from v0.9.0's first answers get
+ * replaced: re-tagging the song overwrites them.
  */
-export async function tagSaveBar(shownHash: string, answer: BarAnswer): Promise<boolean> {
+export async function tagSaveMark(shownHash: string, input: MarkInput): Promise<boolean> {
   const c = tagTarget(shownHash)
   if (!c) return false
-  if (!c.shownGrid && typeof answer === 'number') {
-    tagFail(`"${c.name}" has no beat grid, so a beat cannot be saved for it — skip it instead.`)
+  const grid = c.shownGrid
+  if (input.answer === 'marked' && (!grid || input.markSec == null)) {
+    tagFail(`"${c.name}" has no beat grid, so a "1" cannot be saved for it — skip it instead.`)
     return false
   }
-  const { setNotice } = useStore.getState()
-  const tag: BarTag = {
-    schema: TAG_SCHEMA,
+  const markSec = input.answer === 'marked' ? input.markSec : null
+  const tag: MarkTag = {
+    schema: MARK_SCHEMA,
     contentHash: c.contentHash,
     trackId: c.entry.trackId,
     name: c.name,
     genre: c.entry.genre,
     holdout: c.entry.holdout,
-    answer,
+    answer: input.answer,
+    markSec,
+    bpm: grid?.bpm ?? null,
+    startMarkSec: input.startMarkSec,
+    moved: markSec != null && input.startMarkSec != null && Math.abs(markSec - input.startMarkSec) > 1e-6,
+    answerMs: Math.round(input.answerMs),
+    plays: input.plays,
     detectorGrid: c.detectorGrid,
-    shownGrid: c.shownGrid ?? { bpm: 0, offsetSec: 0 },
+    shownGrid: grid,
+    replacedCorrection: c.replaced,
     taggedAt: Date.now(),
   }
   try {
-    await putBarTag(tag)
-    if (typeof answer === 'number' && c.shownGrid) {
-      const grid = gridWithOneOn(c.shownGrid, answer)
-      await putGridCorrection(c.contentHash, ownerCorrection(grid, tag.taggedAt))
+    await putMarkTag(tag)
+    if (markSec != null && grid) {
+      const next = setDownbeatAt(grid.bpm, markSec)
+      await putGridCorrection(c.contentHash, ownerCorrection(next, tag.taggedAt))
       const { decks, patchDeck } = useStore.getState()
       for (const id of ['A', 'B'] as DeckId[]) {
-        if (decks[id].track?.contentHash === c.contentHash) patchDeck(id, { beatGrid: grid, bpm: grid.bpm, beatGridConfirmed: true })
+        if (decks[id].track?.contentHash === c.contentHash) patchDeck(id, { beatGrid: next, bpm: next.bpm, beatGridConfirmed: true })
       }
     }
     return true
   } catch (err) {
-    setNotice({ text: `Tag for "${c.name}" was not saved: ${err instanceof Error ? err.message : String(err)}`, tone: 'warn', source: 'tagging' })
+    tagFail(`Tag for "${c.name}" was not saved: ${err instanceof Error ? err.message : String(err)}`)
     return false
   }
 }
@@ -4506,7 +4563,7 @@ export async function tagSaveVocal(shownHash: string, answer: VocalAnswer): Prom
 }
 
 /** Every tag so far, or `null` with the reason on screen — never an empty list standing in for "could not read". */
-export async function tagLoadAll(): Promise<{ bar: BarTag[]; vocal: VocalTag[] } | null> {
+export async function tagLoadAll(): Promise<{ bar: BarTag[]; mark: MarkTag[]; vocal: VocalTag[] } | null> {
   try {
     return await getAllTags()
   } catch (err) {
@@ -4520,8 +4577,13 @@ export async function tagExport(): Promise<void> {
   const { setNotice } = useStore.getState()
   const day = new Date().toISOString().slice(0, 10)
   try {
-    const r = await saveTagsJson(tagsExportText(all.bar, all.vocal, Date.now()), `deckmix-tags-${day}.json`)
-    if (r === 'ok') setNotice({ text: `Exported ${all.bar.length} "1" tags and ${all.vocal.length} vocal tags.`, tone: 'info', source: 'tagging' })
+    const r = await saveTagsJson(tagsExportText(all.bar, all.mark, all.vocal, Date.now()), `deckmix-tags-${day}.json`)
+    if (r === 'ok')
+      setNotice({
+        text: `Exported ${all.mark.length} waveform "1" tags, ${all.bar.length} earlier 4-button "1" tags and ${all.vocal.length} vocal tags.`,
+        tone: 'info',
+        source: 'tagging',
+      })
   } catch (err) {
     setNotice({ text: `Tags were not exported: ${err instanceof Error ? err.message : String(err)}`, tone: 'warn', source: 'tagging' })
   }

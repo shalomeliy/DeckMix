@@ -92,6 +92,16 @@ const HINT_BASE = {
       { mouse: 'Shift + mouse wheel on the waveform', does: 'move the track a whole beat per notch' },
     ],
   },
+  // v0.9.1: the tagging screen's marker. Only while that screen shows a song's waveform.
+  'tagging.marker': {
+    text: 'Tagging: the yellow line is the "1". Click or drag on the waveform to move it; it snaps to the nearest beat.',
+    gestures: [
+      { mouse: 'Click or drag on the tagging waveform', does: 'put the "1" on the nearest beat' },
+      { key: '← / →', does: 'move the "1" one beat (tagging screen)' },
+      { key: 'Shift + ← / →', does: 'move the "1" a hundredth of a second, for a beat line that misses the hit (tagging screen)' },
+      { key: 'Space', does: 'play from two bars before the "1", or stop (tagging screen)' },
+    ],
+  },
   // — pads, one hint per mode (v0.8.24; was one ~70-word hint shown nowhere) —
   'pads.hotcue': {
     text: 'Hot Cue: click an empty pad to set a cue at the playhead; click a set one to jump there. A "Mix in" pad runs the saved mix.',

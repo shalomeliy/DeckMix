@@ -1,13 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as ctl from '@/controls'
-import { pickBarSample, pickVocalSample, type BarAnswer, type SampleEntry, type VocalAnswer } from '@/core/tagging'
+import {
+  FINE_STEP_SEC,
+  VIEW_BARS,
+  pickBarSample,
+  pickVocalSample,
+  snapToBeat,
+  type MarkAnswer,
+  type SampleEntry,
+  type VocalAnswer,
+} from '@/core/tagging'
+import { BEATS_PER_BAR } from '@/core/beatgrid'
 import { useStore } from '@/app/state/store'
 import { Button } from '@/app/components/controls'
+import { TagWaveform } from '@/app/components/TagWaveform'
 
 /**
- * Tagging (v0.9.0): Shalom marks which beat is the "1", and whether a short
- * clip has vocals, on a sample the app picks — the answers the bar and vocal
- * detectors will be graded against. Text in Hebrew, layout LTR (the 02/09
+ * Tagging (v0.9.0): Shalom marks where the "1" is, and whether a short clip
+ * has vocals, on a sample the app picks — the answers the bar and vocal
+ * detectors will be graded against. Since v0.9.1 the "1" is a yellow marker
+ * he drags on the song's waveform, snapping to the nearest beat; v0.9.0's
+ * four "loud on N" buttons made him hear a loop and never see the drop, and
+ * he said "I think we are missing" (26/09). Text in Hebrew, layout LTR (the 02/09
  * interface decision); `dir="rtl"` only on the Hebrew sentences themselves,
  * so their punctuation lands on the right side.
  *
@@ -17,8 +31,6 @@ import { Button } from '@/app/components/controls'
 
 type Mode = 'bar' | 'vocal'
 type Loaded = Awaited<ReturnType<typeof ctl.tagPrepare>>
-
-const BEAT_NAMES = ['1', '2', '3', '4']
 
 function He({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
@@ -43,8 +55,19 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
   const [index, setIndex] = useState(0)
   const [current, setCurrent] = useState<Loaded>(null)
   const [busy, setBusy] = useState(false)
+  /** Which drop spot the marker was last put on — "another place in the song" steps through them. */
   const [spot, setSpot] = useState(0)
-  const [loudBeat, setLoudBeat] = useState<number | null>(null)
+  const [markSec, setMarkSec] = useState<number | null>(null)
+  const [viewStart, setViewStart] = useState(0)
+  const [playhead, setPlayhead] = useState<number | null>(null)
+  const [oldBarCount, setOldBarCount] = useState<number | null>(null)
+  /** Presses of "play from here", and when the song appeared — both saved with the answer. */
+  const plays = useRef(0)
+  const openedAt = useRef(0)
+  const raf = useRef(0)
+  /** Mirrors of `markSec` and `playhead` for the key listener — see there. */
+  const markRef = useRef<number | null>(null)
+  const playheadRef = useRef<number | null>(null)
   /**
    * Bumped by every open and every tab switch. Opening a song takes seconds
    * (read, decode, analyse); one still in flight when the tab changes must not
@@ -61,6 +84,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
     window.addEventListener('keydown', onKey)
     return () => {
       window.removeEventListener('keydown', onKey)
+      cancelAnimationFrame(raf.current)
       ctl.tagClose()
     }
   }, [onClose])
@@ -68,7 +92,9 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
   const refreshTagged = useCallback(async () => {
     const all = await ctl.tagLoadAll()
     if (!all) return
-    setTaggedBar(new Set(all.bar.flatMap((t) => [t.contentHash, t.trackId])))
+    // The "1" counts only the waveform tags: every song is tagged again (26/09), and the 4-button answers stay beside them.
+    setTaggedBar(new Set(all.mark.flatMap((t) => [t.contentHash, t.trackId])))
+    setOldBarCount(all.bar.length)
     setTaggedVocal(new Set(all.vocal.flatMap((t) => [t.contentHash, t.trackId])))
   }, [])
   useEffect(() => {
@@ -102,10 +128,16 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
     [sample, tracks, tagged],
   )
 
+  const stopSound = useCallback(() => {
+    ctl.tagStop()
+    cancelAnimationFrame(raf.current)
+    playheadRef.current = null
+    setPlayhead(null)
+  }, [])
+
   const open = useCallback(
     async (from: number) => {
-      ctl.tagStop()
-      setLoudBeat(null)
+      stopSound()
       setSpot(0)
       setCurrent(null)
       const seq = ++openSeq.current
@@ -118,6 +150,12 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
         if (view && !tagged?.has(view.contentHash)) {
           setIndex(i)
           setCurrent(view)
+          const first = view.marks[0] ?? null
+          markRef.current = first
+          setMarkSec(first)
+          if (view.grid && first != null) setViewStart(viewStartFor(first, view.grid.bpm, view.durationSec))
+          plays.current = 0
+          openedAt.current = performance.now()
           setBusy(false)
           return
         }
@@ -127,13 +165,13 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
       setIndex(sample.length)
       setBusy(false)
     },
-    [nextOpen, sample, mode, tagged],
+    [nextOpen, sample, mode, tagged, stopSound],
   )
 
   // One answer at a time: a double-click would save twice and open twice.
   const answer = async (save: (hash: string) => Promise<boolean>) => {
     if (!current || saving) return
-    ctl.tagStop()
+    stopSound()
     setSaving(true)
     const saved = await save(current.contentHash)
     setSaving(false)
@@ -142,7 +180,16 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
       void open(index + 1)
     }
   }
-  const answerBar = (a: BarAnswer) => answer((h) => ctl.tagSaveBar(h, a))
+  const answerMark = (a: MarkAnswer) =>
+    answer((h) =>
+      ctl.tagSaveMark(h, {
+        answer: a,
+        markSec: a === 'marked' ? markSec : null,
+        startMarkSec: current?.marks[spot] ?? null,
+        answerMs: performance.now() - openedAt.current,
+        plays: plays.current,
+      }),
+    )
   const answerVocal = (a: VocalAnswer) => answer((h) => ctl.tagSaveVocal(h, a))
 
   // Within this sample, by the row each tag was sampled as — a count of every
@@ -153,17 +200,90 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
 
   const switchMode = (m: Mode) => {
     openSeq.current++
-    ctl.tagStop()
+    stopSound()
     setCurrent(null)
     setBusy(false)
     setIndex(0)
     setMode(m)
   }
 
-  const playBeat = (b: number) => {
-    setLoudBeat(b)
-    ctl.tagPlayBars(spot, b)
-  }
+  const grid = mode === 'bar' ? (current?.grid ?? null) : null
+  const viewLen = grid ? viewLenFor(grid.bpm, current?.durationSec ?? 0) : 0
+
+  /**
+   * Every marker move goes through here. It stops the sound: the clicks were
+   * laid on the old marker, and hearing them against the new one would
+   * sound like a wrong answer.
+   *
+   * Out of the song it steps back by whole beats, never clamps: clamping to 0
+   * put the marker 0.2 s off every beat and saved that as the grid (v0.9.1
+   * review). The window follows only keyboard moves (`follow`), and only near
+   * its edge: following a mouse re-centred the view under the pointer, which
+   * then pointed further along, and a drag ran off to the end of the song.
+   */
+  const moveMark = useCallback(
+    (sec: number, follow: boolean) => {
+      if (!current || !grid) return
+      const beatSec = 60 / grid.bpm
+      let t = sec
+      while (t < 0) t += beatSec
+      while (t > current.durationSec) t -= beatSec
+      stopSound()
+      markRef.current = t
+      setMarkSec(t)
+      if (follow) setViewStart((v) => (t < v + viewLen * 0.1 || t > v + viewLen * 0.9 ? viewStartFor(t, grid.bpm, current.durationSec) : v))
+    },
+    [current, grid, viewLen, stopSound],
+  )
+
+  const play = useCallback(() => {
+    const m = markRef.current
+    if (m == null || !ctl.tagPlayFrom(m)) return
+    plays.current++
+    cancelAnimationFrame(raf.current)
+    const tick = () => {
+      const p = ctl.tagPlayheadSec()
+      playheadRef.current = p
+      setPlayhead(p)
+      if (p != null) raf.current = requestAnimationFrame(tick)
+    }
+    raf.current = requestAnimationFrame(tick)
+  }, [])
+
+  // Arrows move the marker, Space plays or stops. Space is also taken on key
+  // UP: a button still focused from the last click would otherwise be
+  // pressed by it — the browser clicks a focused button on Space's release.
+  // The marker and playhead are read from refs: as dependencies, the playhead
+  // re-registered these listeners every frame of playback, and two quick
+  // arrow presses could read the same stale marker (v0.9.1 review).
+  useEffect(() => {
+    if (mode !== 'bar' || !current || !grid) return
+    const beatSec = 60 / grid.bpm
+    const onKey = (e: KeyboardEvent) => {
+      const m = markRef.current
+      if (m == null) return
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault()
+        const dir = e.key === 'ArrowLeft' ? -1 : 1
+        moveMark(m + dir * (e.shiftKey ? FINE_STEP_SEC : beatSec), true)
+      } else if (e.key === ' ') {
+        e.preventDefault()
+        if (!e.repeat) {
+          if (playheadRef.current != null) stopSound()
+          else play()
+        }
+      }
+    }
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === ' ') e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keyup', onKeyUp)
+    }
+  }, [mode, current, grid, moveMark, play, stopSound])
 
   return (
     <div role="dialog" aria-modal="true" aria-label="Tagging" className="absolute inset-0 z-40 flex flex-col bg-surface-0/97 backdrop-blur-sm">
@@ -206,8 +326,13 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
             {mode === 'bar' ? (
               <>
                 <He>האפליקציה בחרה {sample.length} שירים, בערך אותו מספר מכל ז'אנר.</He>
-                <He>בכל שיר תשמע קטע קצר שחוזר על עצמו, עם תקתוק על כל פעימה. אחד התקתוקים חזק יותר. אתה בוחר איזה תקתוק חזק נופל על ה-"1": על הרגע הגדול, שבו הדרופ נכנס, השירה מתחילה או המצילה מכה.</He>
+                <He>בכל שיר תראה את גלי הקול סביב הדרופ, וקו צהוב על ה-"1" שהמחשב מנחש. תזיז את הקו לרגע הגדול: שבו הדרופ נכנס, השירה מתחילה או המצילה מכה. "נגן מכאן" מנגן קצת לפני הקו, כדי שתשמע אותו נוחת.</He>
                 <He className="text-grid-muted">לא בטוח? דלג. דילוג לא נחשב טעות.</He>
+                {oldBarCount != null && oldBarCount > 0 && (
+                  <He className="text-2xs text-grid-muted">
+                    {oldBarCount} התשובות מהשיטה הקודמת (4 הכפתורים) שמורות בצד ונכנסות לקובץ הייצוא, כדי להשוות. כאן מתחילים מחדש.
+                  </He>
+                )}
               </>
             ) : (
               <>
@@ -230,58 +355,74 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
         {busy && <He className="text-grid-muted">פותח את השיר ומנתח אותו…</He>}
 
         {current && mode === 'bar' && (
-          <div className="mx-auto max-w-xl space-y-4">
+          <div className="mx-auto max-w-5xl space-y-3">
             <div>
               <div className="text-base font-bold">{current.name}</div>
               <div className="text-2xs text-grid-muted">
                 {current.genre}
-                {current.bpm ? ` · ${current.bpm.toFixed(1)} BPM` : ''}
+                {grid ? ` · ${grid.bpm.toFixed(1)} BPM` : ''}
                 {current.holdout ? ' · מבחן סופי' : ''}
               </div>
             </div>
-            {current.bpm == null ? (
-              <He className="text-warn">לשיר הזה אין עדיין רשת פעימות, אז אי אפשר לתייג אותו. דלג.</He>
+            {!grid || markSec == null || !current.peaks ? (
+              <He className="text-warn">לשיר הזה אין עדיין רשת פעימות, אז אי אפשר לסמן בו את ה-1. דלג.</He>
             ) : (
               <>
-                <He>לחץ על כל אחד מהכפתורים והקשב: איפה התקתוק החזק נופל על ה-"1"? תספור בראש 1-2-3-4. הדרופ כמעט תמיד נכנס על 1.</He>
-                <div className="flex justify-center gap-2" data-testid="beat-buttons">
-                  {BEAT_NAMES.map((n, b) => (
-                    <Button key={b} variant="toggle" active={loudBeat === b} onClick={() => playBeat(b)}>
-                      חזק על {n}
-                    </Button>
-                  ))}
-                </div>
+                <He>
+                  הקו הצהוב הוא הניחוש של המחשב ל-"1". אם הוא לא על הדרופ, לחץ על גלי הקול איפה שהדרופ נכנס, או גרור את הקו. הוא נדבק לפעימה הכי קרובה.
+                </He>
+                <TagWaveform
+                  peaks={current.peaks}
+                  bands={current.bands}
+                  durationSec={current.durationSec}
+                  bpm={grid.bpm}
+                  markSec={markSec}
+                  viewStartSec={viewStart}
+                  viewLenSec={viewLen}
+                  playheadSec={playhead}
+                  onPick={(sec) => moveMark(snapToBeat(sec, { bpm: grid.bpm, offsetSec: markSec }), false)}
+                />
+                {current.replacesCorrection && (
+                  <He className="text-2xs text-warn">
+                    לשיר הזה יש כבר קו צהוב שהזזת בעבר, והקו כאן מתחיל במקום של המחשב. שמירה תחליף את הקו הישן.
+                  </He>
+                )}
+                <He className="text-2xs text-grid-muted">
+                  חצים ← → : פעימה אחת · Shift + חץ: הזזה קטנה, אם הפעימה עצמה לא יושבת על המכה · רווח: נגן / עצור
+                </He>
                 <div className="flex justify-center gap-2">
-                  <Button variant="ghost" size="sm" onClick={() => ctl.tagStop()}>
-                    עצור
+                  <Button variant="toggle" active={playhead != null} onClick={() => (playhead != null ? stopSound() : play())}>
+                    {playhead != null ? '■ עצור' : '▶ נגן מכאן'}
                   </Button>
-                  {current.spots.length > 1 && (
+                  {current.marks.length > 1 && (
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => {
-                        const s = (spot + 1) % current.spots.length
-                        setSpot(s)
-                        if (loudBeat != null) ctl.tagPlayBars(s, loudBeat)
+                        const s2 = (spot + 1) % current.marks.length
+                        setSpot(s2)
+                        stopSound()
+                        markRef.current = current.marks[s2]
+                        setMarkSec(current.marks[s2])
+                        setViewStart(viewStartFor(current.marks[s2], grid.bpm, current.durationSec))
                       }}
                     >
-                      מקום אחר בשיר ({spot + 1}/{current.spots.length})
+                      מקום אחר בשיר ({spot + 1}/{current.marks.length})
                     </Button>
                   )}
-                </div>
-                <div className="flex justify-center">
-                  <Button variant="toggle" active disabled={loudBeat == null || saving} onClick={() => loudBeat != null && void answerBar(loudBeat as BarAnswer)}>
+                  <Button variant="toggle" active disabled={saving} onClick={() => void answerMark('marked')}>
                     זה ה-1 ✓
                   </Button>
                 </div>
+                <He className="text-2xs text-grid-muted">בנגינה תשמע תקתוק על כל פעימה, ותקתוק חזק על כל "1" לפי הקו הצהוב.</He>
               </>
             )}
             <div className="flex justify-center gap-2 border-t border-hairline pt-3">
-              <Button variant="ghost" size="sm" disabled={saving} onClick={() => void answerBar('skip')}>
+              <Button variant="ghost" size="sm" disabled={saving} onClick={() => void answerMark('skip')}>
                 לא בטוח, דלג
               </Button>
-              {current.bpm != null && (
-                <Button variant="ghost" size="sm" disabled={saving} onClick={() => void answerBar('wrongTempo')}>
+              {grid && (
+                <Button variant="ghost" size="sm" disabled={saving} onClick={() => void answerMark('wrongTempo')}>
                   התקתוקים לא על הקצב
                 </Button>
               )}
@@ -328,4 +469,15 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
       </div>
     </div>
   )
+}
+
+/** The waveform shows `VIEW_BARS` bars — or the whole song, if it is shorter than that. */
+function viewLenFor(bpm: number, durationSec: number): number {
+  return Math.min((VIEW_BARS * BEATS_PER_BAR * 60) / bpm, durationSec)
+}
+
+/** A window centred on `sec`, kept inside the song. */
+function viewStartFor(sec: number, bpm: number, durationSec: number): number {
+  const len = viewLenFor(bpm, durationSec)
+  return Math.min(Math.max(sec - len / 2, 0), Math.max(0, durationSec - len))
 }

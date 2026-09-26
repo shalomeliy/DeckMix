@@ -6,10 +6,12 @@
  * different length so each hashes differently). IndexedDB is an in-memory
  * stand-in with getAll/getAllKeys, so what the screen saves can be read back.
  *  1. Off by default: no "Tag" button until Settings › Library › Tagging is on.
- *  2. "Loud on 3" + "this is the 1" stores the answer (beat index 2) with the
- *     detector's grid, and moves the owner grid two beats (1.0 s at 120 bpm).
- *  3. Skip is stored as 'skip' and counted; vocal "yes" is stored.
- *  4. Export writes one JSON with both lists; decks were never touched.
+ *  2. v0.9.1: the waveform shows with the yellow "1" on the computer's guess.
+ *     → → moves it two beats (1.0 s at 120 bpm), Space plays and shows ■;
+ *     "this is the 1" stores the mark, moved, plays=1, and the owner grid.
+ *  3. A click on the waveform snaps to a beat; Shift+→ adds 0.01 s on top.
+ *  4. Skip is stored as 'skip' and counted; vocal "yes" is stored.
+ *  5. Export writes one JSON with all three lists; decks were never touched.
  */
 import { chromium } from 'playwright'
 
@@ -169,40 +171,75 @@ await tagButton.click()
 await waitCount('תויגו 0 מתוך 40')
 ok('the screen opens with the count', (await countText()) === 'תויגו 0 מתוך 40', await countText())
 
+const marks = () =>
+  page.evaluate(() => [...window.__mem.entries()].filter(([k]) => k.startsWith('deckmix:tag:mark:')).map(([, v]) => v))
+const wave = page.getByTestId('tag-waveform')
+
 await page.getByRole('button', { name: 'להתחיל' }).click()
-await page.getByRole('button', { name: 'חזק על 3' }).waitFor({ timeout: 20000 })
-await page.getByRole('button', { name: 'חזק על 3' }).click()
-await page.waitForTimeout(400)
+await wave.waitFor({ timeout: 20000 })
+ok('the song opens on its waveform, with the "1" button', (await page.getByRole('button', { name: 'זה ה-1 ✓' }).count()) === 1)
+await page.keyboard.press('ArrowRight')
+await page.keyboard.press('ArrowRight')
+await page.keyboard.press('Space')
+await page.getByRole('button', { name: '■ עצור' }).waitFor({ timeout: 3000 }).catch(() => {})
+ok('Space plays, and the button turns into stop', (await page.getByRole('button', { name: '■ עצור' }).count()) === 1)
+await page.keyboard.press('Space')
+await page.getByRole('button', { name: '▶ נגן מכאן' }).waitFor({ timeout: 3000 }).catch(() => {})
+ok('…and Space again stops it', (await page.getByRole('button', { name: '▶ נגן מכאן' }).count()) === 1)
 await page.getByRole('button', { name: 'זה ה-1 ✓' }).click()
 await waitCount('תויגו 1 מתוך 40')
 ok('answering counts it', (await countText()) === 'תויגו 1 מתוך 40', await countText())
 
-const stored = await page.evaluate(() => {
-  const mem = window.__mem
-  const tags = [...mem.entries()].filter(([k]) => k.startsWith('deckmix:tag:bar:')).map(([, v]) => v)
-  const t = tags[0]
-  return { n: tags.length, t, corr: t ? mem.get('deckmix:gridCorrection:' + t.contentHash) : null }
-})
-const t = stored.t
+const m1 = (await marks())[0]
+const corr1 = m1 ? await page.evaluate((h) => window.__mem.get('deckmix:gridCorrection:' + h), m1.contentHash) : null
 ok(
-  'the answer is stored as beat index 2, with the detector grid and the grid it was played on',
-  stored.n === 1 && t.answer === 2 && !!t.detectorGrid && t.shownGrid.bpm > 0 && t.holdout === true,
-  JSON.stringify(t && { answer: t.answer, det: t.detectorGrid, shown: t.shownGrid, genre: t.genre }),
+  'two arrow presses moved the "1" two beats from the computer\'s guess, and that is stored',
+  m1 && m1.answer === 'marked' && Math.abs(m1.markSec - m1.startMarkSec - 1.0) < 1e-6 && m1.moved === true && m1.plays === 1 && m1.answerMs > 0 && !!m1.detectorGrid && m1.holdout === true,
+  JSON.stringify(m1 && { mark: m1.markSec, start: m1.startMarkSec, moved: m1.moved, plays: m1.plays, ms: m1.answerMs }),
 )
-const want = t ? (t.shownGrid.offsetSec + 2 * (60 / t.shownGrid.bpm)) % ((4 * 60) / t.shownGrid.bpm) : NaN
+const bar1 = m1 ? (4 * 60) / m1.bpm : NaN
 ok(
-  '…and is the owner grid correction: the "1" moved two beats',
-  stored.corr?.source === 'owner' && Math.abs(stored.corr.grid.offsetSec - want) < 1e-6,
-  JSON.stringify(stored.corr),
+  '…and is the owner grid correction: its bar line is on the mark',
+  corr1?.source === 'owner' && Math.abs(corr1.grid.offsetSec - (((m1.markSec % bar1) + bar1) % bar1)) < 1e-6,
+  JSON.stringify(corr1),
+)
+ok('nothing was written under the old 4-button key', (await page.evaluate(() => [...window.__mem.keys()].filter((k) => k.startsWith('deckmix:tag:bar:')).length)) === 0)
+
+await page.waitForFunction(() => document.querySelector('[data-testid=tag-waveform]'), null, { timeout: 20000 })
+await page.waitForTimeout(300)
+const box = await wave.boundingBox()
+await page.mouse.click(box.x + box.width * 0.3, box.y + box.height / 2)
+await page.keyboard.press('Shift+ArrowRight')
+await page.getByRole('button', { name: 'זה ה-1 ✓' }).click()
+await waitCount('תויגו 2 מתוך 40')
+const m2 = (await marks()).find((m) => m.contentHash !== m1?.contentHash)
+const beats2 = m2 ? (m2.markSec - 0.01 - m2.startMarkSec) / (60 / m2.bpm) : NaN
+ok(
+  'a click snaps to a beat, and Shift+→ moves it 0.01 s more',
+  m2 && m2.moved && Math.abs(beats2 - Math.round(beats2)) < 1e-6 && Math.round(beats2) !== 0,
+  JSON.stringify(m2 && { mark: m2.markSec, start: m2.startMarkSec, beats: beats2 }),
 )
 
-await page.getByRole('button', { name: 'חזק על 1' }).waitFor({ timeout: 20000 })
-await page.getByRole('button', { name: 'לא בטוח, דלג' }).click()
-await waitCount('תויגו 2 מתוך 40')
-const answers = await page.evaluate(() =>
-  [...window.__mem.entries()].filter(([k]) => k.startsWith('deckmix:tag:bar:')).map(([, v]) => v.answer),
+// v0.9.1 review: a press left of the first beat used to clamp to 0 s — off every beat — and save that as the grid.
+await wave.waitFor({ timeout: 20000 })
+await page.waitForTimeout(300)
+const box3 = await wave.boundingBox()
+await page.mouse.click(box3.x + 1, box3.y + box3.height / 2)
+await page.getByRole('button', { name: 'זה ה-1 ✓' }).click()
+await waitCount('תויגו 3 מתוך 40')
+const m3 = (await marks()).find((m) => m.contentHash !== m1?.contentHash && m.contentHash !== m2?.contentHash)
+const beats3 = m3 ? (m3.markSec - m3.startMarkSec) / (60 / m3.bpm) : NaN
+ok(
+  'a press at the very start of the song still lands on a beat, inside the song',
+  m3 && m3.markSec >= 0 && Math.abs(beats3 - Math.round(beats3)) < 1e-6,
+  JSON.stringify(m3 && { mark: m3.markSec, start: m3.startMarkSec, beats: beats3 }),
 )
-ok('skip is stored as "skip" and counted', (await countText()) === 'תויגו 2 מתוך 40' && answers.includes('skip'), JSON.stringify(answers))
+
+await wave.waitFor({ timeout: 20000 })
+await page.getByRole('button', { name: 'לא בטוח, דלג' }).click()
+await waitCount('תויגו 4 מתוך 40')
+const answers = (await marks()).map((m) => m.answer)
+ok('skip is stored as "skip" and counted', (await countText()) === 'תויגו 4 מתוך 40' && answers.includes('skip'), JSON.stringify(answers))
 
 await page.getByRole('button', { name: 'שירה', exact: true }).click()
 await waitCount('תויגו 0 מתוך 10')
@@ -235,8 +272,8 @@ await page.waitForFunction(() => window.__saved != null, null, { timeout: 5000 }
 const saved = await page.evaluate(() => window.__saved)
 const doc = saved ? JSON.parse(saved.text) : null
 ok(
-  'export writes one JSON with both lists, named deckmix-tags-*',
-  /^deckmix-tags-\d{4}-\d\d-\d\d\.json$/.test(saved?.name ?? '') && doc?.bar.length === 2 && doc?.vocal.length === 2,
+  'export writes one JSON with the new marks, the (empty) old list and the vocals, named deckmix-tags-*',
+  /^deckmix-tags-\d{4}-\d\d-\d\d\.json$/.test(saved?.name ?? '') && doc?.mark.length === 4 && doc?.bar.length === 0 && doc?.vocal.length === 2,
   saved?.name,
 )
 

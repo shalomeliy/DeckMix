@@ -9,7 +9,7 @@
  * Two shapes live here on purpose, for two different scenarios (see
  * `docs/architecture/directions.md` §4's scenario table):
  * - `suggest()`/`AISuggestion` — a flat, ranked, one-shot list of
- *   passive suggestions. Reserved for v0.9.5 (coaching) and v0.13.5
+ *   passive suggestions. Reserved for v0.9.25 (coaching) and v0.13.5
  *   (live co-pilot) — not used by v0.5.5.
  * - `chat()`/tool-calling — a conversational exchange that can ask for
  *   clarification instead of guessing. What v0.5.5's NL translate layer

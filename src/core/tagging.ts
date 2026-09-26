@@ -1,7 +1,7 @@
 /**
  * v0.9.0 — the owner tags, the app gets measured. Shalom marks which of the
  * four beats is the "1" (and whether a short clip has vocals) on a sample the
- * app picks; those answers are the ground truth v0.9.1's bar detection is
+ * app picks; those answers are the ground truth v0.9.5's bar detection is
  * measured against. Without them every "the detector got better" is a guess.
  *
  * Pure: which tracks, where in each track to play, and what gets stored.
@@ -22,8 +22,22 @@ export const TAG_GENRES = 5
 export const VOCAL_PER_GENRE = 6
 export const VOCAL_HOLDOUT_PER_GENRE = 2
 export const VOCAL_CLIP_SEC = 5
-/** Four bars: two of build-up and two after the change, so the "1" is heard landing. */
-export const LOOP_BARS = 4
+
+/**
+ * v0.9.1's marker tags. Schema 2, a separate kind from v0.9.0's `BarTag`:
+ * Shalom re-tags every song on the waveform (26/09), and the 4-button answers
+ * are kept beside the new ones to compare — the two agreeing is the only
+ * measure of his own consistency we have.
+ */
+export const MARK_SCHEMA = 2
+/** How far the waveform shows at once, centred on the marker. */
+export const VIEW_BARS = 8
+/** "Play from here" starts this many bars before the marker, so the "1" is heard arriving, not starting. */
+export const PLAY_LEAD_BARS = 2
+/** …and plays this long in all: two of lead-in and six after the marker. */
+export const PLAY_BARS = 8
+/** Shift + arrow: for a beat line that is itself off the hit. ~1/50 of a beat at 120 BPM. */
+export const FINE_STEP_SEC = 0.01
 
 export interface SampleEntry {
   trackId: string
@@ -127,6 +141,37 @@ export function gridWithOneOn(grid: BeatGrid, beatIndex: number): BeatGrid {
   return shiftGrid(grid, (beatIndex * 60) / grid.bpm)
 }
 
+/** The beat of `grid` nearest `sec` — the magnet the marker snaps to. */
+export function snapToBeat(sec: number, grid: BeatGrid): number {
+  const beatSec = 60 / grid.bpm
+  return grid.offsetSec + Math.round((sec - grid.offsetSec) / beatSec) * beatSec
+}
+
+/**
+ * The grid the marker starts on: "the computer's place" (Shalom, 26/09), so
+ * the detector's own. The owner's earlier correction is used only when it
+ * changed the tempo — then the detector's beats are not the song's beats at
+ * all. A phase-only correction is ignored on purpose: three of v0.9.0's first
+ * four answers moved the bar line to a wrong place, and starting on them
+ * would carry the mistake into the re-tag.
+ */
+export function startGrid(detector: BeatGrid | null, shown: BeatGrid | null): BeatGrid | null {
+  if (detector && (!shown || Math.abs(detector.bpm - shown.bpm) < 0.05)) return detector
+  return shown
+}
+
+/** Where the marker starts for a drop spot: the bar line the jump in energy lands on (`dropSpots` returns two bars before it). */
+export function startMarkSec(spotSec: number, grid: BeatGrid): number {
+  return snapToBeat(spotSec + (2 * BEATS_PER_BAR * 60) / grid.bpm, grid)
+}
+
+/** Which beat (0–3) of `grid`'s bar `markSec` falls nearest, and how far off that beat it is — how an answer is scored against a detector. */
+export function markBeatOf(markSec: number, grid: BeatGrid): { beat: number; errSec: number } {
+  const beatSec = 60 / grid.bpm
+  const n = Math.round((markSec - grid.offsetSec) / beatSec)
+  return { beat: ((n % BEATS_PER_BAR) + BEATS_PER_BAR) % BEATS_PER_BAR, errSec: markSec - (grid.offsetSec + n * beatSec) }
+}
+
 /** A fixed spot for a track's vocal clip, away from intro and outro, the same every time. */
 export function vocalSpotSec(trackId: string, durationSec: number): number {
   const lo = durationSec * 0.15
@@ -154,6 +199,39 @@ export interface BarTag {
   taggedAt: number
 }
 
+export type MarkAnswer = 'marked' | 'skip' | 'wrongTempo'
+
+export interface MarkTag {
+  schema: number
+  contentHash: string
+  trackId: string
+  name: string
+  genre: string
+  holdout: boolean
+  answer: MarkAnswer
+  /** Where Shalom put the "1", in seconds from the start of the track. `null` unless `answer` is 'marked'. */
+  markSec: number | null
+  bpm: number | null
+  /** Where the marker was when the song opened — the computer's guess. */
+  startMarkSec: number | null
+  /**
+   * Whether he moved it at all. With the marker starting on the computer's
+   * guess, "right" and "never looked" read the same; this and `answerMs` are
+   * what tell them apart afterwards.
+   */
+  moved: boolean
+  /** From the song appearing to the answer. v0.9.0 had 15 answers under 5 s and no way to know if he heard the drop. */
+  answerMs: number
+  /** Presses of "play from here" before answering. */
+  plays: number
+  detectorGrid: BeatGrid | null
+  /** The grid the marker started on (`startGrid`). */
+  shownGrid: BeatGrid | null
+  /** The owner's earlier phase correction this answer replaced, if `startGrid` passed over one — kept so it is not lost unseen. */
+  replacedCorrection: BeatGrid | null
+  taggedAt: number
+}
+
 export interface VocalTag {
   schema: number
   contentHash: string
@@ -167,6 +245,12 @@ export interface VocalTag {
 }
 
 /** The file the export dialog writes. Plain JSON, so any later script can read it. */
-export function tagsExportText(bar: readonly BarTag[], vocal: readonly VocalTag[], exportedAt: number): string {
-  return JSON.stringify({ app: 'DeckMix', kind: 'tags', schema: TAG_SCHEMA, exportedAt, bar, vocal }, null, 2)
+export function tagsExportText(
+  bar: readonly BarTag[],
+  mark: readonly MarkTag[],
+  vocal: readonly VocalTag[],
+  exportedAt: number,
+): string {
+  // `bar` keeps its name and shape, so a v0.9.0 script finds its list — as long as it does not insist on schema 1.
+  return JSON.stringify({ app: 'DeckMix', kind: 'tags', schema: MARK_SCHEMA, exportedAt, mark, bar, vocal }, null, 2)
 }
