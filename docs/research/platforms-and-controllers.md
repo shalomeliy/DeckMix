@@ -37,8 +37,7 @@ Conventions in this file:
    new platform code. A native Rust/C++ audio path (ASIO, lower latency) stays a
    post-1.0 swap behind the existing `AudioBackend` port.
 3. **Controllers: the market is ~80% class-compliant USB-MIDI** (AlphaTheta/Pioneer
-   DDJ, Hercules, Numark, Reloop, Roland, Rane, Denon MC). The **Native Instruments
-   Traktor line is HID** (plus a MIDI mode on some newer units). Standalone units
+   DDJ, Hercules, Numark, Reloop, Roland, Rane, Denon MC). The **Kontrol line is HID** (plus a MIDI mode on some newer units). Standalone units
    (Denon SC Live / Prime, Rane Performer) expose a "computer mode" whose openness is
    UNVERIFIED. The way to "support everything" is not hand-code per model: it is a
    **declarative controller profile in `core/`** (inputs incl. 14-bit and relative
@@ -63,7 +62,7 @@ Version numbers are suggestions only; the owner decides order in `ROADMAP.md`.
 | **C2 — AlphaTheta + Hercules wave** | FLX2, FLX6, FLX10, REV1, REV5, REV7, GRV6, DDJ-400, SB3, DDJ-200; Hercules Inpulse 200/300/500/T7, Starlight, DJControl Mix. | Both vendors **publish official MIDI message lists** — lowest risk, largest share. |
 | **C3 — inMusic/Reloop/Roland wave** | Numark Mixtrack Platinum FX / Pro FX, Party Mix MKII/III, NS4FX, Mixstream (computer mode); Reloop Mixon/Mixtour/Buddy/Ready; Roland DJ-202/505/707M; Denon MC7000. | MIDI, but mostly **no official message list** → needs community traces. |
 | **D1 — desktop v1.0 (Electron)** | Windows, macOS, Linux from one repo. Native folder access and MIDI/HID through the same ports; signed + notarized installers; auto-update. | Everything the web tier has, plus no browser prompts, plus Safari users get a real app. |
-| **C4 — HID wave** | NI Traktor S2/S3/S4 MK3, Z1, X1, MX2 via WebHID (Chromium) and node-hid/hidapi (desktop). | Needs the profile format's HID field decoder; highest per-model effort. |
+| **C4 — HID wave** | Kontrol S2/S3/S4 MK3, Z1, X1, MX2 via WebHID (Chromium) and node-hid/hidapi (desktop). | Needs the profile format's HID field decoder; highest per-model effort. |
 | **C5 — standalone + motorized** | Rane One/Four/Performer, Denon SC Live 2/4, Prime GO+/Prime 4 computer mode. | Protocol openness UNVERIFIED; motorized platters need a feedback loop. Research first. |
 | **D2 — native audio (post-1.0, optional)** | Rust (cpal) or C++ audio engine behind `AudioBackend`, ASIO on Windows (proprietary Steinberg license), JACK/PipeWire on Linux; then optionally move the shell to Tauri+CEF. | Only if measured latency on WASAPI/CoreAudio via Chromium is not good enough. |
 
@@ -164,7 +163,7 @@ supported. Treat Firefox Android Web MIDI as UNVERIFIED.
 | **Brave FSA off** | Detect `!('showDirectoryPicker' in window)` (already done) → same fallback as Firefox, plus a note that `brave://flags/#file-system-access-api` exists. | Named: "Brave turns this off by default." |
 | **No `AudioContext.setSinkId`** (Firefox, Safari, Android) | (a) Play through the OS default device; tell the user to set the controller as the default output. (b) Experimental: route the Web Audio graph into a `MediaStreamAudioDestinationNode`, play it on an `<audio>` element and call `HTMLMediaElement.setSinkId` (Firefox 116+, Safari 18.4+). **Adds latency and probably drops to stereo** — UNVERIFIED, needs measurement before shipping. | "Output device can't be chosen in this browser — using system default." |
 | **No 4-channel output** (cue on 3–4) | Already implemented: cue folds into master. A split-cue alternative ("mono split": master in left ear, cue in right) is a common DJ-software trick — idea only. | Already surfaced? — worth confirming the notice exists in every browser. |
-| **No WebHID** (Firefox, Safari) | None in-browser; NI controllers need Chromium or desktop. MX2 has a MIDI mode (see C) so it partly escapes this. | Per-controller: "Traktor S4 MK3 needs Chrome/Edge or the desktop app." |
+| **No WebHID** (Firefox, Safari) | None in-browser; the Kontrol maker controllers need Chromium or desktop. MX2 has a MIDI mode (see C) so it partly escapes this. | Per-controller: "Kontrol S4 MK3 needs Chrome/Edge or the desktop app." |
 | **No WebGPU** | Already specified in `directions.md` §3: stems offline + cache. | Existing rule. |
 | **SharedArrayBuffer headers** | See A.3. | — |
 
@@ -271,7 +270,7 @@ Per-OS work that is real:
 | --- | --- | --- | --- |
 | Windows | NSIS/MSI (electron-builder) or MSIX (Store) | Azure Artifact Signing (ex-Trusted Signing): US$9.99/month; **individuals only in US/Canada; organizations in Israel are eligible** [B11][B12]. Otherwise an OV/EV certificate from a CA (price UNVERIFIED, typically hundreds of USD/yr). Unsigned → SmartScreen warnings. | Windows MIDI Services (multi-client MIDI, loopback ports) is rolling out on Windows 11 24H2+ [B13] — removes the old "only one app can open the controller" limit. |
 | macOS | `.app` in `.dmg`; universal (arm64+x64) build | Apple Developer Program **99 USD/year** [B14]; Developer ID signing + notarization included [B15]; hardened runtime | Microphone/audio entitlements for input (UNVERIFIED which ones Electron needs for output-only). |
-| Linux | AppImage, `.deb`, `.rpm`, Flatpak (Flathub), Snap | Optional GPG; Flatpak/Snap signed by store | Flatpak sandbox needs `--device=all` (USB MIDI/HID) and filesystem permission for `~/Music` — UNVERIFIED exact Flatpak permissions; udev rule for HID access to NI devices. |
+| Linux | AppImage, `.deb`, `.rpm`, Flatpak (Flathub), Snap | Optional GPG; Flatpak/Snap signed by store | Flatpak sandbox needs `--device=all` (USB MIDI/HID) and filesystem permission for `~/Music` — UNVERIFIED exact Flatpak permissions; udev rule for HID access to the Kontrol maker devices. |
 
 Auto-update: `electron-updater` (with electron-builder) or Squirrel; Tauri has an
 updater plugin. Both need signed artifacts and a static file host — consistent with
@@ -316,12 +315,12 @@ No manufacturer publishes unit sales. The only first-hand ranking fetched this s
 
 **Thomann bestseller list, DJ controllers (fetched 2026-09-24,
 https://www.thomann.de/de/topseller_GF_dj_controller.html):** 1 Hercules DJControl
-Inpulse 500 · 2 Denon DJ Prime 4 G2 · 3 Rane Performer · 4 NI Traktor MX2 · 5 Numark
-Party Mix MKIII · 6 Denon DJ SC Live 4 · 7 Numark Mixtrack Go · 8 Rane One MKII · 9 NI
-Traktor Z1 MK2 · 10 Reloop Mixtour Pro · 11 Roland DJ-202 · 12 Hercules Inpulse T7
+Inpulse 500 · 2 Denon DJ Prime 4 G2 · 3 Rane Performer · 4 Kontrol MX2 · 5 Numark
+Party Mix MKIII · 6 Denon DJ SC Live 4 · 7 Numark Mixtrack Go · 8 Rane One MKII · 9
+Kontrol Z1 MK2 · 10 Reloop Mixtour Pro · 11 Roland DJ-202 · 12 Hercules Inpulse T7
 Premium · 13 Reloop Mixon 8 Pro · 14 Numark Mixstream Pro+ · 15 Denon Prime GO+ · 16
 Hercules DJControl Mix Ultra · 17 Roland DJ-707M · 18 Rane Twelve MKII · 19 Numark
-Mixstream Pro GO · 20 NI Traktor X1 MK3.
+Mixstream Pro GO · 20 Kontrol X1 MK3.
 
 **Caveat: no AlphaTheta/Pioneer product appears at all**, which almost certainly
 reflects distribution (UNVERIFIED — Pioneer may not be sold through Thomann), not
@@ -333,77 +332,66 @@ sales data. Sweetwater and Amazon bestseller pages refused automated access.
 **Estimated ~10–12 models that cover most active users — UNVERIFIED (judgement from the
 above, not sales data):** DDJ-FLX4, DDJ-400 (large installed base), DDJ-FLX6, DDJ-FLX10,
 DDJ-REV1; Hercules Inpulse 200/300/500; Numark Mixtrack Platinum FX / Pro FX and Party
-Mix; NI Traktor S2 MK3 / Z1 / MX2; Rane One; Denon SC Live 4 / Prime GO+.
+Mix; Kontrol S2 MK3 / Z1 / MX2; Rane One; Denon SC Live 4 / Prime GO+.
 
 ### C.2 Per-controller table
 
 Legend — Protocol: **MIDI-CC** = USB class-compliant MIDI; **HID** = USB HID reports;
 **Audio**: "4-out" = master on 1–2 + headphones on 3–4 (what `wireOutput()` needs).
-"Doc" = official manufacturer MIDI list found. Facts attributed to the Mixxx manual are
+"Doc" = official manufacturer MIDI list found. Facts attributed to an open-source DJ program's manual are
 factual hardware descriptions only (protocol, channel layout); no mapping content was
 read or copied.
 
 | Model | Protocol | Audio | Jog / notable I/O | Official MIDI doc | Software bundling / lock-in |
 | --- | --- | --- | --- | --- | --- |
-| **AlphaTheta DDJ-FLX4** (supported) | MIDI class-compliant [M1] | 4-out (in use today) | Jog: relative CC, offset-64, separate top/rim CCs + touch note (measured in repo); tempo 14-bit (MSB used) | ✅ `ddj-flx4_midi_message_list_e1.pdf` [P1] | rekordbox + Serato DJ Lite unlock; works with "MIDI-compatible software" per AlphaTheta [P2] |
-| DDJ-FLX2 | MIDI (UNVERIFIED) | UNVERIFIED | small jogs | UNVERIFIED | rekordbox/Serato Lite [P3] |
-| DDJ-FLX6(-GT) | MIDI (UNVERIFIED) | 4-out (UNVERIFIED) | 4-deck, Merge FX | likely (AlphaTheta pattern) — UNVERIFIED | rekordbox/Serato |
-| DDJ-FLX10 | MIDI | 4-out+ (UNVERIFIED) | jog displays, 4-deck, stems buttons | ✅ "MIDI-compatible software" page with message list [P4] | rekordbox/Serato Pro |
-| DDJ-REV1 | MIDI | 4-out (UNVERIFIED) | battle layout | UNVERIFIED | Serato Lite |
-| DDJ-REV5 | MIDI (UNVERIFIED) | UNVERIFIED | Serato stems | UNVERIFIED | Serato / rekordbox |
-| DDJ-REV7 | MIDI | 4-out+ | **motorized platters + on-jog displays** (UNVERIFIED how displays are fed) | ✅ [P5] | Serato / rekordbox |
-| DDJ-GRV6 | MIDI | UNVERIFIED | Groove Circuit | ✅ [P6] | rekordbox/Serato |
-| DDJ-400 | MIDI | 4-out | firmware bug note in Mixxx manual [M2] | UNVERIFIED | rekordbox |
-| DDJ-SB3 | MIDI | 4-out; **decks 3–4 only when its sound card is used (firmware limit)** [M3] | | UNVERIFIED | Serato |
-| DDJ-200 | MIDI | **no audio interface** (UNVERIFIED) | smartphone-oriented | ✅ `DDJ-200_MIDI_Message_List_E2.pdf` [P7] | rekordbox/djay/WeDJ |
-| DDJ-1000 | MIDI | 4-out+ | jog displays fed by rekordbox (mechanism UNVERIFIED) | UNVERIFIED | rekordbox |
-| **Hercules DJControl Inpulse 500** | MIDI class-compliant | **4-out** [M4] | | ✅ "MIDI Commands" + "MIDI manual" PDFs on Hercules support [H1] | DJUCED + Serato Lite |
-| Inpulse 200/300, T7 | MIDI (class-compliant per Mixxx pages for 200/300) | 200: UNVERIFIED; T7: motorized (UNVERIFIED) | | Hercules publishes per-model MIDI docs (pattern; UNVERIFIED per model) | DJUCED/Serato |
-| Hercules DJControl Starlight | MIDI class-compliant | **4-out** (3.5 mm) [M5] | | UNVERIFIED | Serato Lite/DJUCED |
-| Hercules DJControl Mix / Mix Ultra | USB-MIDI; also Bluetooth (BLE-MIDI, UNVERIFIED) | **no audio interface** [M6] | | UNVERIFIED | djay / Serato mobile |
-| **Numark Mixtrack Platinum FX** | MIDI + audio class-compliant [M7] | 4-out [M7] | jog LCD displays; firmware 1.10 needed for full features in Mixxx [M7] | none official found — UNVERIFIED | Serato Lite |
-| Numark Mixtrack Pro FX, Mixtrack Go | MIDI (UNVERIFIED) | UNVERIFIED | | UNVERIFIED | Serato Lite |
-| Numark Party Mix MKII/MKIII | MIDI | UNVERIFIED (has headphone out) | light show | UNVERIFIED | Serato Lite / VirtualDJ |
-| Numark NS4FX | MIDI (UNVERIFIED) | 4-out (UNVERIFIED) | 4-deck, 14-bit pitch (UNVERIFIED) | UNVERIFIED | Serato |
-| Numark Mixstream Pro/Pro+/Pro GO | standalone (Engine DJ OS); computer mode MIDI? UNVERIFIED | | | UNVERIFIED | Serato/VDJ in computer mode (UNVERIFIED) |
-| **NI Traktor Kontrol S2 MK3** | **HID** | 4-out (ch 1–2 main, 3–4 phones) [M8] | discontinued [N1] | NI publishes Traktor mapping docs, not HID specs (UNVERIFIED) | Traktor |
-| NI Traktor Kontrol S3 | HID + audio class-compliant, 4-ch [M9] | 4-out | | — | Traktor |
-| NI Traktor Kontrol S4 MK3 | HID; **jog extends HID for motorized/haptic wheels**; screens not via HID [M10] | 4-out; **mixer knobs physically linked to its embedded mixer** [M10] | | — | Traktor |
-| NI Traktor Kontrol Z1 (MK2) | HID + audio class-compliant, 4-ch [M11] | 4-out | Main/Cue vol are hardware | — | Traktor |
-| NI Traktor MX2 (2025) | **HID, plus a MIDI mode (both SHIFT buttons)** [N2][M12] | 4-out [M12] | | — | Traktor Pro 4 |
-| NI Traktor X1 MK3 | UNVERIFIED (HID; MIDI mode UNVERIFIED) | none | add-on controller | — | Traktor |
-| **Rane One MKII** | UNVERIFIED (believed MIDI) | UNVERIFIED | **motorized 7" platter** | none found | **Serato DJ Pro unlock**; documentation is Serato-only [R1][R2] |
-| Rane Four / Performer / Twelve MKII | UNVERIFIED | UNVERIFIED | Performer motorized | none found | Serato |
-| **Denon DJ SC Live 4 / SC Live 2** | standalone; "Computer Mode" for Serato DJ Pro and VirtualDJ, described as **HID mode** [D1][D2] | UNVERIFIED | | none found | Engine DJ standalone; Serato unlocked |
-| Denon DJ Prime GO+ / Prime 4 (G2) | standalone; computer mode (protocol UNVERIFIED) | UNVERIFIED | | none found | Engine DJ; Serato |
-| Denon MC7000 | MIDI | **dual USB audio interfaces**; 4-deck [M13] | "Line/Phono" switch silences the deck's MIDI [M13] | UNVERIFIED | Serato |
-| Reloop Beatmix 4 MK2 | MIDI + audio class-compliant [M14] | yes | | UNVERIFIED | Serato |
-| Reloop Mixon 8 Pro, Mixtour Pro, Buddy, Ready | MIDI (UNVERIFIED) | UNVERIFIED | | Reloop often ships MIDI docs — UNVERIFIED | Serato/djay/rekordbox (UNVERIFIED) |
-| Roland DJ-505 | MIDI + audio class-compliant [M15] | multi-ch | TR-S drum machine | Roland typically publishes MIDI implementation — UNVERIFIED | Serato |
-| Roland DJ-202, DJ-707M | MIDI (UNVERIFIED) | UNVERIFIED | | UNVERIFIED | Serato |
+| **AlphaTheta DDJ-FLX4** (supported) | MIDI class-compliant [M1] | 4-out (in use today) | Jog: relative CC, offset-64, separate top/rim CCs + touch note (measured in repo); tempo 14-bit (MSB used) | ✅ `ddj-flx4_midi_message_list_e1.pdf` [P1] | commercial software unlock; works with "MIDI-compatible software" per AlphaTheta [P2] |
+| DDJ-FLX2 | MIDI (UNVERIFIED) | UNVERIFIED | small jogs | UNVERIFIED | commercial software (source removed v0.12.3, UNVERIFIED) |
+| DDJ-FLX6(-GT) | MIDI (UNVERIFIED) | 4-out (UNVERIFIED) | 4-deck, Merge FX | likely (AlphaTheta pattern) — UNVERIFIED | commercial software |
+| DDJ-FLX10 | MIDI | 4-out+ (UNVERIFIED) | jog displays, 4-deck, stems buttons | ✅ "MIDI-compatible software" page with message list [P4] | commercial software |
+| DDJ-REV1 | MIDI | 4-out (UNVERIFIED) | battle layout | UNVERIFIED | commercial software |
+| DDJ-REV5 | MIDI (UNVERIFIED) | UNVERIFIED | commercial software stems | UNVERIFIED | commercial software |
+| DDJ-REV7 | MIDI | 4-out+ | **motorized platters + on-jog displays** (UNVERIFIED how displays are fed) | ✅ [P5] | commercial software |
+| DDJ-GRV6 | MIDI | UNVERIFIED | Groove Circuit | ✅ [P6] | commercial software |
+| DDJ-400 | MIDI | 4-out | firmware bug note in open-source DJ program's manual [M2] | UNVERIFIED | commercial software |
+| DDJ-SB3 | MIDI | 4-out; **decks 3–4 only when its sound card is used (firmware limit)** [M3] | | UNVERIFIED | commercial software |
+| DDJ-200 | MIDI | **no audio interface** (UNVERIFIED) | smartphone-oriented | ✅ `DDJ-200_MIDI_Message_List_E2.pdf` [P7] | commercial software |
+| DDJ-1000 | MIDI | 4-out+ | jog displays fed by commercial software (mechanism UNVERIFIED) | UNVERIFIED | commercial software |
+| **Hercules DJControl Inpulse 500** | MIDI class-compliant | **4-out** [M4] | | ✅ "MIDI Commands" + "MIDI manual" PDFs on Hercules support [H1] | commercial software |
+| Inpulse 200/300, T7 | MIDI (class-compliant per an open-source DJ program's pages for 200/300) | 200: UNVERIFIED; T7: motorized (UNVERIFIED) | | Hercules publishes per-model MIDI docs (pattern; UNVERIFIED per model) | commercial software |
+| Hercules DJControl Starlight | MIDI class-compliant | **4-out** (3.5 mm) [M5] | | UNVERIFIED | commercial software |
+| Hercules DJControl Mix / Mix Ultra | USB-MIDI; also Bluetooth (BLE-MIDI, UNVERIFIED) | **no audio interface** [M6] | | UNVERIFIED | commercial software |
+| **Numark Mixtrack Platinum FX** | MIDI + audio class-compliant [M7] | 4-out [M7] | jog LCD displays; firmware 1.10 needed for full features in an open-source DJ program [M7] | none official found — UNVERIFIED | commercial software |
+| Numark Mixtrack Pro FX, Mixtrack Go | MIDI (UNVERIFIED) | UNVERIFIED | | UNVERIFIED | commercial software |
+| Numark Party Mix MKII/MKIII | MIDI | UNVERIFIED (has headphone out) | light show | UNVERIFIED | commercial software |
+| Numark NS4FX | MIDI (UNVERIFIED) | 4-out (UNVERIFIED) | 4-deck, 14-bit pitch (UNVERIFIED) | UNVERIFIED | commercial software |
+| Numark Mixstream Pro/Pro+/Pro GO | standalone (its standalone OS); computer mode MIDI? UNVERIFIED | | | UNVERIFIED | commercial software in computer mode (UNVERIFIED) |
+| **Kontrol S2 MK3** | **HID** | 4-out (ch 1–2 main, 3–4 phones) [M8] | discontinued (source removed v0.12.3, UNVERIFIED) | the Kontrol maker publishes commercial software mapping docs, not HID specs (UNVERIFIED) | commercial software |
+| Kontrol S3 | HID + audio class-compliant, 4-ch [M9] | 4-out | | — | commercial software |
+| Kontrol S4 MK3 | HID; **jog extends HID for motorized/haptic wheels**; screens not via HID [M10] | 4-out; **mixer knobs physically linked to its embedded mixer** [M10] | | — | commercial software |
+| Kontrol Z1 (MK2) | HID + audio class-compliant, 4-ch [M11] | 4-out | Main/Cue vol are hardware | — | commercial software |
+| Kontrol MX2 (2025) | **HID, plus a MIDI mode (both SHIFT buttons)** [M12] | 4-out [M12] | | — | commercial software |
+| Kontrol X1 MK3 | UNVERIFIED (HID; MIDI mode UNVERIFIED) | none | add-on controller | — | commercial software |
+| **Rane One MKII** | UNVERIFIED (believed MIDI) | UNVERIFIED | **motorized 7" platter** | none found | **commercial software unlock**; documentation is commercial software-only [R1] (source removed v0.12.3, UNVERIFIED) |
+| Rane Four / Performer / Twelve MKII | UNVERIFIED | UNVERIFIED | Performer motorized | none found | commercial software |
+| **Denon DJ SC Live 4 / SC Live 2** | standalone; "Computer Mode" for commercial software, described as **HID mode** [D1] (source removed v0.12.3, UNVERIFIED) | UNVERIFIED | | none found | its standalone OS; commercial software unlocked |
+| Denon DJ Prime GO+ / Prime 4 (G2) | standalone; computer mode (protocol UNVERIFIED) | UNVERIFIED | | none found | its standalone OS; commercial software |
+| Denon MC7000 | MIDI | **dual USB audio interfaces**; 4-deck [M13] | "Line/Phono" switch silences the deck's MIDI [M13] | UNVERIFIED | commercial software |
+| Reloop Beatmix 4 MK2 | MIDI + audio class-compliant [M14] | yes | | UNVERIFIED | commercial software |
+| Reloop Mixon 8 Pro, Mixtour Pro, Buddy, Ready | MIDI (UNVERIFIED) | UNVERIFIED | | Reloop often ships MIDI docs — UNVERIFIED | commercial software (UNVERIFIED) |
+| Roland DJ-505 | MIDI + audio class-compliant [M15] | multi-ch | TR-S drum machine | Roland typically publishes MIDI implementation — UNVERIFIED | commercial software |
+| Roland DJ-202, DJ-707M | MIDI (UNVERIFIED) | UNVERIFIED | | UNVERIFIED | commercial software |
 
 Sources:
 [P1] https://www.pioneerdj.com/-/media/pioneerdj/software-info/controller/ddj-flx4/ddj-flx4_midi_message_list_e1.pdf ·
 [P2] https://support.alphatheta.com/en-US/articles/12294087060377 ·
-[P3] https://support.serato.com/hc/en-us/articles/11087620792591-AlphaTheta-DDJ-FLX2-Quickstart-Guide ·
 [P4] https://support.alphatheta.com/en-US/articles/16716711647129 ·
 [P5] https://support.alphatheta.com/en-US/articles/4414574284697 ·
 [P6] https://support.alphatheta.com/en-US/articles/37284057102489 ·
 [P7] https://downloads.support.alphatheta.com/software_info/dj-controllers/DDJ-200/DDJ-200_MIDI_Message_List_E2.pdf ·
 [H1] https://support.hercules.com/en/product/djcontrolinpulse500-en/ ·
-[N1] https://djtechtools.com/2025/10/08/traktor-mx2-native-instruments-new-2-channel-controller/ ·
-[N2] https://www.native-instruments.com/products/traktor-mx2 ·
 [R1] https://support.rane.com/en/support/solutions/articles/69000867558-rane-one-mkii-frequently-asked-questions ·
-[R2] https://support.serato.com/hc/en-us/articles/13362521528847-RANE-ONE-MKII-Quickstart-Guide ·
 [D1] https://www.denondj.com/sclive4 ·
-[D2] https://www.digitaldjtips.com/serato-confirms-new-denon-dj-sc-live-4-and-sc-live-2-controllers/ ·
-[M1]–[M15] Mixxx user manual hardware pages, source at
-https://github.com/mixxxdj/manual/tree/2.5/source/hardware/controllers
-(`pioneer_ddj_flx4`, `pioneer_ddj_400`, `pioneer_ddj_sb3`, `hercules_djcontrol_inpulse_500`,
-`hercules_djcontrol_starlight`, `hercules_djcontrol_MIX`, `numark_mixtrack_platinum_fx`,
-`native_instruments_traktor_kontrol_s2_mk3`, `…_s3`, `…_s4_mk3`, `…_z1`,
-https://manual.mixxx.org/2.6/en/hardware/controllers/native_instruments_traktor_mx2,
-`denon_mc7000`, `reloop_beatmix_4`, `roland_dj_505`). Used for hardware facts only.
+[M1]–[M15] an open-source DJ program's public controller manual (links removed in v0.12.3).
 
 AlphaTheta's help-center pages returned HTTP 403 to automated fetches; their existence
 and the "refer to the list of MIDI messages" wording came through search snippets.
@@ -411,7 +399,7 @@ Whether each page links a downloadable PDF is UNVERIFIED for FLX10/REV7/GRV6.
 
 ### C.3 Cross-cutting observations
 
-- **"Serato-only"/"rekordbox-only" is a licensing bundle, not a protocol lock** for the
+- **"Works only with the bundled software" is a licensing bundle, not a protocol lock** for the
   MIDI units: the controller unlocks the vendor's software, but it still speaks
   class-compliant MIDI to anyone. AlphaTheta states its controllers work with other
   MIDI-compatible software [P2][P4][P5][P6]. The Rane/Denon standalone and motorized
@@ -441,17 +429,15 @@ Whether each page links a downloadable PDF is UNVERIFIED for FLX10/REV7/GRV6.
 
 ### D.1 How others structure it (ideas only)
 
-- **Mixxx**: per-controller XML (static MIDI → control bindings, LED outputs) plus a
-  JavaScript file for anything stateful (jogs, shift layers, pad modes, HID parsing).
-  **GPL-2.0-or-later** — the repo LICENSE says "Mixxx is free software; you can
-  redistribute it and/or modify it under the terms of the GNU General Public License"
-  (https://github.com/mixxxdj/mixxx/blob/main/LICENSE). **Do not copy mappings, scripts,
-  or numbers taken from them.** The *architecture idea* (declarative table +
-  small-code escape hatch) is not copyrightable and is also what everyone converges on.
-- **Serato / rekordbox / Traktor / VirtualDJ**: closed. Public behaviour: official
-  "plug-and-play" per vendor partnership, plus a user MIDI-learn/mapping editor
-  (Traktor's Controller Manager, Serato MIDI mode, VirtualDJ mapper). The lesson: ship
-  first-party profiles for the popular list, and a learn tool for the long tail.
+*(Removed in v0.12.3 at the owner's request: no names of, links to, or comparisons with other DJ software.)*
+
+- **An open-source program** uses a per-controller declarative table (MIDI → control bindings, LED
+  outputs) plus a small script for stateful parts (jogs, shift layers, pad modes, HID parsing). It is
+  **GPL — do not copy its mappings, scripts, or numbers.** The architecture idea (declarative table +
+  small-code escape hatch) is not copyrightable and is what everyone converges on.
+- **Closed programs** ship first-party "plug-and-play" profiles per vendor partnership plus a user
+  MIDI-learn editor. The lesson: ship first-party profiles for the popular list, and a learn tool for
+  the long tail.
 
 ### D.2 Proposed DeckMix controller profile (pure `core/`)
 
@@ -487,7 +473,7 @@ type OutputSpec =
 Rules that keep this safe and small:
 
 1. **Shift layers and pad modes are data** (`layer: 'shift'`, `padMode: 'hotcue'`), not
-   code. Most "why Mixxx needs JS" cases are these.
+   code. Most "why an open-source DJ program needs JS" cases are these.
 2. **The escape hatch is a named, reviewed TS function in `core/`**, referenced by id
    (e.g. `decode: 'ni-s4mk3-jog'`) — never arbitrary JS inside a profile file. User or
    community profiles therefore cannot execute code (matters once profiles are shared).
@@ -568,8 +554,8 @@ Today: `learn(action)` waits for one message and binds it. Proposed guided flow:
    MIDI lists; **avoid decompiling vendor software** and check each vendor EULA/firmware
    licence for anti-reverse-engineering terms.
 3. **Copyright in mappings.** A vendor MIDI list is a factual table; using the facts is
-   normally fine, copying the PDF is not needed. **Third-party mappings (Mixxx: GPL;
-   VirtualDJ/UltraMixer community mappings: licences vary) must not be copied** —
+   normally fine, copying the PDF is not needed. **Third-party mappings (an open-source DJ program: GPL;
+   commercial software community mappings: licences vary) must not be copied** —
    `source: 'vendor-doc' | 'trace' | 'learn'` in every profile is the audit trail.
 4. **Licences inside a sold product.** Permissive (MIT/Apache/BSD) only; keep NOTICE
    files. Specific flags from this research:
@@ -598,7 +584,7 @@ Today: `learn(action)` waits for one message and binds it. Proposed guided flow:
 | WASAPI/CoreAudio latency through Chromium too high for scratching | Core feel | Measure on FLX4 before D1; native engine is D2. |
 | Controllers without published docs mapped from guesses | Silent misfires | `source` field; "unverified profile" badge; Learn to fix; traces as tests. |
 | A single-person team owning one controller | Coverage | Community traces + virtual-port replay. |
-| Licence contamination (Mixxx, Link, ASIO) | Blocks sale | Profile provenance field; dependency licence check in `npm run check` (idea). |
+| Licence contamination (an open-source DJ program, Link, ASIO) | Blocks sale | Profile provenance field; dependency licence check in `npm run check` (idea). |
 | Windows signing unavailable to an individual in Israel via Azure | Unsigned installer warnings | Register a business entity or buy an OV/EV certificate. |
 
 ## Open questions for the owner

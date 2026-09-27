@@ -29,13 +29,13 @@ Ranked options, all built by us (the owner's constraint):
 | 3 (not now) | Own frame-level model (Beat This!-style transformer, 2-20M params) run through onnxruntime-web or hand-written kernels. | Beat This! (the published system): GTZAN downbeat F1 **78.3** (20M) / **77.2** (2M). | My estimate: 5-40 s per track on WASM (the frontend dominates cost, so "small" is not 10× faster). WebGPU is faster but UNVERIFIED on Iris Xe. | Needs ~4,500 annotated tracks and GPU training. The legally clean data does not exist at that scale. | Large |
 
 **Not usable under the owner's constraint (shown for reference):** madmom models (CC BY-NC-SA, non-commercial),
-Essentia (AGPL code, CC BY-NC-ND models), Mixxx/qm-dsp (GPL). Also excluded by policy, though license-clean:
+Essentia (AGPL code, CC BY-NC-ND models), qm-dsp (GPL). Also excluded by policy, though license-clean:
 Beat This! (MIT code *and* weights), All-In-One (MIT code and weights, but needs Demucs + NATTEN), BeatNet
 (CC BY 4.0, but depends on madmom).
 
 **Ground truth first.** Before building anything, have the owner label the bar phase on **100-150 tracks** of
 his own library, stratified by genre. It is a 4-choice task per track, about 10-20 s each. The existing
-`setDownbeatAt` tool is almost enough. Serato grids are **not** reliable ground truth on their own (§6).
+`setDownbeatAt` tool is almost enough. Other programs' grids are **not** reliable ground truth on their own (§6).
 
 **The one thing that breaks everything:** a wrong tempo octave (e.g. DnB at 87 vs 174, hip-hop at 90 vs 180).
 The bar is 4 beats at the *right* metrical level. The detector must see the tempo octave as an input it can
@@ -134,16 +134,10 @@ most Mizrahi pop is in a Western 4/4 pop production frame. Treat it as an open m
 
 ### 2.2 What DJ software does
 
-| Product | Downbeat behaviour | Source |
-|---|---|---|
-| **Serato DJ** (≤ 4.x) | One red "downbeat marker" labelled bar 1, with 3 white markers per bar after it. Per Serato support it is "placed on the first transient of the track"; the grid "rel[ies] on the first red downbeat marker being set on the first beat of a four-beat bar". So the **default is a first-transient heuristic, not a downbeat detector**. | Serato support articles "Downbeat Marker" / "Bar Markers" (text quoted from search-result extracts; the pages return 403 to automated fetches, so this is partly UNVERIFIED) |
-| **Serato DJ 5.0 beta** (10 Sep 2026) | "Lucid Beatgrids": rebuilt engine, "significantly improved downbeat detection", tempo tracking. No technical detail and no ML claim published. | [Serato announcement](https://the-drop.serato.com/announcements/introducing-lucid-beatgrids-in-serato-dj-5-0/) |
-| **rekordbox** | Stores an explicit beat number per beat. The PQTZ entry's `beat_number` is "always 1, 2, 3, or 4" and "specifies where the beat falls within its measure". Phrase analysis (PSSI tag) adds Intro/Up/Down/Chorus/Outro phrases in bars. | [Deep Symmetry ANLZ docs](https://djl-analysis.deepsymmetry.org/rekordbox-export-analysis/anlz.html) (reverse-engineered, not official) |
-| **Traktor** | Grid marker model. The first grid marker is treated as beat 1. Algorithm not public. | UNVERIFIED |
-| **Mixxx** (GPL-2.0-or-later) | Released analyzers use Queen Mary qm-dsp for beats. The downbeat + phrase "Rhythm Analyzer" (GSoC 2020, PR #2877) uses the Davies-style idea: it "finds the indices of the beats that are downbeats" by "computing the spectral difference of every consecutive pair of beats and looks for the sequence that leads to the highest mean change". The PR is **draft / not merged** as far as the pages show. | [Mixxx wiki](https://github.com/mixxxdj/mixxx/wiki/Downbeats-And-Phrase-Detection), [PR #2877](https://github.com/mixxxdj/mixxx/pull/2877), [Mixxx LICENSE](https://raw.githubusercontent.com/mixxxdj/mixxx/main/LICENSE) |
+*(Removed in v0.12.3 at the owner's request: no names of, links to, or comparisons with other DJ software.)*
 
-Mixxx and qm-dsp are GPL, so **their code must not be copied or ported**. The ideas are published in papers
-and can be reimplemented from those papers.
+What stays: code under the GPL (for example `qm-dsp`) must not be copied or ported. The ideas are
+published in papers and can be reimplemented from those papers.
 
 ### 2.3 Proposed from-scratch classical pipeline (Option 1). Enough detail to implement.
 
@@ -378,19 +372,11 @@ ported to Rust.
 
 ## 6. Ground truth: measuring accuracy on the owner's library
 
-### 6.1 Serato grids as labels
-- Tag layout (`docs/reference/serato-formats.md`, deleted in v0.12.2 <!-- dead-path -->): the `Serato BeatGrid` tag holds markers; non-terminal
-  markers are `position` + `beatsToNext`, and the terminal marker is `position` + `bpm`. Serato draws bar 1 at the
-  first (red) marker and a bar every 4 beats. So **bar phase = first marker position mod bar length.**
-- **Reliability:** Serato's analyzer (≤ 4.x) places that marker on "the first transient of the track"
-  (support text, partly UNVERIFIED because the page is fetch-blocked). That is **only a downbeat if the track starts on
-  beat 1**. That is often true for DJ-friendly EDM intros and often false for hip-hop/pop with pickups, intros or
-  silence. **Auto-analyzed Serato grids are therefore a biased proxy, not ground truth.** Grids the owner
-  corrected by hand are ground truth. The `bbgl` (beatgrid locked) flag in the database is a plausible proxy
-  for "user-verified", UNVERIFIED as a signal. Serato 5.0's new analysis (Sept 2026) will change what the tags
-  contain.
-- rekordbox (if the owner has an export): PQTZ `beat_number` 1-4 gives an explicit downbeat. That is rekordbox's
-  *automatic* opinion, a useful second opinion but not ground truth.
+### 6.1 Other programs' grids as labels
+
+*(Removed in v0.12.3 at the owner's request: no names of, links to, or comparisons with other DJ software.)*
+What stays: grids analysed automatically by another program are a biased proxy (they tend to put bar 1 on
+the first transient), not ground truth. Only grids the owner fixed by hand are candidate labels.
 
 ### 6.2 Recommended protocol
 1. **Owner labeling:** 100-150 tracks, stratified (about 25 each of House, Techno, Trance, Hip-hop, Mizrahi).
@@ -447,8 +433,8 @@ opinion from a patent attorney, especially in the US, EU and Japan.
 | EP2207163A2 (Sony, bar detection via chord/key + beat-section similarity + Viterbi) | Sony | EP application **withdrawn**. US family status UNVERIFIED | | Low (check the US counterpart). |
 | US6316712 "tempo and downbeat detection" | UNVERIFIED | Filed ~1999; should be expired by term (UNVERIFIED) | | Low. |
 
-Algoriddim's published patent list ([algoriddim.com/patents](https://www.algoriddim.com/patents)) covers stems,
-transport and effects. None of the titles are about beat grids or downbeats. No Serato or Native Instruments patent
+One DJ software maker's published patent list covers stems,
+transport and effects. None of the titles are about beat grids or downbeats. Searches of two other DJ software makers found no patent
 on downbeat detection was found (absence of evidence only).
 
 ---
@@ -464,7 +450,7 @@ on downbeat detection was found (absence of evidence only).
 | Demucs (needed by allin1) | "MIT License / Copyright (c) Meta Platforms, Inc. and affiliates." ([LICENSE](https://raw.githubusercontent.com/facebookresearch/demucs/main/LICENSE)) | UNVERIFIED separately | n/a |
 | Beat-Transformer | "MIT License / Copyright (c) 2022 Zhao Jingwei" ([LICENSE](https://raw.githubusercontent.com/zhaojw1998/Beat-Transformer/main/LICENSE)) | UNVERIFIED (checkpoint license not stated separately). Needs Spleeter. | Excluded. |
 | Essentia / essentia.js | "Affero GPLv3, for non-commercial applications", commercial license from UPF MTG | "CC BY-NC-ND 4.0 license for non-commercial use ... also available under a proprietary license upon request" ([licensing](https://essentia.upf.edu/licensing_information.html)) | **No**, unless a paid license is negotiated (contact mtg-info@upf.edu). No dedicated downbeat algorithm found (UNVERIFIED). |
-| Mixxx | "GNU General Public License ... version 2 of the License, or (at your option) any later version" | n/a | **No** (GPL). Ideas only. |
+| an open-source DJ program | "GNU General Public License ... version 2 of the License, or (at your option) any later version" | n/a | **No** (GPL). Ideas only. |
 | qm-dsp / QM Vamp plugins | "GNU GENERAL PUBLIC LICENSE Version 2" ([COPYING](https://raw.githubusercontent.com/c4dm/qm-dsp/master/COPYING)) | n/a | **No** (GPL). The Davies & Plumbley paper can be reimplemented. |
 | librosa | "ISC License ... Copyright (c) 2013--2026, librosa development team" | n/a | Yes, but it has no downbeat tracker, and it is Python. |
 | onnxruntime(-web) | "MIT License / Copyright (c) Microsoft Corporation" | n/a | Yes (runtime only). |
@@ -484,7 +470,7 @@ on downbeat detection was found (absence of evidence only).
 4. **Patents** (§8), especially AlphaTheta's drum-pattern bar-start claim, which is the most "obvious" heuristic.
 5. **Training-data legality** (§5.2). The clean data is synthetic or non-EDM. Real EDM labels exist only for
    copyrighted audio.
-6. **Serato ground-truth bias** (§6.1). Using auto grids as "truth" would reward copying Serato's first-transient
+6. **Other-software ground-truth bias** (§6.1). Using auto grids as "truth" would reward copying another program's first-transient
    heuristic.
 7. **Genre mix.** Hip-hop with sparse harmony and Mizrahi with Middle-Eastern percussion patterns may defeat
    the harmonic and phrase cues. That is why the per-genre breakdown is required.
@@ -495,7 +481,7 @@ on downbeat detection was found (absence of evidence only).
    acceptable? Is a generic runtime library such as onnxruntime-web acceptable? Or must everything, including training, be our own TS?
 2. May we use **your own music files to train** a model we then sell, after a lawyer confirms it? Or only to *measure* accuracy?
 3. Can you spend about 40 minutes **labeling "which beat is 1"** on about 120 tracks (the ground truth everything else is judged by)?
-4. Do you have **rekordbox** analysis for part of the library (a second opinion on downbeats)? Which of your Serato grids did you **fix by hand**?
+4. Do you have **another DJ program's** analysis for part of the library (a second opinion on downbeats)? Which of the grids in your main DJ program did you **fix by hand**?
 5. When the app is unsure, do you prefer **"unsure, please tap beat 1"** or a best guess with a visible warning?
 6. Should we get a **patent freedom-to-operate opinion** before a public release (recommended, §8)?
 7. Should the detector allow **3/4 and 6/8** (some Mizrahi and older songs), or treat everything as 4/4 and flag misfits?
@@ -513,9 +499,6 @@ MIREX 2016 downbeat: https://music-ir.org/mirex/wiki/2016:Audio_Downbeat_Estimat
 Tempo/beat/downbeat tutorial (HJDB history): https://tempobeatdownbeat.github.io/tutorial/ch2_basics/annotation.html ·
 Harmonix: https://github.com/urinieto/harmonixset ·
 QM Vamp plugins: https://vamp-plugins.org/plugin-doc/qm-vamp-plugins.html ·
-Mixxx: https://github.com/mixxxdj/mixxx/wiki/Downbeats-And-Phrase-Detection ·
-rekordbox ANLZ: https://djl-analysis.deepsymmetry.org/rekordbox-export-analysis/anlz.html ·
-Serato 5.0: https://the-drop.serato.com/announcements/introducing-lucid-beatgrids-in-serato-dj-5-0/ ·
 Patents: https://patents.google.com/patent/US11176915B2/en, https://patents.google.com/patent/US10629173B2/en,
 https://patents.google.com/patent/US20140033902A1/en, https://patents.google.com/patent/US11328699B2/en,
 https://patents.google.com/patent/US9653056B2/en, https://patents.google.com/patent/EP2845188B1/en,

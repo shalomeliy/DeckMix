@@ -34,7 +34,7 @@ part, and it belongs after Tauri.
 |---|---|---|---|---|---|---|
 | **1** | **Classical "understanding" pipeline, no training** (HPSS → drum-band onset patterns; harmonic chroma/bass; vocal-presence cues from stereo centre, pitch fluctuation and non-repetition) | 3 separate similarity scores (drums / vocals / bass+melody) + a vocal-presence timeline with a visible confidence | Drums and harmonic similarity: good for dance music. Vocal timeline: roughly 75–85% frame accuracy (UNVERIFIED estimate; the literature's hand-crafted baseline is 87.9% *with* a trained classifier) | ~5 s per track single-threaded, measured (§5.8) → **~10 min with 4 workers** | Clean: our own code, textbook algorithms, no weights | 1–2 versions |
 | **2** | **Option 1 + a tiny vocal-activity classifier we train ourselves** (logistic regression / small MLP / small CNN over the same features) | A better vocal timeline (literature: 87–91% frame accuracy on Jamendo) | ≈ published baselines if the data is good | +1–2 s per track | Needs a commercially clean training set (§8): synthetic mixes of CC BY a-cappellas + CC BY instrumentals, plus the owner's hand labels for evaluation | +1–2 versions, most of it data work |
-| **3** | **Classical "rough stems" to play live** (HPSS drums/harmonic split + centre-channel vocal cut) | Something to mute live: "drums only", "no drums", "karaoke-ish" | Clearly audible artefacts. Nowhere near Serato/VirtualDJ | Real time is possible (block-wise median filters) | Our own code, **but check Algoriddim's patents before shipping playback** (§9) | 1 version |
+| **3** | **Classical "rough stems" to play live** (HPSS drums/harmonic split + centre-channel vocal cut) | Something to mute live: "drums only", "no drums", "karaoke-ish" | Clearly audible artefacts. Nowhere near commercial software | Real time is possible (block-wise median filters) | Our own code, **but check the patent holder's patents before shipping playback** (§9) | 1 version |
 | **4** | **Our own neural separator** (mask-based band-split model, 2–10 M params), trained on commercially clean data, pre-computed offline in Tauri, stems stored as Opus | Real playable stems | Realistic target 5–7 dB SDR (Open-Unmix/Spleeter class), below Demucs' 9 dB (UNVERIFIED estimate) | Browser WASM: ~1–5 min per track → 6–30 h for 360. Tauri native/GPU: a few times faster (estimate) | Data licensing is the blocker (§8). Patent clearance (§9) is required | Months, plus data cost ($0 to ~$40k depending on data route) |
 | ✗ | Ship Demucs / UMX-L / Essentia / madmom / community RoFormer weights | — | — | — | Excluded by the owner's rule. Most are non-commercial anyway (§11) | — |
 
@@ -92,7 +92,7 @@ and 9 dB or more is the current state of the art.
 
 | Model | Year | Avg SDR | Size | CPU time for a 5-min track | Browser feasibility | Code license | Weights license | Training data |
 |---|---|---|---|---|---|---|---|---|
-| **Demucs v4 htdemucs** | 2022 | 9.0 (README). Paper: 9.20 with sparse attention + per-source fine-tuning | ~42 M params. 81 MB fp16 in the browser port | README: "roughly equal to 1.5 times the duration of the track" (CPU) → ~7.5 min | **Yes:** freemusicdemixer.com (C++→WASM): "~41 min for a ~7-minute track single-threaded; ~9 min with 8 workers". ONNX export: sevagh/demucs.onnx; Mixxx GSoC 2025 | MIT (VERIFIED) | **Scientific purposes only** (VERIFIED, #327) | MUSDB-HQ + 800 internal Meta songs |
+| **Demucs v4 htdemucs** | 2022 | 9.0 (README). Paper: 9.20 with sparse attention + per-source fine-tuning | ~42 M params. 81 MB fp16 in the browser port | README: "roughly equal to 1.5 times the duration of the track" (CPU) → ~7.5 min | **Yes:** freemusicdemixer.com (C++→WASM): "~41 min for a ~7-minute track single-threaded; ~9 min with 8 workers". ONNX export: sevagh/demucs.onnx; a GSoC 2025 project | MIT (VERIFIED) | **Scientific purposes only** (VERIFIED, #327) | MUSDB-HQ + 800 internal Meta songs |
 | htdemucs_ft | 2022 | "Same 9.0 dB with enhanced quality" | 4 × htdemucs (one per source) | "4x processing time" | Same port, 4× slower | MIT | Same as above | Same |
 | htdemucs_6s | 2022 | Adds guitar and piano ("piano quality noted as poor") | 53 MB fp16 (browser port) | ≈ htdemucs | Yes (freemusicdemixer) | MIT | Same as above | Same |
 | **Open-Unmix** umxhq / umxl | 2019 / 2021 | UMXHQ median vocals 6.25, drums 6.04, bass 5.07, other 4.28. UMXL 7.21 / 7.15 / 6.02 / 4.89 | ~4 × 9 M params (UNVERIFIED) | Fast (BLSTM on magnitudes). No verified number | Feasible (small ops). No official web demo found | MIT (VERIFIED, GitHub API) | **umxhq: MIT on Zenodo** (VERIFIED: record 3370489, "License: MIT License") but trained on academic-only MUSDB18-HQ (§8.1). **umxl: "the weights are only licensed for non-commercial use (CC BY-NC-SA 4.0)"** (VERIFIED, README) | umxhq: MUSDB18-HQ. umxl: "private stems dataset" |
@@ -112,13 +112,13 @@ https://github.com/ZFTurbo/Music-Source-Separation-Training/blob/main/docs/pretr
 BS-RoFormer https://arxiv.org/abs/2309.02612 ; Mel-RoFormer https://arxiv.org/abs/2310.01809 ;
 SCNet https://arxiv.org/abs/2401.13276 ; HS-TasNet https://arxiv.org/abs/2402.17701 ;
 freemusicdemixer https://github.com/sevagh/free-music-demixer ; demucs.onnx
-https://github.com/sevagh/demucs.onnx ; Mixxx GSoC https://mixxx.org/news/2025-10-27-gsoc2025-demucs-to-onnx-dhunstack/ ;
+https://github.com/sevagh/demucs.onnx ;
 LarsNet/StemGMD https://arxiv.org/abs/2312.09663.
 
 **Useful runtime data points (all VERIFIED quotes, hardware mostly unstated):**
 - WASM Demucs v4 (freemusicdemixer): 7-min track = 41 min on 1 thread, 9 min on 8 workers.
   That is **~6.4 min per 5-min track with 8 workers** → 360 tracks ≈ **38 hours**.
-- Mixxx GSoC, C++ ONNX Runtime on CPU: 50 MUSDB test tracks in 4,415 s. The MUSDB test set
+- A GSoC 2025 project, C++ ONNX Runtime on CPU: 50 MUSDB test tracks in 4,415 s. The MUSDB test set
   is "about 3 hours and 27 minutes" per the Spleeter paper, so that is ≈ 0.36× real time on
   their CPU. ONNX on GPU was 8% *slower* than PyTorch GPU. Quality matched (vocals SI-SDR
   7.84 vs 7.83).
@@ -129,14 +129,7 @@ LarsNet/StemGMD https://arxiv.org/abs/2312.09663.
 
 ## 3. How commercial DJ software does it
 
-| Product | Model / partner (public info) | Real-time vs pre-computed | Notes |
-|---|---|---|---|
-| **Serato DJ Pro 3.0 "Stems"** | Serato says it uses "their own specially developed in-house algorithms" (digitaldjtips, 2022; no primary source opened, the Serato support page returned 403) | Both: real-time on load, or "prepared" stems ahead of time | Serato's recommended Mac spec for real-time: 14-core GPU or better, 16 GB. Below that, use prepared stems or a larger buffer |
-| **Traktor Pro 4** (NI, 2024) | "High-quality stem separation powered by iZotope's pro-grade RX technology" (Synthtopia, from NI's release) | Generates stem files. NI's blog: "You can generate Stems even while the track is playing". Output is the NI Stem format | NI's own blog: "A Stem file has the extension '.stem.mp4' containing four audio tracks". The community complains there is "no live stems separation" |
-| **rekordbox 7** (AlphaTheta) | Not disclosed | Real time. The FAQ mentions an "analysis process" setting | FAQ system requirements for 2 decks on Windows: "Intel® processor Core i7 (13th generation or later)". **The target laptop is 13th-gen, so it sits at the minimum** (UNVERIFIED which SKU is in the 7440) |
-| **VirtualDJ** (Atomix) | In-house ("first introduced real-time stems separation back in 2020") | Real time, plus a "Precompute stems" menu that writes a separate stems file so playback "will not use any CPU or GPU resources" | Claims "30x speed" on an RTX gaming laptop, and "700x speed" in Fast mode ("0.08 seconds to split 1 minute") |
-| **djay Pro** (Algoriddim) | Neural Mix was in-house at first. **djay Pro 5 embeds AudioShake's separation** (Algoriddim press release) | Real time, on device, Apple Neural Engine on iOS | **Algoriddim holds a patent family on real-time decomposition, per-stem transitions and pre-computed "intermediate data"** (§9) |
-| **Mixxx 2.6** (open source) | No separation built in. Plays **NI `.stem.mp4`** files. GSoC 2025 converted Demucs to ONNX, and issue #15495 tracks integrating it | Pre-made stem files only (today) | Mixxx's project license is GPL (GitHub reports "NOASSERTION"). Do not look at its code for DeckMix |
+*(Removed in v0.12.3 at the owner's request: no names of, links to, or comparisons with other DJ software.)*
 
 **Two patterns hold across the market:**
 1. Everyone offers **pre-computation** as the fallback for weak machines, and on a
@@ -144,16 +137,8 @@ LarsNet/StemGMD https://arxiv.org/abs/2312.09663.
 2. The winners use **licensed or in-house** models. Nobody publicly ships Demucs weights
    in a commercial DJ product. That lines up with §0.
 
-**NI Stem format:** an MP4 container with a master plus 4 stem audio tracks and metadata.
-It is a reasonable interchange format for later ("export stems to Traktor/Mixxx"). One
-blog says the format is "patent encumbered". **UNVERIFIED**: I found no patent number.
-
-Sources: https://www.digitaldjtips.com/real-time-stems-separation-comes-to-serato-dj-software/ ;
-https://support.rane.com/en/support/solutions/articles/69000824909 ;
-https://www.synthtopia.com/content/2024/07/17/traktor-pro-4-dj-software-adds-ai-powered-stem-separation-more/ ;
-https://blog.native-instruments.com/how-to-mix-stems/ ; https://rekordbox.com/en/support/faq/stems-7/ ;
-https://virtualdj.com/stems/ ; https://www.algoriddim.com/press_releases/447-algoriddim-unveils-djay-pro-5-with-next-generation-neural-mix-crossfader-fusion-and-fluid-beatgrid- ;
-https://mixxx.org/news/2025-05-11-mixxx-2_6_beta-released/ ; https://mixxx.org/news/2024-08-26-stem-mixing/ .
+A multi-track stem container (MP4: master plus 4 stems) exists as a possible interchange format for
+later. One blog says it is "patent encumbered". **UNVERIFIED**: no patent number found.
 
 ---
 
@@ -288,9 +273,9 @@ convolutional network (stacked dilated depthwise-separable 1-D convs) estimates 
 that learned space, and a transposed-conv decoder turns them back into audio. The loss is
 SI-SDR. HS-TasNet (arXiv:2402.17701) combines a TasNet branch with a spectrogram branch
 for **23 ms latency**, at 4.65–5.55 dB. **That is the realistic quality of true
-low-latency separation today.** It is also why Serato and VirtualDJ-style "real time"
+low-latency separation today.** It is also why the commercial "real time"
 really means block-wise processing with a look-ahead buffer, which is exactly what
-Algoriddim's patents claim (§9).
+the patents in §9 claim.
 
 ### 4.6 MDX-Net / TFC-TDF (Kim et al., arXiv:2111.12203)
 
@@ -691,7 +676,7 @@ covers code. **This is not a freedom-to-operate (FTO) search.** The claim summar
 come from Google Patents pages read through a summarising tool, so the real claims contain
 more limitations than shown. A patent attorney must read the full claims.
 
-Algoriddim (djay) lists these on https://www.algoriddim.com/patents (VERIFIED list):
+One DJ software maker publishes this patent list (VERIFIED list; the maker is no longer named, v0.12.3):
 
 | Patent | Title (VERIFIED) | Priority / expiry (Google Patents) | Why it matters to DeckMix |
 |---|---|---|---|
@@ -710,9 +695,9 @@ Others found:
 - **US 11,532,317 B2** (Munster Technological University), a distributed upload-and-queue
   NMF decomposition service. Active to 2041, but it claims a **client/server** system.
   DeckMix has no server. If a server ever appears, re-check.
-- **NI Stem format:** described as "patent encumbered" by one blog. No number found
+- **The multi-track stem format:** described as "patent encumbered" by one blog. No number found
   (UNVERIFIED).
-- **Serato, AudioShake, Atomix, AlphaTheta:** my searches found no patents on stems or
+- **Two other DJ software makers, AudioShake, AlphaTheta:** my searches found no patents on stems or
   separation. **This is not proof that none exist** (UNVERIFIED).
 
 **Practical reading:** the patent exposure is concentrated in **playing and mixing
@@ -759,7 +744,7 @@ decomposed audio** (half 2 and any per-stem crossfade), not in **analysing** aud
    manual "vocal here / not here" correction per track (the same pattern as the downbeat version's bar
    correction).
 2. **Mono or near-mono masters** remove the stereo cue. Mitigation: detect it and say so.
-3. **Classical rough stems (option C) disappoint.** Users compare against Serato. Label
+3. **Classical rough stems (option C) disappoint.** Users compare against commercial DJ software. Label
    them "rough" or skip C.
 4. **Patents (§9)** on per-stem playback and transitions, and on stored "intermediate
    data". Mitigation: ship analysis first, and get an FTO opinion before any stem playback.
@@ -788,7 +773,7 @@ decomposed audio** (half 2 and any per-stem crossfade), not in **analysing** aud
    lower quality. (b) Pay for commissioned stems, roughly $3k–45k. (c) Ask a lawyer about
    training on your own library under the Israeli fair-use opinion.
 4. **Will you pay for a patent freedom-to-operate opinion** before any stem playback or
-   per-stem crossfade ships? Without it, half 2 carries known risk from Algoriddim's
+   per-stem crossfade ships? Without it, half 2 carries known risk from the §9
    patents.
 5. **Does "no existing software" include the tools we build with?** For example PyTorch to
    *train* our model, WebCodecs/Opus (a browser feature) to store stems, and **meyda**,
@@ -808,11 +793,11 @@ decomposed audio** (half 2 and any per-stem crossfade), not in **analysing** aud
 - MUSDB18: https://sigsep.github.io/datasets/musdb.html ; SiSEC 2018: https://arxiv.org/abs/1804.06267
 - BS-RoFormer https://arxiv.org/abs/2309.02612 ; Mel-RoFormer https://arxiv.org/abs/2310.01809 ; BSRNN https://arxiv.org/abs/2209.15174 ; SCNet https://arxiv.org/abs/2401.13276 ; HS-TasNet https://arxiv.org/abs/2402.17701 ; Conv-TasNet https://arxiv.org/abs/1809.07454 ; MDX-Net https://arxiv.org/abs/2111.12203 ; MixIT https://arxiv.org/abs/2006.12701
 - Community weights list: https://github.com/ZFTurbo/Music-Source-Separation-Training/blob/main/docs/pretrained_models.md
-- Browser ports: https://github.com/sevagh/free-music-demixer , https://github.com/sevagh/demucs.onnx , https://mixxx.org/news/2025-10-27-gsoc2025-demucs-to-onnx-dhunstack/
+- Browser ports: https://github.com/sevagh/free-music-demixer , https://github.com/sevagh/demucs.onnx
 - Singing voice detection: https://arxiv.org/abs/1806.01180 (Table 2 extracted) ; Lehner et al. ICASSP 2014 (via search summary, secondary)
 - Classical: Fitzgerald DAFx 2010; Driedger/Müller/Disch ISMIR 2014; Rafii & Pardo TASLP 2013 / ICASSP 2012; Liutkus et al. TSP 2014; Huang et al. ICASSP 2012; Avendano & Jot JAES 2004; Barry et al. DAFx 2004; Lee & Seung NIPS 2000; Smaragdis 2003/2004; Dittmar & Gärtner DAFx 2014; Wu et al. TASLP 2018 (cited from knowledge, not re-opened: UNVERIFIED bibliographic details)
 - Tagging/Essentia/madmom: https://essentia.upf.edu/models.html , https://essentia.upf.edu/licensing_information.html , https://zenodo.org/records/3987831 , https://github.com/fschmid56/EfficientAT , https://github.com/tensorflow/models/tree/master/research/audioset/yamnet , madmom LICENSE via GitHub API
 - Datasets: https://huggingface.co/datasets/wearemusicai/moisesdb , https://zenodo.org/records/4599666 , https://colinraffel.com/projects/lmd/ , https://zenodo.org/records/7860223 , https://zenodo.org/records/1492453 , https://ccmixter.org/
 - Law: https://www.law.co.il/en/news/2022/12/22/fair-use-of-copyrighted-content-for-aiml-training/
-- Patents: https://www.algoriddim.com/patents , https://patents.google.com/patent/US10887033B1/en , https://patents.google.com/patent/US11216244B2/en , https://patents.google.com/patent/US12461704B2/en , https://patents.google.com/patent/US11347475B2/en , https://patents.google.com/patent/US11740862B1/en , https://patents.google.com/patent/US10014002B2/en , https://patents.google.com/patent/US11532317B2/en
+- Patents: https://patents.google.com/patent/US10887033B1/en , https://patents.google.com/patent/US11216244B2/en , https://patents.google.com/patent/US12461704B2/en , https://patents.google.com/patent/US11347475B2/en , https://patents.google.com/patent/US11740862B1/en , https://patents.google.com/patent/US10014002B2/en , https://patents.google.com/patent/US11532317B2/en
 - DJ products: see §3 source list.
