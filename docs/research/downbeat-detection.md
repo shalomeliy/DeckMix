@@ -379,7 +379,7 @@ ported to Rust.
 ## 6. Ground truth: measuring accuracy on the owner's library
 
 ### 6.1 Serato grids as labels
-- Tag layout (`docs/reference/serato-formats.md`): the `Serato BeatGrid` tag holds markers; non-terminal
+- Tag layout (`docs/reference/serato-formats.md`, deleted in v0.12.2 <!-- dead-path -->): the `Serato BeatGrid` tag holds markers; non-terminal
   markers are `position` + `beatsToNext`, and the terminal marker is `position` + `bpm`. Serato draws bar 1 at the
   first (red) marker and a bar every 4 beats. So **bar phase = first marker position mod bar length.**
 - **Reliability:** Serato's analyzer (≤ 4.x) places that marker on "the first transient of the track"

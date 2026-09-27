@@ -2,13 +2,13 @@
 
 *(Called SoundGrid until v0.8.19.)*
 
-A browser-based DJ system — Serato-style two-deck mixing that plays the music
+A browser-based DJ system — two-deck mixing that plays the music
 already on your computer and is driven by a hardware controller such as the
 **Pioneer DDJ-FLX4**.
 
 Built from scratch on the open web platform (Web Audio, Web MIDI, File System
-Access). It does **not** contain or copy any code, assets, or data from Serato,
-rekordbox, or any other commercial product.
+Access). It does **not** contain or copy any code, assets, or data from any
+commercial DJ software or other commercial product.
 
 ## Features
 

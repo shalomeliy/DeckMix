@@ -19,10 +19,10 @@ loaded automatically.
 
 ## Product purpose
 
-A browser-based DJ system: Serato-style two-deck mixing that plays the music already on
+A browser-based DJ system: two-deck mixing that plays the music already on
 the user's computer, driven by a hardware controller (Pioneer DDJ-FLX4). Built from
 scratch on the open web platform — Web Audio, Web MIDI, File System Access — with
-**zero code, assets, or data taken from Serato, rekordbox, or any other commercial
+**zero code, assets, or data taken from any commercial DJ software or other commercial
 product**. Reading tags out of the user's own files is allowed; copying their code is not.
 
 The long-term goal (`docs/architecture/directions.md`) is Windows + Mac desktop builds
@@ -96,7 +96,7 @@ SoundGrid's hard invariant, and it outranks convenience:
 - Anything dropped, ignored, degraded or fallen back to is **surfaced in the UI**, and
   named — which formats, how many.
 - What is hidden on purpose is hidden by a **named set**, not by omission. `COMPANION_EXT`
-  in `library.ts` hides `.serato-stems`/`.asd`/`.reapeaks`/`.ovw`, and that is exactly
+  in `library.ts` hides other programs' side files (stems, peak and analysis caches), and that is exactly
   why the "N skipped" badge does not count them.
 - A `catch` that swallows, an early `return`, a default that quietly substitutes — each
   one has to answer: *how does the user find out?*
@@ -234,8 +234,7 @@ Each doc answers one question and stays out of the others' way:
 | What was built in a **closed** version, and what was measured there | `docs/handoff/<version>.md` |
 | What gets built **next**, in what order, and why the order changed | `ROADMAP.md` |
 | **Where everything lives** in the source tree | `docs/architecture/map.md` |
-| **Long-term principles** — the ports, `core/` purity, the AI-layer contract, differentiation vs Serato/rekordbox, hardware targets | `docs/architecture/directions.md` |
-| **Serato's on-disk formats** (database V2 / crate TLV, GEOB Markers2/BeatGrid/Autotags/Overview) | `docs/reference/serato-formats.md` |
+| **Long-term principles** — the ports, `core/` purity, the AI-layer contract, differentiation vs commercial DJ software, hardware targets | `docs/architecture/directions.md` |
 | What the app is, for someone who just found the repo | `README.md` |
 | What's allowed while working | this file (Hebrew: `CLAUDE-HE.md`) |
 

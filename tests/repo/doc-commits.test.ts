@@ -19,7 +19,7 @@ import { docFiles, git, numberedLines, requireGit } from './repo.ts'
  */
 /**
  * A named exclusion, not an omission: the token must contain a hex letter, so
- * `16777215` (0xFFFFFF written out in serato-formats.md) is not mistaken for a
+ * `16777215` (0xFFFFFF written out as a decimal colour constant) is not mistaken for a
  * commit. The cost is an all-digit abbreviation — ~4% of 7-character prefixes —
  * going unchecked. Worth it against a rule that cries wolf on every constant.
  */
