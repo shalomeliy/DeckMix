@@ -1782,6 +1782,15 @@ export function restoreSamplerBankMeta(): Promise<void> {
  * still always named in a notice — from the one call each scan makes with
  * `silent: false`, once every track that could get an identity has one.
  */
+/**
+ * Slots with a resolve load in flight. `Library.tsx` fires several resolves
+ * during one boot scan without waiting (after the scan, per analysis patch,
+ * at the end), and since v0.12.1 they no longer queue behind the first touch —
+ * so without this each one read, hashed and decoded the same whole track at
+ * once, and a late duplicate `loadSlot` cut off a pad already playing.
+ */
+const samplerSlotLoads = new Set<number>()
+
 export async function resolveSamplerSlots(opts: { silent?: boolean } = {}): Promise<void> {
   // Metadata (`contentHash`/`recordingId` per slot) has to be in the store
   // before this can match anything — see `restoreSamplerBankMeta`'s doc
@@ -1792,12 +1801,17 @@ export async function resolveSamplerSlots(opts: { silent?: boolean } = {}): Prom
   let recordingFailed = 0
   for (let i = 0; i < sampler.slots.length; i++) {
     const slot = sampler.slots[i]
-    if (slot.trackId || engine.sampler.hasBuffer(i)) continue
+    if (slot.trackId || engine.sampler.hasBuffer(i) || samplerSlotLoads.has(i)) continue
     // A recorded slot (v0.7.5) resolves from its own stored blob, not from
     // the library scan this function otherwise exists for — it has no
     // `contentHash` to match against, and doesn't need one.
     if (slot.recordingId) {
-      if (!(await loadSamplerSlotRecording(i, slot.recordingId))) recordingFailed++
+      samplerSlotLoads.add(i)
+      try {
+        if (!(await loadSamplerSlotRecording(i, slot.recordingId))) recordingFailed++
+      } finally {
+        samplerSlotLoads.delete(i)
+      }
       continue
     }
     if (!slot.contentHash) continue
@@ -1806,7 +1820,12 @@ export async function resolveSamplerSlots(opts: { silent?: boolean } = {}): Prom
       unresolved++
       continue
     }
-    await loadSamplerSlotAudio(i, track, { keepSavedSettings: true })
+    samplerSlotLoads.add(i)
+    try {
+      await loadSamplerSlotAudio(i, track, { keepSavedSettings: true })
+    } finally {
+      samplerSlotLoads.delete(i)
+    }
   }
   if (!opts.silent && (unresolved > 0 || recordingFailed > 0)) {
     const parts: string[] = []
@@ -1832,7 +1851,7 @@ export async function resolveSamplerSlots(opts: { silent?: boolean } = {}): Prom
  * per this project's central rule.
  */
 async function loadSamplerSlotRecording(index: number, recordingId: string): Promise<boolean> {
-  await initAudio()
+  // No `initAudio()` here — see the note in `loadSamplerSlotAudio`.
   const blob = await getRecordingBlob(recordingId)
   if (!blob) return false
   try {
@@ -1853,7 +1872,14 @@ async function loadSamplerSlotAudio(
   track: Track,
   opts: { keepSavedSettings: boolean } = { keepSavedSettings: false },
 ): Promise<void> {
-  await initAudio()
+  // Only a fresh load waits for the engine. A saved-bank resolve runs at boot,
+  // before anyone has touched the page, and Chrome holds `resume()` until the
+  // first touch — so awaiting it here parked `resolveSamplerSlots` on slot 1
+  // and every slot after it stayed empty until a click (debt since 23/09,
+  // reproduced by scripts/verify-sampler-no-gesture.mjs). Decoding and
+  // handing a slot its buffer work on a suspended context; only playing needs
+  // it running, and `pressSamplerPad` starts the engine before it plays.
+  if (!opts.keepSavedSettings) await initAudio()
   const { patchSamplerSlot, setNotice, clearNotice } = useStore.getState()
   clearNotice('sampler')
   // Dropping a library track onto a slot that held a live recording (v0.7.5)
@@ -2094,6 +2120,50 @@ export function setSamplerSyncEnabled(index: number, on: boolean) {
  * `pressPad`'s own contract for Loop Roll.
  */
 function pressSamplerPad(index: number): () => void {
+  if (useStore.getState().audioReady) return pressSamplerPadNow(index)
+  // Since v0.12.1 a saved slot holds its audio before the engine has ever
+  // started (see `loadSamplerSlotAudio`), so a pad can be the very first thing
+  // pressed. Triggering into the still-suspended context lit the pad and made
+  // no sound, and a one-shot never un-lit (`onSlotEnded` is wired there).
+  // Even where the browser lets audio start untouched, the sampler volume had
+  // not been applied yet. So the press starts the engine and plays once it
+  // runs. If the browser holds the start (no touch on the page yet), the
+  // screen says so and points at "Start audio engine" — measured in the test
+  // Chromium (scripts/verify-sampler-no-gesture.mjs): a later click elsewhere
+  // did NOT release a start the browser already held. And a
+  // pad that waited that long does not go off by itself when the engine does
+  // start: a sample firing seconds after the press is worse than none.
+  let release: (() => void) | null = null
+  let released = false
+  let waitingShown = false
+  const waitText = 'The sound engine is off — press "Start audio engine" at the top, then press the pad again.'
+  const waitTimer = window.setTimeout(() => {
+    waitingShown = true
+    useStore.getState().setNotice({ text: waitText, tone: 'warn', source: 'sampler' })
+  }, 400)
+  void initAudio().then(() => {
+    window.clearTimeout(waitTimer)
+    if (waitingShown) {
+      // Only our own message — another sampler warning set meanwhile stays.
+      const { notice, setNotice } = useStore.getState()
+      if (notice?.text === waitText) setNotice(null)
+      return
+    }
+    // Played even if the pad was already let go: a quick tap on a One-shot
+    // must still fire. A Gated pad let go before the engine ran plays nothing
+    // (triggering it only to stop it at once was an audible blip).
+    if (released && useStore.getState().sampler.slots[index].mode === 'gated') return
+    const r = pressSamplerPadNow(index)
+    if (released) r()
+    else release = r
+  })
+  return () => {
+    released = true
+    release?.()
+  }
+}
+
+function pressSamplerPadNow(index: number): () => void {
   const { sampler, decks, masterDeckId, setNotice } = useStore.getState()
   const slot = sampler.slots[index]
   // Occupancy (`trackId` OR `recordingId`, v0.7.5) and the engine actually
