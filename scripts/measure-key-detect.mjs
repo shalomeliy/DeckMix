@@ -132,23 +132,46 @@ for (let i = 0; i < files.length; i++) {
 await browser.close()
 server.close()
 
+/**
+ * Same tonic, other mode (C vs Cm): on the wheel a major nB's parallel minor
+ * is (n-3)A. Counted on its own since 28/09, when 6 of 9 keys typed from
+ * Beatport disagreed with the detector in exactly this way, every time
+ * "major there, minor here" — a one-way split that says one side leans.
+ */
+function parallel(a, b) {
+  const [an, al] = [Number(a.slice(0, -1)), a.slice(-1)]
+  const [bn, bl] = [Number(b.slice(0, -1)), b.slice(-1)]
+  if (al === bl) return false
+  const [maj, min] = al === 'B' ? [an, bn] : [bn, an]
+  return (maj - 3 - min + 12) % 12 === 0
+}
+
 function compare(tag, det) {
   if (!tag || !det) return null
   if (tag === det) return 'exact'
   const [tn, tl] = [Number(tag.slice(0, -1)), tag.slice(-1)]
   const [dn, dl] = [Number(det.slice(0, -1)), det.slice(-1)]
+  if (parallel(tag, det)) return 'parallel'
   if (tn === dn) return 'relative'
   if (tl === dl && ((tn - dn + 12) % 12 === 1 || (dn - tn + 12) % 12 === 1)) return 'fifth'
   return 'other'
 }
 
 const tagged = rows.filter((r) => r.tag && r.detected)
-const buckets = { exact: 0, relative: 0, fifth: 0, other: 0 }
+const buckets = { exact: 0, parallel: 0, relative: 0, fifth: 0, other: 0 }
 for (const r of tagged) buckets[compare(r.tag, r.detected)]++
 const pct = (n) => `${((100 * n) / tagged.length).toFixed(1)}%`
 console.log(`\nTracks with a tag key and a detection: ${tagged.length}`)
 for (const [k, n] of Object.entries(buckets)) console.log(`  ${k.padEnd(9)} ${String(n).padStart(4)}  ${pct(n)}`)
 console.log(`  exact+relative+fifth: ${pct(buckets.exact + buckets.relative + buckets.fifth)}`)
+
+// Which way does the mode lean? Overall, and inside the parallel misses.
+const isMinor = (c) => c.endsWith('A')
+const par = tagged.filter((r) => compare(r.tag, r.detected) === 'parallel')
+console.log(`\nMode: tags say minor ${tagged.filter((r) => isMinor(r.tag)).length}/${tagged.length}, detector says minor ${tagged.filter((r) => isMinor(r.detected)).length}/${tagged.length}`)
+console.log(`  parallel misses: tag major -> detected minor ${par.filter((r) => !isMinor(r.tag)).length}, tag minor -> detected major ${par.filter((r) => isMinor(r.tag)).length}`)
+const tagMajor = tagged.filter((r) => !isMinor(r.tag))
+console.log(`  of the ${tagMajor.length} tag-major tracks: detector exact ${tagMajor.filter((r) => r.tag === r.detected).length}, parallel-minor ${tagMajor.filter((r) => compare(r.tag, r.detected) === 'parallel').length}`)
 
 // Does the margin separate right from wrong? Exact-rate above each margin cut.
 for (const cut of [0, 0.02, 0.05, 0.08, 0.1, 0.15]) {

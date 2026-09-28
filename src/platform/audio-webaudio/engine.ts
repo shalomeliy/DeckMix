@@ -12,6 +12,7 @@ import recorderProcessorUrl from '@/platform/audio-webaudio/recorder-processor?w
 import fxProcessorUrl from '@/platform/audio-webaudio/fx-processor?worker&url'
 import type { DeckId } from '@/core/types'
 import { id3WrappedMp4Offset } from '@/core/id3-wrapped'
+import { repairWav } from '@/core/wav-repair'
 
 interface AudioContextWithSink extends AudioContext {
   setSinkId?: (id: string | { type: 'none' }) => Promise<void>
@@ -381,9 +382,14 @@ export class AudioEngine {
   }
 
   async decode(data: ArrayBuffer): Promise<AudioBuffer> {
-    // An MP4 behind an ID3 tag is refused whole by the decoder — see core/id3-wrapped.ts.
-    const mp4At = id3WrappedMp4Offset(new Uint8Array(data)) // a view, not a copy
-    return await this.ctx.decodeAudioData(mp4At == null ? data : data.slice(mp4At))
+    // Files the decoder refuses whole over a wrapper, repaired in memory only:
+    // an MP4 behind an ID3 tag (core/id3-wrapped.ts), a WAV with an empty LIST
+    // chunk (core/wav-repair.ts).
+    const view = new Uint8Array(data) // a view, not a copy
+    const mp4At = id3WrappedMp4Offset(view)
+    if (mp4At != null) return await this.ctx.decodeAudioData(data.slice(mp4At))
+    const wav = repairWav(view)
+    return await this.ctx.decodeAudioData(wav == null ? data : (wav.buffer as ArrayBuffer))
   }
 
   /**
