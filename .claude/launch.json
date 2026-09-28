@@ -10,6 +10,14 @@
       ],
       "port": 5173,
       "autoPort": true
+    },
+    {
+      "name": "deckmix-listen",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/listen-downbeat.mjs"
+      ],
+      "port": 5188
     }
   ]
 }
