@@ -26,6 +26,7 @@ export function BeatGridPanel({ deckId, beatGrid, onClose }: Props) {
         <button
           type="button"
           aria-label="Close"
+          title="Close — marks this grid as checked"
           onClick={onClose}
           className="text-2xs text-grid-dim transition-colors hover:text-grid-text"
         >

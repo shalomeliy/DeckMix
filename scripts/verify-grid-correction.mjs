@@ -11,6 +11,10 @@
  *    v0.8.23 it lived only in the deck's state.
  * 3. A saved record that can't be used is said on screen, not silently
  *    replaced by the detected grid.
+ * 4. (v0.12.4) Closing the grid panel over an *unconfirmed* grid — "I checked
+ *    it" — is saved too, and the pill stays gone at the next load. Until then
+ *    it changed only the screen. Closing it over a trusted grid saves nothing,
+ *    and only the ✕ counts — a click elsewhere just closes it (4b).
  *
  * The track is a real, decodable WAV with a click every half second (120 bpm)
  * and a TBPM tag, so the real analysis runs and lands a real grid. IndexedDB
@@ -20,7 +24,7 @@
 import { chromium } from 'playwright'
 import { createHash } from 'node:crypto'
 
-const URL = 'http://localhost:5173/'
+const URL = process.env.DECKMIX_URL || 'http://localhost:5173/'
 const VIEWPORT = { width: 1536, height: 710 }
 const results = []
 const ok = (name, pass, detail) => {
@@ -227,6 +231,61 @@ await scenario({ schema: 1, grid: { bpm: 0, offsetSec: 1 }, source: 'owner', sav
   ok('damaged: the detected grid is used', g.grid != null && g.grid.bpm > 0, JSON.stringify(g.grid))
   ok('damaged: the screen says the saved grid was not used', /saved beat grid was not used/.test(g.notice ?? ''), g.notice)
   ok('damaged: no page errors', errors.length === 0, errors[0])
+})
+
+// 4. v0.12.4: "checked, no edit" over an unconfirmed grid is saved and survives a reload
+let confirmedSaved
+await scenario(undefined, async (page, errors) => {
+  // The click track is detected confidently; put the deck in the state the
+  // pill is shown for, the way a doubtful detection leaves it.
+  await page.evaluate(async () => {
+    const { useStore } = await window.__import('/src/app/state/store.ts')
+    useStore.getState().patchDeck('A', { beatGridConfirmed: false })
+  })
+  const before = await deckGrid(page)
+  await page.getByRole('button', { name: 'Edit beat grid' }).first().click()
+  await page.getByRole('button', { name: 'Close' }).click()
+  await page.waitForTimeout(300)
+  const after = await deckGrid(page)
+  ok('confirm: pill cleared on screen', after.confirmed === true)
+  confirmedSaved = await page.evaluate(() => window.__readGrid())
+  ok("confirm: the unedited grid is saved as the owner's", confirmedSaved?.source === 'owner' && Math.abs(confirmedSaved.grid.offsetSec - before.grid.offsetSec) < 1e-9 && confirmedSaved.grid.bpm === before.grid.bpm, JSON.stringify(confirmedSaved))
+  ok('confirm: no page errors', errors.length === 0, errors[0])
+})
+// The click track is detected confidently, so the pill alone can't tell a
+// reloaded record from a fresh detection — what this proves is that there is
+// a record to reload; scenario 2 already proves a record comes back confirmed.
+ok('confirm, reload: there is a saved record to come back', confirmedSaved != null)
+await scenario(confirmedSaved, async (page, errors) => {
+  const g = await deckGrid(page)
+  ok('confirm, reload: no "unconfirmed grid" pill', g.confirmed === true)
+  ok('confirm, reload: no page errors', errors.length === 0, errors[0])
+})
+
+// 4b. a click elsewhere only closes the panel — not "checked", nothing saved (Shalom, 28/09)
+await scenario(undefined, async (page) => {
+  await page.evaluate(async () => {
+    const { useStore } = await window.__import('/src/app/state/store.ts')
+    useStore.getState().patchDeck('A', { beatGridConfirmed: false })
+  })
+  await page.getByRole('button', { name: 'Edit beat grid' }).first().click()
+  await page.waitForTimeout(100)
+  await page.mouse.click(5, 700)
+  await page.waitForTimeout(300)
+  const open = await page.getByRole('button', { name: 'Set downbeat here' }).count()
+  ok('click elsewhere: the panel closed', open === 0)
+  ok('click elsewhere: the pill stays', (await deckGrid(page)).confirmed === false)
+  ok('click elsewhere: nothing saved', (await page.evaluate(() => window.__readGrid())) === undefined)
+})
+
+// 5. closing the panel over a grid detection already trusted writes nothing
+await scenario(undefined, async (page) => {
+  const g = await deckGrid(page)
+  ok('trusted grid: starts confirmed (precondition)', g.confirmed === true)
+  await page.getByRole('button', { name: 'Edit beat grid' }).first().click()
+  await page.getByRole('button', { name: 'Close' }).click()
+  await page.waitForTimeout(300)
+  ok('trusted grid: closing the panel saves nothing', (await page.evaluate(() => window.__readGrid())) === undefined)
 })
 
 await browser.close()

@@ -2751,9 +2751,21 @@ export function discardRecordedMaster(): void {
 // just not reachable from it yet.
 // ————————————————————————————————————————————————————————————————
 
-/** Mark the grid as looked at, edit or not — clears the "unconfirmed" pill. */
+/**
+ * Mark the grid as looked at, edit or not — clears the "unconfirmed" pill.
+ * Saved like an edit (v0.12.4): until then it changed only the screen, and the
+ * pill was back at the next load of the same track (debt from v0.8.23). Only
+ * an unconfirmed grid is written — closing the panel over a grid detection
+ * already trusted would otherwise pin every such grid as the owner's.
+ */
 export function confirmBeatGrid(deckId: DeckId) {
+  const st = useStore.getState().decks[deckId]
+  if (st.beatGridConfirmed) return
+  // No grid at all: nothing to save — the pill goes, as it always did.
+  if (!st.beatGrid) return useStore.getState().patchDeck(deckId, { beatGridConfirmed: true })
+  if (!gridEditAllowed(deckId)) return
   useStore.getState().patchDeck(deckId, { beatGridConfirmed: true })
+  persistGridCorrection(deckId)
 }
 
 export function toggleQuantize() {

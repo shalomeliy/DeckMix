@@ -62,9 +62,13 @@ export function Deck({ deckId }: { deckId: DeckId }) {
   const exitPointKnownGood = exitPointSec != null && deck.excellentMixPoints.includes(Math.round(exitPointSec))
   const [dropActive, setDropActive] = useState(false)
   const [gridPanelOpen, setGridPanelOpen] = useState(false)
-  const closeGridPanel = () => {
+  // Only the panel's own ✕ counts as "I checked it" (`confirmBeatGrid`, v0.12.4
+  // — Shalom's call, 28/09). Since a confirm is saved, a stray click elsewhere
+  // that merely closes the panel would otherwise pin a grid nobody looked at,
+  // and no later analysis could replace it.
+  const closeGridPanel = () => setGridPanelOpen(false)
+  const confirmAndCloseGridPanel = () => {
     setGridPanelOpen(false)
-    // Closing without an edit still counts as "the user checked it."
     ctl.confirmBeatGrid(deckId)
   }
   useEffect(() => {
@@ -316,7 +320,7 @@ export function Deck({ deckId }: { deckId: DeckId }) {
             </div>
           )}
           {gridPanelOpen && (
-            <BeatGridPanel deckId={deckId} beatGrid={deck.beatGrid} onClose={closeGridPanel} />
+            <BeatGridPanel deckId={deckId} beatGrid={deck.beatGrid} onClose={confirmAndCloseGridPanel} />
           )}
         </div>
       </header>
