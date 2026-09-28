@@ -6,6 +6,7 @@
  *
  *   node scripts/experiment-downbeat.mjs            train songs only (75)
  *   node scripts/experiment-downbeat.mjs --holdout  the sealed 30 — once, at the end
+ *   node scripts/experiment-downbeat.mjs --fresh    the v0.9.5 new round (43 songs never tuned on)
  *
  * Reads the features `dump-downbeat-features.mjs` wrote. Every method returns
  * four scores, one per candidate phase p (bar lines on beats ≡ p mod 4);
@@ -15,7 +16,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-const HOLDOUT = process.argv.includes('--holdout')
+const FRESH = process.argv.includes('--fresh')
+const HOLDOUT = FRESH || process.argv.includes('--holdout')
 const TAGS = path.join(os.homedir(), 'Downloads', 'deckmix-tags-2026-09-28 - 26 songs.json')
 const tags = JSON.parse(fs.readFileSync(TAGS, 'utf8'))
 const decide = new Map(tags.decide.filter((d) => d.answer === 'marked').map((d) => [d.contentHash, d.markSec]))
@@ -27,6 +29,9 @@ const beatOf = (sec, g) => {
 }
 const markBy = new Map(tags.mark.map((m) => [m.contentHash, m.markSec]))
 for (const f of feats) f.truth = beatOf(decide.get(f.contentHash) ?? markBy.get(f.contentHash), f.grid)
+// The fresh round's truth is its own answer, in the row (dump-downbeat-features.mjs --fresh)
+const freshFeats = FRESH ? JSON.parse(fs.readFileSync(path.join(process.env.TEMP ?? '.', 'downbeat-features-fresh.json'), 'utf8')) : []
+for (const f of freshFeats) f.truth = beatOf(f.markSec, f.grid)
 // The listening round (28/09, listen-downbeat.mjs): where he picked the other
 // click over his earlier answer, the ears-only answer wins. Controls came back
 // 10/10, so the round itself is trusted. Only disagreements were re-asked, so
@@ -34,18 +39,19 @@ for (const f of feats) f.truth = beatOf(decide.get(f.contentHash) ?? markBy.get(
 // The sealed 30 had the same round after the frozen method was scored (…-test.json):
 // report the score both before and after it.
 let relistened = 0
-for (const name of ['deckmix-listen-2026-09-28.json', 'deckmix-listen-2026-09-28-test.json']) {
+for (const name of ['deckmix-listen-2026-09-28.json', 'deckmix-listen-2026-09-28-test.json', 'deckmix-listen-2026-09-28-fresh.json']) {
   const LISTEN = path.join(os.homedir(), 'Downloads', name)
   if (!fs.existsSync(LISTEN)) continue
   for (const it of JSON.parse(fs.readFileSync(LISTEN, 'utf8')).items) {
     const v = it.answer?.value
     if (v !== 'a' && v !== 'b' || (v === 'a') === it.mineIsA) continue
-    const f = feats.find((x) => x.contentHash === it.contentHash)
+    const f = feats.find((x) => x.contentHash === it.contentHash) ?? freshFeats.find((x) => x.contentHash === it.contentHash)
+    if (!f) continue // a fresh-round file while not scoring --fresh
     f.truth = beatOf(v === 'a' ? it.a : it.b, f.grid)
     relistened++
   }
 }
-const songs = feats.filter((f) => f.holdout === HOLDOUT)
+const songs = FRESH ? freshFeats : feats.filter((f) => f.holdout === HOLDOUT)
 
 // ---- helpers
 const mean = (a) => a.reduce((s, v) => s + v, 0) / Math.max(1, a.length)
@@ -238,7 +244,7 @@ const isMain = process.argv[1] != null && import.meta.url.endsWith(path.basename
 const fmt = ([a, b]) => `${a}/${b}`.padStart(6)
 if (isMain) console.log(`${relistened} answers changed by the listening round
 `)
-if (isMain) console.log(`${songs.length} songs (${HOLDOUT ? 'SEALED HOLDOUT' : 'train'}); truth beat distribution: ${[0, 1, 2, 3].map((p) => songs.filter((s) => s.truth === p).length).join(' ')}\n`)
+if (isMain) console.log(`${songs.length} songs (${FRESH ? 'FRESH ROUND' : HOLDOUT ? 'SEALED HOLDOUT' : 'train'}); truth beat distribution: ${[0, 1, 2, 3].map((p) => songs.filter((s) => s.truth === p).length).join(' ')}\n`)
 if (isMain) console.log(`${'method'.padEnd(26)}   all  dance   ${genres.map((g) => g.slice(0, 6).padStart(6)).join(' ')}`)
 const results = isMain ? Object.entries(M).map(([name, fn]) => [name, evaluate(fn)]) : []
 results.sort((a, b) => b[1].r.dance[0] - a[1].r.dance[0] || b[1].r.all[0] - a[1].r.all[0])

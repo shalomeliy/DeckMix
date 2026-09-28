@@ -27,9 +27,11 @@ import { M, songs } from './experiment-downbeat.mjs'
 const ROOT = String.raw`C:\Users\Shalom\Music\Tracks`
 // --holdout (28/09, second round): the sealed 30, after the frozen method was scored on them
 const HOLDOUT = process.argv.includes('--holdout')
-const OUT = path.join(os.homedir(), 'Downloads', HOLDOUT ? 'deckmix-listen-2026-09-28-test.json' : 'deckmix-listen-2026-09-28.json')
+// --fresh (28/09, third round): the 43 songs of the v0.9.5 new round, their answer read from the features row
+const FRESH = process.argv.includes('--fresh')
+const OUT = path.join(os.homedir(), 'Downloads', FRESH ? 'deckmix-listen-2026-09-28-fresh.json' : HOLDOUT ? 'deckmix-listen-2026-09-28-test.json' : 'deckmix-listen-2026-09-28.json')
 // the method each round was built against: the training round ran on kickPrior, the test round on the frozen one
-const METHOD = HOLDOUT ? 'kickHalf_W16_s1_l0.3' : 'kickPrior'
+const METHOD = HOLDOUT || FRESH ? 'kickHalf_W16_s1_l0.3' : 'kickPrior'
 const TAGS = JSON.parse(fs.readFileSync(path.join(os.homedir(), 'Downloads', 'deckmix-tags-2026-09-28 - 26 songs.json'), 'utf8'))
 const decide = new Map(TAGS.decide.map((d) => [d.contentHash, d.markSec]))
 const markBy = new Map(TAGS.mark.map((m) => [m.contentHash, m.markSec]))
@@ -50,7 +52,7 @@ const items = [...disagree.map((x) => ({ ...x, control: false })), ...controls.m
   .sort((a, b) => a[0] - b[0])
   .map(([, x], i) => {
     const beat = 60 / x.f.grid.bpm
-    const mine = decide.get(x.f.contentHash) ?? markBy.get(x.f.contentHash)
+    const mine = x.f.markSec ?? decide.get(x.f.contentHash) ?? markBy.get(x.f.contentHash)
     // detector: nearest beat of its phase to his mark (−1..+2 beats); control: one beat off, either side
     const d = x.control ? (rnd() < 0.5 ? -1 : 1) : ((x.best - x.f.truth + 4) % 4 === 3 ? -1 : (x.best - x.f.truth + 4) % 4)
     const other = mine + d * beat
@@ -158,7 +160,7 @@ render()
 
 function persist() {
   const rows = items.map((it) => ({ ...it, answer: saved.answers[it.i] ?? null }))
-  fs.writeFileSync(OUT, JSON.stringify({ kind: 'deckmix-listen', round: HOLDOUT ? '2026-09-28-test' : '2026-09-28', method: METHOD, answers: saved.answers, items: rows }, null, 1))
+  fs.writeFileSync(OUT, JSON.stringify({ kind: 'deckmix-listen', round: FRESH ? '2026-09-28-fresh' : HOLDOUT ? '2026-09-28-test' : '2026-09-28', method: METHOD, answers: saved.answers, items: rows }, null, 1))
 }
 http
   .createServer((req, res) => {
@@ -183,4 +185,4 @@ http
     }
     res.writeHead(404).end()
   })
-  .listen(HOLDOUT ? 5189 : 5188, '127.0.0.1', () => console.log(`open http://127.0.0.1:${HOLDOUT ? 5189 : 5188}`))
+  .listen(FRESH ? 5190 : HOLDOUT ? 5189 : 5188, '127.0.0.1', () => console.log(`open http://127.0.0.1:${FRESH ? 5190 : HOLDOUT ? 5189 : 5188}`))

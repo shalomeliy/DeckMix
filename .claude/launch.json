@@ -27,6 +27,15 @@
         "--holdout"
       ],
       "port": 5189
+    },
+    {
+      "name": "deckmix-listen-fresh",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/listen-downbeat.mjs",
+        "--fresh"
+      ],
+      "port": 5190
     }
   ]
 }

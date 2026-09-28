@@ -4,7 +4,7 @@
  * (`experiment-downbeat.mjs`) run in seconds instead of re-decoding 105 songs
  * each try. Read-only — files are read, never written.
  *
- *   node scripts/dump-downbeat-features.mjs [tags.json]   (against npm run dev on :5173)
+ *   node scripts/dump-downbeat-features.mjs [tags.json] [--fresh]   (against npm run dev on :5173)
  *
  * The beats are the detector's own grid from the tag file (`detectorGrid`), so
  * "which of the 4 is the 1" is asked on exactly the grid the answers were
@@ -23,10 +23,12 @@ import os from 'node:os'
 import { chromium } from 'playwright'
 
 const ROOT = String.raw`C:\Users\Shalom\Music\Tracks`
-const TAGS = process.argv[2] ?? path.join(os.homedir(), 'Downloads', 'deckmix-tags-2026-09-28 - 26 songs.json')
-const OUT = path.join(process.env.TEMP ?? '.', 'downbeat-features.json')
+// `--fresh` (28/09): the v0.9.5 new round instead — the export's `fresh` list, marked answers only
+const FRESH = process.argv.includes('--fresh')
+const TAGS = process.argv.slice(2).find((a) => !a.startsWith('--')) ?? path.join(os.homedir(), 'Downloads', 'deckmix-tags-2026-09-28 - 26 songs.json')
+const OUT = path.join(process.env.TEMP ?? '.', FRESH ? 'downbeat-features-fresh.json' : 'downbeat-features.json')
 const tags = JSON.parse(fs.readFileSync(TAGS, 'utf8'))
-const songs = tags.mark.filter((m) => m.detectorGrid)
+const songs = FRESH ? tags.fresh.filter((m) => m.answer === 'marked' && m.detectorGrid) : tags.mark.filter((m) => m.detectorGrid)
 console.log(`${songs.length} tagged songs`)
 
 const server = http.createServer((req, res) => {
@@ -164,7 +166,7 @@ for (let i = 0; i < songs.length; i++) {
     { i, base: BASE, grid: s.detectorGrid },
   ).catch((e) => ({ error: String(e?.message ?? e).split('\n')[0] }))
   if (r.error) console.log(`  ✗ ${s.trackId}: ${r.error}`)
-  if (!r.error) rows.push({ contentHash: s.contentHash, trackId: s.trackId, genre: s.genre, holdout: s.holdout, grid: s.detectorGrid, ...r })
+  if (!r.error) rows.push({ contentHash: s.contentHash, trackId: s.trackId, genre: s.genre, holdout: s.holdout, grid: s.detectorGrid, markSec: s.markSec, ...r })
   if ((i + 1) % 15 === 0) {
     await page.close()
     page = await openPage()
