@@ -11,6 +11,7 @@ import scratchProcessorUrl from '@/platform/audio-webaudio/scratch-processor?wor
 import recorderProcessorUrl from '@/platform/audio-webaudio/recorder-processor?worker&url'
 import fxProcessorUrl from '@/platform/audio-webaudio/fx-processor?worker&url'
 import type { DeckId } from '@/core/types'
+import { id3WrappedMp4Offset } from '@/core/id3-wrapped'
 
 interface AudioContextWithSink extends AudioContext {
   setSinkId?: (id: string | { type: 'none' }) => Promise<void>
@@ -380,7 +381,9 @@ export class AudioEngine {
   }
 
   async decode(data: ArrayBuffer): Promise<AudioBuffer> {
-    return await this.ctx.decodeAudioData(data)
+    // An MP4 behind an ID3 tag is refused whole by the decoder — see core/id3-wrapped.ts.
+    const mp4At = id3WrappedMp4Offset(new Uint8Array(data)) // a view, not a copy
+    return await this.ctx.decodeAudioData(mp4At == null ? data : data.slice(mp4At))
   }
 
   /**

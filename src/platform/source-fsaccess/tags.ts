@@ -17,6 +17,7 @@
  */
 
 import { parseBpm, parseKey } from '@/core/key-parse'
+import { id3WrappedMp4Offset } from '@/core/id3-wrapped'
 
 export interface TrackTags {
   /**
@@ -581,7 +582,14 @@ export async function readTags(file: File): Promise<TrackTags> {
 
     if (ascii(magic, 0, 3) === 'ID3') {
       const tagSize = await readId3(file, 0, tags)
-      if (tags.durationSec == null) tags.durationSec = await mp3Duration(file, tagSize)
+      // An MP4 wearing an ID3 tag: its own atoms carry the real length — the
+      // owner's file had a TLEN of 4:43 over 2:20 of audio. The offset comes
+      // from the same helper the decoder uses, so the two can't disagree
+      // (an ID3v2.4 footer is 10 bytes `readId3` does not count).
+      const mp4At = tagSize > 0 ? id3WrappedMp4Offset(await slice(file, 0, tagSize + 18)) : null
+      if (mp4At != null) {
+        await readMp4(new File([file.slice(mp4At)], file.name), tags)
+      } else if (tags.durationSec == null) tags.durationSec = await mp3Duration(file, tagSize)
     } else if (ascii(magic, 4, 4) === 'ftyp') {
       await readMp4(file, tags)
     } else if (ascii(magic, 0, 4) === 'fLaC') {
