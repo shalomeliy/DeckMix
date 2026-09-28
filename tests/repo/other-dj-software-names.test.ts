@@ -16,8 +16,6 @@ import { git, read, requireGit } from './repo.ts'
  * written in Hebrew letters; that is why both scripts are covered.
  *
  * Named exemptions, not omissions:
- * - `tags.ts` still reads another program's BPM tag; it goes only once our own
- *   BPM detection replaces it (the owner's condition, HANDOFF.md).
  * - `library.ts` — `COMPANION_EXT` must spell a file extension to recognise
  *   those side files; without it they would be counted as "skipped".
  * A spelling that is also an ordinary Hebrew word ("his film") was dropped:
@@ -34,7 +32,9 @@ const FINGERPRINTS = new Set([
   'b2e17fe8c605c506',
 ])
 
-const EXEMPT = new Set(['src/platform/source-fsaccess/tags.ts', 'src/platform/source-fsaccess/library.ts'])
+// `tags.ts` was exempt until v0.12.5, while it still read another program's
+// BPM tag; it is checked like everything else now.
+const EXEMPT = new Set(['src/platform/source-fsaccess/library.ts'])
 const TEXT = /\.(md|ts|tsx|mjs|cjs|js|json|html|css|txt)$/
 const HEBREW_PREFIX = /^[בלמהושכ]{1,2}/
 

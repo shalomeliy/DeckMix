@@ -9,7 +9,10 @@
  *
  * Everything here is byte-range reads over the `File`; we never pull a whole
  * track into memory. Formats: ID3v2 (MP3/AIFF/WAV), MP4/M4A atoms, FLAC/OGG
- * Vorbis comments, plus a Serato `Autotags` fallback for BPM.
+ * Vorbis comments — standard fields only. Until v0.12.5 a BPM also came from
+ * another DJ program's private tag when the standard one was missing; measured
+ * on the owner's 362 files, not one track depended on it, so it went (the
+ * owner's request of 24/09 — no other product's formats in this code).
  * Read-only — nothing is ever written back to the user's files.
  */
 
@@ -67,21 +70,6 @@ async function slice(file: File, start: number, length: number): Promise<Uint8Ar
   return new Uint8Array(await file.slice(start, end).arrayBuffer())
 }
 
-function fromBase64(s: string): Uint8Array | null {
-  try {
-    // Serato wraps its payloads in base64 with embedded newlines and NULs
-    let clean = s.replace(/[^A-Za-z0-9+/]/g, '')
-    clean = clean.slice(0, clean.length - (clean.length % 4))
-    if (!clean) return null
-    const bin = atob(clean)
-    const out = new Uint8Array(bin.length)
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
-    return out
-  } catch {
-    return null
-  }
-}
-
 // ------------------------------------------------------------ value cleaning
 
 function num(raw: string | undefined): number | undefined {
@@ -124,15 +112,6 @@ function applyKey(tags: TrackTags, raw: string | undefined) {
   }
 }
 
-// ----------------------------------------------------------------- Serato
-
-/** `Serato Autotags` payload: `01 01` then \0-terminated ASCII bpm, gain, gain. */
-function seratoAutotagsBpm(data: Uint8Array): number | undefined {
-  if (data.length < 3) return undefined
-  const body = data[0] === 1 && data[1] === 1 ? data.subarray(2) : data
-  return bpmValue(latin1.decode(body).split('\u0000')[0])
-}
-
 // -------------------------------------------------------------------- ID3v2
 
 /** Splits a text frame payload (encoding byte + fields) into its strings. */
@@ -149,24 +128,6 @@ function id3Text(payload: Uint8Array): string[] {
   else if (enc === 3) s = utf8.decode(body)
   else s = latin1.decode(body)
   return s.replace(/\uFEFF/g, '').split('\u0000')
-}
-
-/** `GEOB` body: encoding, mime\0, filename\0, description\0, payload. */
-function id3Geob(payload: Uint8Array): { desc: string; data: Uint8Array } | null {
-  if (payload.length < 4 || payload[0] !== 0) return null // Serato always writes latin1
-  let p = 1
-  const cstr = () => {
-    const start = p
-    while (p < payload.length && payload[p] !== 0) p++
-    const s = latin1.decode(payload.subarray(start, p))
-    p++
-    return s
-  }
-  cstr() // mime
-  cstr() // filename
-  const desc = cstr()
-  if (p > payload.length) return null
-  return { desc, data: payload.subarray(p) }
 }
 
 function parseId3Frames(body: Uint8Array, major: number, tags: TrackTags) {
@@ -194,15 +155,6 @@ function parseId3Frames(body: Uint8Array, major: number, tags: TrackTags) {
     const payload = body.subarray(start, start + size)
     p = start + size
 
-    if (id === 'GEOB' || id === 'GEO') {
-      const geob = id3Geob(payload)
-      if (geob?.desc === 'Serato Autotags') {
-        const bpm = seratoAutotagsBpm(geob.data)
-        if (bpm != null) seen.SERATO_BPM = String(bpm)
-      }
-      continue
-    }
-
     if (id[0] !== 'T') continue
     const fields = id3Text(payload)
     if (id === 'TXXX' || id === 'TXX') {
@@ -221,7 +173,7 @@ function parseId3Frames(body: Uint8Array, major: number, tags: TrackTags) {
     for (const id of ids) if (seen[id]) return seen[id]
     return undefined
   }
-  tags.bpm ??= bpmValue(pick('TBPM', 'TBP')) ?? bpmValue(pick('SERATO_BPM'))
+  tags.bpm ??= bpmValue(pick('TBPM', 'TBP'))
   applyKey(tags, pick('TKEY', 'TKE'))
   tags.artist ??= pick('TPE1', 'TP1')
   tags.title ??= pick('TIT2', 'TT2')
@@ -407,10 +359,6 @@ async function readMp4(file: File, tags: TrackTags) {
       if (!v?.text) continue
       if (name === 'initialkey' || name === 'key') applyKey(tags, v.text)
       else if (name === 'bpm' || name === 'tempo') tags.bpm ??= bpmValue(v.text)
-      else if (name.includes('autotags')) {
-        const raw = fromBase64(v.text)
-        if (raw) tags.bpm ??= seratoAutotagsBpm(raw)
-      }
       continue
     }
 
@@ -476,11 +424,6 @@ function parseVorbisComments(b: Uint8Array, start: number, tags: TrackTags) {
       case 'ALBUM':
         tags.album ??= value
         break
-      case 'SERATO_AUTOTAGS': {
-        const raw = fromBase64(value)
-        if (raw) tags.bpm ??= seratoAutotagsBpm(raw)
-        break
-      }
     }
   }
 }
