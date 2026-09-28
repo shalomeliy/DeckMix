@@ -18,6 +18,15 @@
         "scripts/listen-downbeat.mjs"
       ],
       "port": 5188
+    },
+    {
+      "name": "deckmix-listen-test",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/listen-downbeat.mjs",
+        "--holdout"
+      ],
+      "port": 5189
     }
   ]
 }

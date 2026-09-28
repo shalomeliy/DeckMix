@@ -31,9 +31,12 @@ for (const f of feats) f.truth = beatOf(decide.get(f.contentHash) ?? markBy.get(
 // click over his earlier answer, the ears-only answer wins. Controls came back
 // 10/10, so the round itself is trusted. Only disagreements were re-asked, so
 // this can only move the truth toward the detector — say so when reporting.
-const LISTEN = path.join(os.homedir(), 'Downloads', 'deckmix-listen-2026-09-28.json')
+// The sealed 30 had the same round after the frozen method was scored (…-test.json):
+// report the score both before and after it.
 let relistened = 0
-if (fs.existsSync(LISTEN)) {
+for (const name of ['deckmix-listen-2026-09-28.json', 'deckmix-listen-2026-09-28-test.json']) {
+  const LISTEN = path.join(os.homedir(), 'Downloads', name)
+  if (!fs.existsSync(LISTEN)) continue
   for (const it of JSON.parse(fs.readFileSync(LISTEN, 'utf8')).items) {
     const v = it.answer?.value
     if (v !== 'a' && v !== 'b' || (v === 'a') === it.mineIsA) continue

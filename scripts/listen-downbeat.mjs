@@ -25,7 +25,11 @@ import http from 'node:http'
 import { M, songs } from './experiment-downbeat.mjs'
 
 const ROOT = String.raw`C:\Users\Shalom\Music\Tracks`
-const OUT = path.join(os.homedir(), 'Downloads', 'deckmix-listen-2026-09-28.json')
+// --holdout (28/09, second round): the sealed 30, after the frozen method was scored on them
+const HOLDOUT = process.argv.includes('--holdout')
+const OUT = path.join(os.homedir(), 'Downloads', HOLDOUT ? 'deckmix-listen-2026-09-28-test.json' : 'deckmix-listen-2026-09-28.json')
+// the method each round was built against: the training round ran on kickPrior, the test round on the frozen one
+const METHOD = HOLDOUT ? 'kickHalf_W16_s1_l0.3' : 'kickPrior'
 const TAGS = JSON.parse(fs.readFileSync(path.join(os.homedir(), 'Downloads', 'deckmix-tags-2026-09-28 - 26 songs.json'), 'utf8'))
 const decide = new Map(TAGS.decide.map((d) => [d.contentHash, d.markSec]))
 const markBy = new Map(TAGS.mark.map((m) => [m.contentHash, m.markSec]))
@@ -36,7 +40,7 @@ const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31)
 const disagree = []
 const agree = []
 for (const f of songs) {
-  const s = M.kickPrior(f)
+  const s = M[METHOD](f)
   const best = s.indexOf(Math.max(...s))
   ;(best === f.truth ? agree : disagree).push({ f, best })
 }
@@ -154,7 +158,7 @@ render()
 
 function persist() {
   const rows = items.map((it) => ({ ...it, answer: saved.answers[it.i] ?? null }))
-  fs.writeFileSync(OUT, JSON.stringify({ kind: 'deckmix-listen', round: '2026-09-28', answers: saved.answers, items: rows }, null, 1))
+  fs.writeFileSync(OUT, JSON.stringify({ kind: 'deckmix-listen', round: HOLDOUT ? '2026-09-28-test' : '2026-09-28', method: METHOD, answers: saved.answers, items: rows }, null, 1))
 }
 http
   .createServer((req, res) => {
@@ -179,4 +183,4 @@ http
     }
     res.writeHead(404).end()
   })
-  .listen(5188, '127.0.0.1', () => console.log('open http://127.0.0.1:5188'))
+  .listen(HOLDOUT ? 5189 : 5188, '127.0.0.1', () => console.log(`open http://127.0.0.1:${HOLDOUT ? 5189 : 5188}`))
