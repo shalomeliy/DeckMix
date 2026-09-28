@@ -27,11 +27,11 @@ export class TagPlayer {
    * (v0.9.1). Music and clicks start on the same context time, so they cannot
    * drift apart.
    */
-  playFrom(buffer: AudioBuffer, startSec: number, lenSec: number, beatSec: number, markSec: number) {
+  playFrom(buffer: AudioBuffer, startSec: number, lenSec: number, beatSec: number, markSec: number, accent = true) {
     this.stop()
     const len = Math.min(lenSec, buffer.duration - startSec)
     if (len <= 0) return
-    const clicks = this.clickTrack(len, beatSec, markSec - startSec)
+    const clicks = this.clickTrack(len, beatSec, markSec - startSec, accent)
     const when = this.ctx.currentTime + 0.05
     const music = this.ctx.createBufferSource()
     music.buffer = buffer
@@ -81,7 +81,7 @@ export class TagPlayer {
   }
 
   /** Clicks every `beatSec`, phased so one lands at `loudAtSec` (seconds into the buffer, may be past its end); loud there and every fourth beat from it. */
-  private clickTrack(lenSec: number, beatSec: number, loudAtSec: number): AudioBuffer {
+  private clickTrack(lenSec: number, beatSec: number, loudAtSec: number, accent: boolean): AudioBuffer {
     const rate = this.ctx.sampleRate
     const buf = this.ctx.createBuffer(1, Math.max(1, Math.round(lenSec * rate)), rate)
     const data = buf.getChannelData(0)
@@ -89,7 +89,7 @@ export class TagPlayer {
     const first = Math.ceil((-loudAtSec - 1e-6) / beatSec)
     for (let k = first; loudAtSec + k * beatSec < lenSec - 1e-6; k++) {
       const t = loudAtSec + k * beatSec
-      const loud = ((k % BEATS_PER_BAR) + BEATS_PER_BAR) % BEATS_PER_BAR === 0
+      const loud = accent && ((k % BEATS_PER_BAR) + BEATS_PER_BAR) % BEATS_PER_BAR === 0
       const amp = loud ? LOUD : SOFT
       const hz = loud ? 1760 : 1175
       const at = Math.round(t * rate)

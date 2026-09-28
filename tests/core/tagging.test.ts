@@ -3,6 +3,10 @@ import {
   BAR_PER_GENRE,
   HOLDOUT_PER_GENRE,
   MARK_SCHEMA,
+  DISPUTE_TOLERANCE_SEC,
+  blindOffsetBeats,
+  neutralSec,
+  disputedSongs,
   markBeatOf,
   snapToBeat,
   startGrid,
@@ -140,5 +144,77 @@ describe('v0.9.1 waveform marker', () => {
     const out = JSON.parse(tagsExportText([], [], [], 1))
     expect(out.schema).toBe(MARK_SCHEMA)
     expect(Object.keys(out)).toEqual(expect.arrayContaining(['bar', 'mark', 'vocal']))
+  })
+})
+
+describe('v0.12.8 disputedSongs', () => {
+  const grid = { bpm: 120, offsetSec: 0.3 } // beat 0.5 s
+  const old = (hash: string, answer: 0 | 1 | 2 | 3 | 'skip', shown = grid) => ({
+    schema: 1, contentHash: hash, trackId: `t/${hash}`, name: hash, genre: 'House', holdout: false,
+    answer, detectorGrid: grid, shownGrid: shown, taggedAt: 1,
+  })
+  const mark = (hash: string, markSec: number, bpm = 120) => ({
+    schema: 2, contentHash: hash, trackId: `t/${hash}`, name: hash, genre: 'House', holdout: hash === 'b',
+    answer: 'marked' as const, markSec, bpm, startMarkSec: markSec, moved: false, answerMs: 1, plays: 1,
+    detectorGrid: grid, shownGrid: grid, replacedCorrection: null, taggedAt: 2,
+  })
+
+  it('same "1" in both rounds is not disputed, even bars apart', () => {
+    // old: beat 2 of the shown grid → the "1" at 1.3 s; new: 9.3 s, four bars later
+    expect(disputedSongs([old('a', 2)], [mark('a', 9.3)])).toEqual([])
+  })
+
+  it('a different beat as the "1" is disputed, and carries the row it was sampled as', () => {
+    expect(disputedSongs([old('a', 0), old('b', 1)], [mark('a', 8.8), mark('b', 8.8)])).toEqual([
+      { trackId: 't/a', genre: 'House', holdout: false },
+    ])
+  })
+
+  it('a different tempo is disputed; a skipped old answer or no old answer is not', () => {
+    expect(disputedSongs([old('a', 0, { bpm: 60, offsetSec: 0.3 })], [mark('a', 8.3)]).length).toBe(1)
+    expect(disputedSongs([old('a', 'skip')], [mark('a', 8.3)])).toEqual([])
+    expect(disputedSongs([], [mark('a', 8.3)])).toEqual([])
+  })
+
+  it('a few ms apart is the same answer', () => {
+    expect(disputedSongs([old('a', 0)], [mark('a', 8.3 + DISPUTE_TOLERANCE_SEC / 2)])).toEqual([])
+  })
+})
+
+describe('v0.12.8 review fixes', () => {
+  it('blindOffsetBeats spreads songs over all four beats, the same every time', () => {
+    const counts = [0, 0, 0, 0]
+    for (let i = 0; i < 400; i++) counts[blindOffsetBeats(`House/${i}.mp3`)]++
+    for (const c of counts) expect(c).toBeGreaterThan(60)
+    expect(blindOffsetBeats('a.mp3')).toBe(blindOffsetBeats('a.mp3'))
+  })
+
+  it('a tempo a hair apart, late in the song, is still the same answer', () => {
+    const g = { bpm: 128, offsetSec: 0.2 }
+    const old = { schema: 1, contentHash: 'x', trackId: 't/x', name: 'x', genre: 'House', holdout: false, answer: 0 as const, detectorGrid: g, shownGrid: g, taggedAt: 1 }
+    const bpm = 128.04 // 0.04 apart: under the tempo line, but 300 s drifts ~0.09 s
+    const markSec = 0.2 + Math.round((300 - 0.2) / (60 / bpm)) * (60 / bpm)
+    const m = { schema: 2, contentHash: 'x', trackId: 't/x', name: 'x', genre: 'House', holdout: false, answer: 'marked' as const, markSec, bpm, startMarkSec: markSec, moved: false, answerMs: 1, plays: 1, detectorGrid: g, shownGrid: g, replacedCorrection: null, taggedAt: 2 }
+    // Only a whole-bar multiple of the new beat keeps it on the old "1"; pick one.
+    const bars = Math.round((markSec - 0.2) / ((4 * 60) / bpm))
+    const onBar = 0.2 + bars * ((4 * 60) / bpm)
+    expect(disputedSongs([old], [{ ...m, markSec: onBar }])).toEqual([])
+  })
+
+  it('a real tempo difference is flagged as one', () => {
+    const g = { bpm: 128, offsetSec: 0.2 }
+    const old = { schema: 1, contentHash: 'x', trackId: 't/x', name: 'x', genre: 'House', holdout: false, answer: 0 as const, detectorGrid: g, shownGrid: g, taggedAt: 1 }
+    const m = { schema: 2, contentHash: 'x', trackId: 't/x', name: 'x', genre: 'House', holdout: false, answer: 'marked' as const, markSec: 8.2, bpm: 64, startMarkSec: 8.2, moved: false, answerMs: 1, plays: 1, detectorGrid: g, shownGrid: g, replacedCorrection: null, taggedAt: 2 }
+    expect(disputedSongs([old], [m])[0]?.tempoDiffers).toBe(true)
+  })
+})
+
+describe('v0.12.8 neutralSec', () => {
+  it('moves by the song\'s blind beats, and stays inside the song by whole beats', () => {
+    const k = blindOffsetBeats('House/1.mp3')
+    expect(neutralSec(10, 'House/1.mp3', 120, 100)).toBeCloseTo(10 + k * 0.5)
+    const end = neutralSec(99.9, 'House/1.mp3', 120, 100)
+    expect(end).toBeLessThanOrEqual(100)
+    expect(((end - 99.9) / 0.5) % 1).toBeCloseTo(0)
   })
 })

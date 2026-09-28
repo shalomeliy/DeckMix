@@ -45,6 +45,8 @@ const STORAGE_KEYS = [
   'deckmix:tag:bar:',
   // v0.9.1: the "1" marked on the waveform — its own prefix, so a re-tag never overwrites the 4-button answer it is compared with.
   'deckmix:tag:mark:',
+  // v0.12.8: the blind tie-break on songs whose two answers disagree.
+  'deckmix:tag:decide:',
   'deckmix:tag:vocal:',
   'deckmix:tempo2:',
   'deckmix:trackMeta',

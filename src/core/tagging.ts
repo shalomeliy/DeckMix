@@ -43,6 +43,8 @@ export interface SampleEntry {
   trackId: string
   genre: string
   holdout: boolean
+  /** Tie-break only (v0.12.8): the two answers differ in tempo, not just in which beat is the "1" — said on screen. */
+  tempoDiffers?: boolean
 }
 
 /**
@@ -244,13 +246,66 @@ export interface VocalTag {
   taggedAt: number
 }
 
+/**
+ * The songs whose two answers disagree (v0.12.8): the "1" marked on the
+ * waveform (v0.9.1) is not the one picked with v0.9.0's four buttons. On
+ * 28/09 that was 26 of 103 — and for 11 of them the waveform answer was the
+ * computer's line left where it started, so which answer is right cannot be
+ * read off the data. A blind third look settles it. A tempo that differs
+ * between the two counts as a disagreement too; a skipped old answer does not
+ * (there is nothing to disagree with).
+ */
+export function disputedSongs(bar: readonly BarTag[], mark: readonly MarkTag[]): SampleEntry[] {
+  const old = new Map(bar.map((b) => [b.contentHash, b]))
+  const out: SampleEntry[] = []
+  for (const m of mark) {
+    const o = old.get(m.contentHash)
+    if (!o || typeof o.answer !== 'number' || m.answer !== 'marked' || m.markSec == null || m.bpm == null) continue
+    const oldGrid = gridWithOneOn(o.shownGrid, o.answer)
+    const dBpm = Math.abs(oldGrid.bpm - m.bpm)
+    const tempoDiffers = dBpm >= 0.05
+    // A tempo a hair apart drifts the old grid by markSec·Δbpm/bpm by the time
+    // it reaches the mark — 0.12 s at 300 s (v0.12.8 review). That drift is
+    // the same answer measured on two grids, not a disagreement.
+    const tolerance = DISPUTE_TOLERANCE_SEC + (m.markSec * dBpm) / m.bpm
+    const { beat, errSec } = markBeatOf(m.markSec, oldGrid)
+    const same = !tempoDiffers && beat === 0 && Math.abs(errSec) < tolerance
+    if (!same) out.push({ trackId: m.trackId, genre: m.genre, holdout: m.holdout, ...(tempoDiffers ? { tempoDiffers } : {}) })
+  }
+  return out.sort((x, y) => (x.trackId < y.trackId ? -1 : x.trackId > y.trackId ? 1 : 0))
+}
+
+/**
+ * Where the blind tie-break centres its view and starts playing, in beats
+ * from the computer's "1" at the drop: 0–3, fixed per song. Centred on the
+ * computer's "1" itself, the window and the first click of the lead-in would
+ * point at it — the very pull the tie-break exists to measure (v0.12.8
+ * review). Spread evenly over the four beats, the centre says nothing.
+ */
+export function blindOffsetBeats(trackId: string): number {
+  // Salted: the unsalted key already orders the sample, and the offset should not follow that order.
+  return stableKey(`blind:${trackId}`) % BEATS_PER_BAR
+}
+
+/** `sec` moved the song's fixed 0–3 blind beats (`blindOffsetBeats`), kept inside the song by whole beats. */
+export function neutralSec(sec: number, trackId: string, bpm: number, durationSec: number): number {
+  const beatSec = 60 / bpm
+  let t = sec + blindOffsetBeats(trackId) * beatSec
+  while (t > durationSec) t -= beatSec
+  return t
+}
+
+/** Two "1"s closer than this are the same answer — a beat at 180 BPM is 333 ms, so it can never merge two beats. */
+export const DISPUTE_TOLERANCE_SEC = 0.05
+
 /** The file the export dialog writes. Plain JSON, so any later script can read it. */
 export function tagsExportText(
   bar: readonly BarTag[],
   mark: readonly MarkTag[],
   vocal: readonly VocalTag[],
   exportedAt: number,
+  decide: readonly MarkTag[] = [],
 ): string {
   // `bar` keeps its name and shape, so a v0.9.0 script finds its list — as long as it does not insist on schema 1.
-  return JSON.stringify({ app: 'DeckMix', kind: 'tags', schema: MARK_SCHEMA, exportedAt, mark, bar, vocal }, null, 2)
+  return JSON.stringify({ app: 'DeckMix', kind: 'tags', schema: MARK_SCHEMA, exportedAt, mark, bar, decide, vocal }, null, 2)
 }

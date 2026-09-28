@@ -11,7 +11,11 @@
  *     "this is the 1" stores the mark, moved, plays=1, and the owner grid.
  *  3. A click on the waveform snaps to a beat; Shift+→ adds 0.01 s on top.
  *  4. Skip is stored as 'skip' and counted; vocal "yes" is stored.
- *  5. Export writes one JSON with all three lists; decks were never touched.
+ *  5. v0.12.8: with a 4-button answer that disagrees with a waveform one, a
+ *     "הכרעה (1)" tab appears; its song opens with no marker, "this is the 1"
+ *     is disabled, Space plays even clicks; a click marks and saves under
+ *     deckmix:tag:decide: — the two answers it settles are left as they were.
+ *  6. Export writes one JSON with every list; decks were never touched.
  */
 import { chromium } from 'playwright'
 
@@ -241,6 +245,67 @@ await waitCount('תויגו 4 מתוך 40')
 const answers = (await marks()).map((m) => m.answer)
 ok('skip is stored as "skip" and counted', (await countText()) === 'תויגו 4 מתוך 40' && answers.includes('skip'), JSON.stringify(answers))
 
+// v0.12.8: seed two v0.9.0 answers — m1's disagrees (the "1" on the start line, the mark is two beats on), m2's agrees.
+await page.evaluate(
+  ([a, b]) => {
+    const old = (m, answer) => ({
+      schema: 1, contentHash: m.contentHash, trackId: m.trackId, name: m.name, genre: m.genre, holdout: m.holdout,
+      answer, detectorGrid: m.detectorGrid, shownGrid: m.shownGrid, taggedAt: 1,
+    })
+    window.__mem.set('deckmix:tag:bar:' + a.contentHash, old(a, 0))
+    const beats = Math.round((b.markSec - 0.01 - b.startMarkSec) / (60 / b.bpm))
+    window.__mem.set('deckmix:tag:bar:' + b.contentHash, old(b, ((beats % 4) + 4) % 4))
+  },
+  [m1, m2],
+)
+await page.keyboard.press('Escape')
+await tagButton.click()
+const decideTab = page.getByRole('button', { name: 'הכרעה (1)' })
+await decideTab.waitFor({ timeout: 5000 }).catch(() => {})
+ok('a disagreeing pair of answers shows a "הכרעה (1)" tab; an agreeing pair does not count', (await decideTab.count()) === 1)
+await decideTab.click()
+await waitCount('נענו 0 מתוך 1')
+ok('the tie-break counter says answered, not decided', (await countText()) === 'נענו 0 מתוך 1', await countText())
+await page.getByRole('button', { name: 'להתחיל' }).click()
+await wave.waitFor({ timeout: 20000 })
+const shown = await page.locator('.text-base.font-bold').first().textContent()
+const saveBtn = page.getByRole('button', { name: 'זה ה-1 ✓' })
+ok('the tie-break song is the disputed one, opened with nothing marked', shown === m1.name && (await saveBtn.isDisabled()), shown)
+await page.keyboard.press('Space')
+await page.getByRole('button', { name: '■ עצור' }).waitFor({ timeout: 3000 }).catch(() => {})
+ok('unmarked, Space still plays (even clicks)', (await page.getByRole('button', { name: '■ עצור' }).count()) === 1)
+await page.keyboard.press('Space')
+await page.keyboard.press('ArrowRight')
+ok('unmarked, an arrow places the "1" — the keyboard alone can answer', !(await saveBtn.isDisabled()))
+// v0.12.8 review: the neutral start must be the computer's "1" shifted by the song's own 0–3 beats, never the "1" itself by rule.
+const placed = Number((await wave.getAttribute('aria-label')).match(/marked at ([\d.]+) s/)?.[1])
+const wantPlaced = await page.evaluate(async (m) => {
+  const t = await window.__import('/src/core/tagging.ts')
+  return { at: t.neutralSec(m.startMarkSec, m.trackId, m.bpm, 1e9), beats: t.blindOffsetBeats(m.trackId) }
+}, m1)
+ok(
+  'the first arrow lands on the neutral start: the "1" of the computer, moved the blind beats of the song',
+  Math.abs(placed - wantPlaced.at) < 0.006,
+  `placed ${placed}, computer ${m1.startMarkSec}, blind beats ${wantPlaced.beats}`,
+)
+const box4 = await wave.boundingBox()
+await page.mouse.click(box4.x + box4.width * 0.5, box4.y + box4.height / 2)
+ok('a click moves it, and the answer can be saved', !(await saveBtn.isDisabled()))
+await saveBtn.click()
+await waitCount('נענו 1 מתוך 1')
+ok('…and counts the answer', (await countText()) === 'נענו 1 מתוך 1', await countText())
+const dec = await page.evaluate((h) => {
+  const mem = window.__mem
+  return { d: mem.get('deckmix:tag:decide:' + h), m: mem.get('deckmix:tag:mark:' + h), corr: mem.get('deckmix:gridCorrection:' + h) }
+}, m1.contentHash)
+const decBeats = dec.d ? (dec.d.markSec - dec.d.detectorGrid.offsetSec) / (60 / dec.d.bpm) : NaN
+ok(
+  'saved as a tie-break on a beat, the waveform answer untouched, the grid following the tie-break',
+  dec.d?.answer === 'marked' && dec.d.startMarkSec === null && Math.abs(decBeats - Math.round(decBeats)) < 1e-6 &&
+    dec.m?.markSec === m1.markSec && Math.abs(dec.corr.grid.offsetSec - (((dec.d.markSec % (240 / dec.d.bpm)) + 240 / dec.d.bpm) % (240 / dec.d.bpm))) < 1e-6,
+  JSON.stringify({ decide: dec.d?.markSec, mark: dec.m?.markSec, corr: dec.corr?.grid }),
+)
+
 await page.getByRole('button', { name: 'שירה', exact: true }).click()
 await waitCount('תויגו 0 מתוך 10')
 ok('vocal tab: 2 per genre (the 8 in each folder, after the 6 sealed for the "1"), none tagged', (await countText()) === 'תויגו 0 מתוך 10', await countText())
@@ -272,8 +337,8 @@ await page.waitForFunction(() => window.__saved != null, null, { timeout: 5000 }
 const saved = await page.evaluate(() => window.__saved)
 const doc = saved ? JSON.parse(saved.text) : null
 ok(
-  'export writes one JSON with the new marks, the (empty) old list and the vocals, named deckmix-tags-*',
-  /^deckmix-tags-\d{4}-\d\d-\d\d\.json$/.test(saved?.name ?? '') && doc?.mark.length === 4 && doc?.bar.length === 0 && doc?.vocal.length === 2,
+  'export writes one JSON with the marks, the old 4-button list, the tie-breaks and the vocals, named deckmix-tags-*',
+  /^deckmix-tags-\d{4}-\d\d-\d\d\.json$/.test(saved?.name ?? '') && doc?.mark.length === 4 && doc?.bar.length === 2 && doc?.decide.length === 1 && doc?.vocal.length === 2,
   saved?.name,
 )
 

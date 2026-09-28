@@ -5,6 +5,8 @@ import {
   VIEW_BARS,
   pickBarSample,
   pickVocalSample,
+  disputedSongs,
+  neutralSec,
   snapToBeat,
   type MarkAnswer,
   type SampleEntry,
@@ -29,7 +31,12 @@ import { TagWaveform } from '@/app/components/TagWaveform'
  * the decks, so it has no place in a live set (Shalom, 25/09).
  */
 
-type Mode = 'bar' | 'vocal'
+/**
+ * 'decide' (v0.12.8) is the blind tie-break: the songs whose two "1" answers
+ * disagree, opened with no marker at all — no computer's guess and no earlier
+ * answer on screen — so the third look is not pulled toward either.
+ */
+type Mode = 'bar' | 'decide' | 'vocal'
 type Loaded = Awaited<ReturnType<typeof ctl.tagPrepare>>
 
 function He({ children, className = '' }: { children: React.ReactNode; className?: string }) {
@@ -48,6 +55,9 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
   /** contentHash and trackId of every stored tag, per kind — `null` until read, and nothing can be answered before that. */
   const [taggedBar, setTaggedBar] = useState<Set<string> | null>(null)
   const [taggedVocal, setTaggedVocal] = useState<Set<string> | null>(null)
+  const [taggedDecide, setTaggedDecide] = useState<Set<string> | null>(null)
+  /** Computed from the stored answers, so it is the same list on every open and in every browser that has them. */
+  const [decideSample, setDecideSample] = useState<SampleEntry[]>([])
   const [saving, setSaving] = useState(false)
   const recording = useStore((s) => s.recording.active != null)
   /** Tracks skipped this session because they could not be opened — shown, never silently dropped. */
@@ -96,12 +106,16 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
     setTaggedBar(new Set(all.mark.flatMap((t) => [t.contentHash, t.trackId])))
     setOldBarCount(all.bar.length)
     setTaggedVocal(new Set(all.vocal.flatMap((t) => [t.contentHash, t.trackId])))
+    setTaggedDecide(new Set(all.decide.flatMap((t) => [t.contentHash, t.trackId])))
+    setDecideSample(disputedSongs(all.bar, all.mark))
   }, [])
   useEffect(() => {
     void refreshTagged()
   }, [refreshTagged])
 
-  const sample = mode === 'bar' ? barSample : vocalSample
+  const sample = mode === 'bar' ? barSample : mode === 'decide' ? decideSample : vocalSample
+  const isBar = mode !== 'vocal'
+  const blind = mode === 'decide'
   // A rescan mid-session gives a new sample; the old position would point
   // into it at random, skipping or repeating songs. Keyed on the song list,
   // not the array: the library array changes on every analysis update, and
@@ -113,7 +127,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
     setBusy(false)
     setIndex(0)
   }, [sampleKey])
-  const tagged = mode === 'bar' ? taggedBar : taggedVocal
+  const tagged = mode === 'bar' ? taggedBar : mode === 'decide' ? taggedDecide : taggedVocal
 
   /** Next sample entry not yet answered, from `from` on. A track the library already hashed is checked without opening it. */
   const nextOpen = useCallback(
@@ -145,15 +159,17 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
       setBusy(true)
       while (i < sample.length) {
         const entry: SampleEntry = sample[i]
-        const view = await ctl.tagPrepare(entry, { needGrid: mode === 'bar' })
+        const view = await ctl.tagPrepare(entry, { needGrid: mode !== 'vocal' })
         if (seq !== openSeq.current) return
         if (view && !tagged?.has(view.contentHash)) {
           setIndex(i)
           setCurrent(view)
           const first = view.marks[0] ?? null
-          markRef.current = first
-          setMarkSec(first)
-          if (view.grid && first != null) setViewStart(viewStartFor(first, view.grid.bpm, view.durationSec))
+          const start = mode === 'decide' ? null : first
+          markRef.current = start
+          setMarkSec(start)
+          const centre = first != null && view.grid && mode === 'decide' ? neutralSec(first, entry.trackId, view.grid.bpm, view.durationSec) : first
+          if (view.grid && centre != null) setViewStart(viewStartFor(centre, view.grid.bpm, view.durationSec))
           plays.current = 0
           openedAt.current = performance.now()
           setBusy(false)
@@ -185,9 +201,10 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
       ctl.tagSaveMark(h, {
         answer: a,
         markSec: a === 'marked' ? markSec : null,
-        startMarkSec: current?.marks[spot] ?? null,
+        startMarkSec: blind ? null : (current?.marks[spot] ?? null),
         answerMs: performance.now() - openedAt.current,
         plays: plays.current,
+        decide: blind,
       }),
     )
   const answerVocal = (a: VocalAnswer) => answer((h) => ctl.tagSaveVocal(h, a))
@@ -207,7 +224,17 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
     setMode(m)
   }
 
-  const grid = mode === 'bar' ? (current?.grid ?? null) : null
+  const grid = isBar ? (current?.grid ?? null) : null
+  const entryNow: SampleEntry | undefined = sample[index]
+  /** Where unmarked playing and the first arrow press start: the drop's computer "1" in bar mode, shifted 0–3 beats in the blind tie-break. */
+  const startSecAt = useCallback(
+    (spotIdx: number): number | null => {
+      const at = current?.marks[spotIdx]
+      if (at == null || !current || !grid) return null
+      return blind && entryNow ? neutralSec(at, entryNow.trackId, grid.bpm, current.durationSec) : at
+    },
+    [current, grid, blind, entryNow],
+  )
   const viewLen = grid ? viewLenFor(grid.bpm, current?.durationSec ?? 0) : 0
 
   /**
@@ -236,9 +263,9 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
     [current, grid, viewLen, stopSound],
   )
 
-  const play = useCallback(() => {
-    const m = markRef.current
-    if (m == null || !ctl.tagPlayFrom(m)) return
+  /** `accent: false` = nothing marked yet on the blind tie-break — even clicks, none of them loud. */
+  const play = useCallback((fromSec: number, accent: boolean) => {
+    if (!ctl.tagPlayFrom(fromSec, accent)) return
     plays.current++
     cancelAnimationFrame(raf.current)
     const tick = () => {
@@ -257,20 +284,23 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
   // re-registered these listeners every frame of playback, and two quick
   // arrow presses could read the same stale marker (v0.9.1 review).
   useEffect(() => {
-    if (mode !== 'bar' || !current || !grid) return
+    if (mode === 'vocal' || !current || !grid) return
     const beatSec = 60 / grid.bpm
     const onKey = (e: KeyboardEvent) => {
       const m = markRef.current
-      if (m == null) return
+      // Unmarked (the blind tie-break): Space still plays, from the drop, with even clicks; arrows have nothing to move.
+      const from = m ?? startSecAt(spot)
+      if (from == null) return
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         e.preventDefault()
         const dir = e.key === 'ArrowLeft' ? -1 : 1
-        moveMark(m + dir * (e.shiftKey ? FINE_STEP_SEC : beatSec), true)
+        // Unmarked (tie-break): the first press puts the "1" on the neutral start, so the keyboard alone can answer.
+        moveMark(m == null ? from : m + dir * (e.shiftKey ? FINE_STEP_SEC : beatSec), true)
       } else if (e.key === ' ') {
         e.preventDefault()
         if (!e.repeat) {
           if (playheadRef.current != null) stopSound()
-          else play()
+          else play(from, m != null)
         }
       }
     }
@@ -283,7 +313,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('keyup', onKeyUp)
     }
-  }, [mode, current, grid, moveMark, play, stopSound])
+  }, [mode, current, grid, spot, startSecAt, moveMark, play, stopSound])
 
   return (
     <div role="dialog" aria-modal="true" aria-label="Tagging" className="absolute inset-0 z-40 flex flex-col bg-surface-0/97 backdrop-blur-sm">
@@ -293,12 +323,17 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
           <Button variant="toggle" active={mode === 'bar'} size="sm" onClick={() => switchMode('bar')}>
             איפה ה-1
           </Button>
+          {(decideSample.length > 0 || mode === 'decide') && (
+            <Button variant="toggle" active={mode === 'decide'} size="sm" onClick={() => switchMode('decide')}>
+              הכרעה ({decideSample.length})
+            </Button>
+          )}
           <Button variant="toggle" active={mode === 'vocal'} size="sm" onClick={() => switchMode('vocal')}>
             שירה
           </Button>
         </div>
         <span className="tnum text-xs text-grid-muted" data-testid="tag-count">
-          {doneCount == null ? '…' : `תויגו ${doneCount} מתוך ${sample.length}`}
+          {doneCount == null ? '…' : `${blind ? 'נענו' : 'תויגו'} ${doneCount} מתוך ${sample.length}`}
         </span>
         <div className="ml-auto flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => void ctl.tagExport()}>
@@ -323,7 +358,18 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
 
         {sample.length > 0 && !current && !busy && (
           <div className="mx-auto max-w-xl space-y-3">
-            {mode === 'bar' ? (
+            {mode === 'decide' ? (
+              <>
+                <He>
+                  אלה {sample.length} השירים שבהם ה-"1" שסימנת על גלי הקול שונה מזה שבחרת עם 4 הכפתורים. כאן אתה מכריע.
+                </He>
+                <He>
+                  כל שיר נפתח בלי קו צהוב ובלי שום ניחוש, רק קווים דקים על כל פעימה. לחץ על הרגע הגדול, ורק אז יופיע הקו. אפשר לנגן גם לפני שסימנת: תשמע
+                  תקתוק שווה על כל פעימה.
+                </He>
+                <He className="text-grid-muted">לא בטוח? דלג. דילוג לא נחשב טעות.</He>
+              </>
+            ) : mode === 'bar' ? (
               <>
                 <He>האפליקציה בחרה {sample.length} שירים, בערך אותו מספר מכל ז'אנר.</He>
                 <He>בכל שיר תראה את גלי הקול סביב הדרופ, וקו צהוב על ה-"1" שהמחשב מנחש. תזיז את הקו לרגע הגדול: שבו הדרופ נכנס, השירה מתחילה או המצילה מכה. "נגן מכאן" מנגן קצת לפני הקו, כדי שתשמע אותו נוחת.</He>
@@ -354,7 +400,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
 
         {busy && <He className="text-grid-muted">פותח את השיר ומנתח אותו…</He>}
 
-        {current && mode === 'bar' && (
+        {current && isBar && (
           <div className="mx-auto max-w-5xl space-y-3">
             <div>
               <div className="text-base font-bold">{current.name}</div>
@@ -364,12 +410,16 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
                 {current.holdout ? ' · מבחן סופי' : ''}
               </div>
             </div>
-            {!grid || markSec == null || !current.peaks ? (
+            {!grid || current.marks.length === 0 || !current.peaks ? (
               <He className="text-warn">לשיר הזה אין עדיין רשת פעימות, אז אי אפשר לסמן בו את ה-1. דלג.</He>
             ) : (
               <>
                 <He>
-                  הקו הצהוב הוא הניחוש של המחשב ל-"1". אם הוא לא על הדרופ, לחץ על גלי הקול איפה שהדרופ נכנס, או גרור את הקו. הוא נדבק לפעימה הכי קרובה.
+                  {blind
+                    ? markSec == null
+                      ? 'לחץ על גלי הקול איפה שה-"1" של הדרופ נופל. הקו הצהוב יופיע שם, על הפעימה הכי קרובה.'
+                      : 'אפשר להזיז את הקו בלחיצה, בגרירה או בחצים. הוא נדבק לפעימה הכי קרובה.'
+                    : 'הקו הצהוב הוא הניחוש של המחשב ל-"1". אם הוא לא על הדרופ, לחץ על גלי הקול איפה שהדרופ נכנס, או גרור את הקו. הוא נדבק לפעימה הכי קרובה.'}
                 </He>
                 <TagWaveform
                   peaks={current.peaks}
@@ -377,12 +427,18 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
                   durationSec={current.durationSec}
                   bpm={grid.bpm}
                   markSec={markSec}
+                  beatPhaseSec={grid.offsetSec}
                   viewStartSec={viewStart}
                   viewLenSec={viewLen}
                   playheadSec={playhead}
-                  onPick={(sec) => moveMark(snapToBeat(sec, { bpm: grid.bpm, offsetSec: markSec }), false)}
+                  onPick={(sec) => moveMark(snapToBeat(sec, { bpm: grid.bpm, offsetSec: markSec ?? grid.offsetSec }), false)}
                 />
-                {current.replacesCorrection && (
+                {blind && entryNow?.tempoDiffers && (
+                  <He className="text-2xs text-warn">
+                    בשיר הזה שתי התשובות שלך שונות גם בקצב, לא רק במקום של ה-1. אם התקתוקים לא יושבים על הקצב, לחץ "התקתוקים לא על הקצב".
+                  </He>
+                )}
+                {current.replacesCorrection && !blind && (
                   <He className="text-2xs text-warn">
                     לשיר הזה יש כבר קו צהוב שהזזת בעבר, והקו כאן מתחיל במקום של המחשב. שמירה תחליף את הקו הישן.
                   </He>
@@ -391,8 +447,12 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
                   חצים ← → : פעימה אחת · Shift + חץ: הזזה קטנה, אם הפעימה עצמה לא יושבת על המכה · רווח: נגן / עצור
                 </He>
                 <div className="flex justify-center gap-2">
-                  <Button variant="toggle" active={playhead != null} onClick={() => (playhead != null ? stopSound() : play())}>
-                    {playhead != null ? '■ עצור' : '▶ נגן מכאן'}
+                  <Button
+                    variant="toggle"
+                    active={playhead != null}
+                    onClick={() => (playhead != null ? stopSound() : play(markSec ?? startSecAt(spot) ?? current.marks[spot], markSec != null))}
+                  >
+                    {playhead != null ? '■ עצור' : markSec == null ? '▶ נגן' : '▶ נגן מכאן'}
                   </Button>
                   {current.marks.length > 1 && (
                     <Button
@@ -402,19 +462,26 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
                         const s2 = (spot + 1) % current.marks.length
                         setSpot(s2)
                         stopSound()
-                        markRef.current = current.marks[s2]
-                        setMarkSec(current.marks[s2])
-                        setViewStart(viewStartFor(current.marks[s2], grid.bpm, current.durationSec))
+                        // Blind: only the view moves — putting the marker on the next drop would be the computer's guess again.
+                        if (!blind) {
+                          markRef.current = current.marks[s2]
+                          setMarkSec(current.marks[s2])
+                        }
+                        setViewStart(viewStartFor(startSecAt(s2) ?? current.marks[s2], grid.bpm, current.durationSec))
                       }}
                     >
                       מקום אחר בשיר ({spot + 1}/{current.marks.length})
                     </Button>
                   )}
-                  <Button variant="toggle" active disabled={saving} onClick={() => void answerMark('marked')}>
+                  <Button variant="toggle" active disabled={saving || markSec == null} onClick={() => void answerMark('marked')}>
                     זה ה-1 ✓
                   </Button>
                 </div>
-                <He className="text-2xs text-grid-muted">בנגינה תשמע תקתוק על כל פעימה, ותקתוק חזק על כל "1" לפי הקו הצהוב.</He>
+                <He className="text-2xs text-grid-muted">
+                  {markSec == null
+                    ? 'בנגינה תשמע תקתוק שווה על כל פעימה. אחרי שתסמן, התקתוק על ה-"1" יהיה חזק.'
+                    : 'בנגינה תשמע תקתוק על כל פעימה, ותקתוק חזק על כל "1" לפי הקו הצהוב.'}
+                </He>
               </>
             )}
             <div className="flex justify-center gap-2 border-t border-hairline pt-3">

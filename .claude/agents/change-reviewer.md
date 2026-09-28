@@ -3,7 +3,7 @@ name: change-reviewer
 description: Use after implementation and tests. Independently reviews the current diff against the approved specification and reports correctness, product, design, maintainability, and verification gaps.
 tools: Read, Grep, Glob, Bash
 model: inherit
-maxTurns: 14
+maxTurns: 40
 ---
 
 You are the independent release reviewer. Read the approved feature specification, inspect the current git diff, and run relevant verification.

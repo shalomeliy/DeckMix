@@ -8,7 +8,13 @@ interface Props {
   durationSec: number
   bpm: number
   /** Where the "1" is marked. Every beat line is counted from it, so moving it moves the whole grid — as the saved correction will. */
-  markSec: number
+  markSec: number | null
+  /**
+   * Where the beat lines fall while nothing is marked — the blind tie-break
+   * (v0.12.8) shows every beat alike, with no yellow bar line: a yellow line
+   * every fourth beat would be a guess at the "1" in all but name.
+   */
+  beatPhaseSec: number
   viewStartSec: number
   viewLenSec: number
   playheadSec: number | null
@@ -23,7 +29,7 @@ interface Props {
  * Shalom tags. Same colours and the same yellow bar line as the deck, so the
  * picture reads the way he already knows.
  */
-export function TagWaveform({ peaks, bands, durationSec, bpm, markSec, viewStartSec, viewLenSec, playheadSec, onPick }: Props) {
+export function TagWaveform({ peaks, bands, durationSec, bpm, markSec, beatPhaseSec, viewStartSec, viewLenSec, playheadSec, onPick }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [size, setSize] = useState(0)
   const dragging = useRef(false)
@@ -94,14 +100,15 @@ export function TagWaveform({ peaks, bands, durationSec, bpm, markSec, viewStart
 
     // Beat lines after the body, which paints opaque columns (the 20/09 lesson in Waveform.tsx).
     const beatSec = 60 / bpm
-    const first = Math.ceil((viewStartSec - markSec) / beatSec)
-    const last = Math.floor((viewStartSec + viewLenSec - markSec) / beatSec)
+    const anchor = markSec ?? beatPhaseSec
+    const first = Math.ceil((viewStartSec - anchor) / beatSec)
+    const last = Math.floor((viewStartSec + viewLenSec - anchor) / beatSec)
     for (let k = first; k <= last; k++) {
-      const t = markSec + k * beatSec
+      const t = anchor + k * beatSec
       if (t < 0 || t > durationSec) continue
       const x = Math.round(xOf(t))
-      if (k === 0) continue // the marker itself, drawn last and on top
-      if (k % BEATS_PER_BAR === 0) {
+      if (markSec != null && k === 0) continue // the marker itself, drawn last and on top
+      if (markSec != null && k % BEATS_PER_BAR === 0) {
         ctx.fillStyle = 'rgba(255,196,46,0.55)'
         ctx.fillRect(x - 1, 0, 2, h)
       } else {
@@ -110,29 +117,31 @@ export function TagWaveform({ peaks, bands, durationSec, bpm, markSec, viewStart
       }
     }
 
-    const mx = Math.round(xOf(markSec))
-    ctx.fillStyle = 'rgb(255,196,46)'
-    ctx.fillRect(mx - 1.5, 0, 3, h)
-    ctx.beginPath()
-    ctx.moveTo(mx - 8, 0)
-    ctx.lineTo(mx + 8, 0)
-    ctx.lineTo(mx, 10)
-    ctx.closePath()
-    ctx.fill()
-    ctx.beginPath()
-    ctx.moveTo(mx - 8, h)
-    ctx.lineTo(mx + 8, h)
-    ctx.lineTo(mx, h - 10)
-    ctx.closePath()
-    ctx.fill()
-    ctx.font = 'bold 13px system-ui, sans-serif'
-    ctx.fillText('1', mx + 6, 24)
+    const mx = markSec == null ? null : Math.round(xOf(markSec))
+    if (mx != null) {
+      ctx.fillStyle = 'rgb(255,196,46)'
+      ctx.fillRect(mx - 1.5, 0, 3, h)
+      ctx.beginPath()
+      ctx.moveTo(mx - 8, 0)
+      ctx.lineTo(mx + 8, 0)
+      ctx.lineTo(mx, 10)
+      ctx.closePath()
+      ctx.fill()
+      ctx.beginPath()
+      ctx.moveTo(mx - 8, h)
+      ctx.lineTo(mx + 8, h)
+      ctx.lineTo(mx, h - 10)
+      ctx.closePath()
+      ctx.fill()
+      ctx.font = 'bold 13px system-ui, sans-serif'
+      ctx.fillText('1', mx + 6, 24)
+    }
 
     if (playheadSec != null && playheadSec >= viewStartSec && playheadSec <= viewStartSec + viewLenSec) {
       ctx.fillStyle = 'rgba(255,255,255,0.95)'
       ctx.fillRect(Math.round(xOf(playheadSec)), 0, 2, h)
     }
-  }, [peaks, bands, durationSec, bpm, markSec, viewStartSec, viewLenSec, playheadSec, size])
+  }, [peaks, bands, durationSec, bpm, markSec, beatPhaseSec, viewStartSec, viewLenSec, playheadSec, size])
 
   const secAt = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const r = e.currentTarget.getBoundingClientRect()
@@ -144,7 +153,11 @@ export function TagWaveform({ peaks, bands, durationSec, bpm, markSec, viewStart
       ref={canvasRef}
       data-testid="tag-waveform"
       role="img"
-      aria-label={`Waveform, the "1" marked at ${markSec.toFixed(2)} s, ${bpm.toFixed(1)} BPM. Arrow keys move it.`}
+      aria-label={
+        markSec == null
+          ? `Waveform, ${bpm.toFixed(1)} BPM, nothing marked yet. Click where the "1" is, or press an arrow key to place it; Space plays.`
+          : `Waveform, the "1" marked at ${markSec.toFixed(2)} s, ${bpm.toFixed(1)} BPM. Arrow keys move it.`
+      }
       className="block h-44 w-full cursor-pointer touch-none rounded-[var(--radius-md)] border border-hairline"
       onPointerDown={(e) => {
         dragging.current = true
