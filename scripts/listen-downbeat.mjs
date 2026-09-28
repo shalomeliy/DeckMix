@@ -96,9 +96,12 @@ async function load(it) {
 function stop() { for (const s of src) try { s.stop() } catch {} ; src = [] }
 function click(t, strong) {
   const o = ctx.createOscillator(), g = ctx.createGain()
-  o.frequency.value = strong ? 1800 : 1000
-  g.gain.setValueAtTime(strong ? 0.5 : 0.15, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05)
-  o.connect(g).connect(ctx.destination); o.start(t); o.stop(t + 0.06); src.push(o)
+  // loud on purpose (Shalom, 28/09: "the click is not loud enough"): a square wave cuts
+  // through a full mix far better than a sine, and the music is turned down under it
+  o.type = 'square'
+  o.frequency.value = strong ? 2000 : 1200
+  g.gain.setValueAtTime(strong ? 0.9 : 0.35, t); g.gain.exponentialRampToValueAtTime(0.001, t + (strong ? 0.12 : 0.07))
+  o.connect(g).connect(ctx.destination); o.start(t); o.stop(t + 0.13); src.push(o)
 }
 async function play(it, which) {
   await ctx.resume(); await load(it); stop()
@@ -109,7 +112,7 @@ async function play(it, which) {
   const len = 7 * bar
   const t0 = ctx.currentTime + 0.1
   const s = ctx.createBufferSource(); s.buffer = buf
-  const g = ctx.createGain(); g.gain.value = 0.8
+  const g = ctx.createGain(); g.gain.value = 0.45
   s.connect(g).connect(ctx.destination); s.start(t0, from, len); src.push(s)
   // clicks on every beat of the grid through "one", strong on every 4th counted from it
   const first = one - Math.ceil((one - from) / beat) * beat

@@ -27,6 +27,21 @@ const beatOf = (sec, g) => {
 }
 const markBy = new Map(tags.mark.map((m) => [m.contentHash, m.markSec]))
 for (const f of feats) f.truth = beatOf(decide.get(f.contentHash) ?? markBy.get(f.contentHash), f.grid)
+// The listening round (28/09, listen-downbeat.mjs): where he picked the other
+// click over his earlier answer, the ears-only answer wins. Controls came back
+// 10/10, so the round itself is trusted. Only disagreements were re-asked, so
+// this can only move the truth toward the detector — say so when reporting.
+const LISTEN = path.join(os.homedir(), 'Downloads', 'deckmix-listen-2026-09-28.json')
+let relistened = 0
+if (fs.existsSync(LISTEN)) {
+  for (const it of JSON.parse(fs.readFileSync(LISTEN, 'utf8')).items) {
+    const v = it.answer?.value
+    if (v !== 'a' && v !== 'b' || (v === 'a') === it.mineIsA) continue
+    const f = feats.find((x) => x.contentHash === it.contentHash)
+    f.truth = beatOf(v === 'a' ? it.a : it.b, f.grid)
+    relistened++
+  }
+}
 const songs = feats.filter((f) => f.holdout === HOLDOUT)
 
 // ---- helpers
@@ -150,6 +165,43 @@ export function kickEntryVotes(f, W = 8, top = 8) {
   }
   return v
 }
+/**
+ * The same, at half-beat resolution: the kick rise on the beat (`on`) and at
+ * the half-beat (`oh`) interleaved. Shalom (28/09): when the kick sits half-way
+ * between two lines he marks the beat *before* it — PINKED PANTHER's drop
+ * kick lands on 239.5 and his "1" is 239. So an entry at k+½ votes for k.
+ */
+export function kickEntryVotesHalf(f, W = 16, top = 8, sharp = 1) {
+  const n = f.on[0].length
+  const x = new Array(2 * n)
+  for (let k = 0; k < n; k++) {
+    x[2 * k] = f.on[0][k]
+    x[2 * k + 1] = f.oh[0][k]
+  }
+  const pk = pctOf(x, 0.9)
+  const K = x.map((v) => v / pk)
+  const sc = K.map((_, k) => {
+    if (k < W || k + W > K.length) return 0
+    const r = mean(K.slice(k, k + W)) - mean(K.slice(k - W, k))
+    return Math.max(0, r) * (sharp ? Math.max(0, K[k] - Math.max(K[k - 1], K[k - 2])) : 1)
+  })
+  const idx = sc.map((v, k) => [v, k]).sort((a, b) => b[0] - a[0])
+  const v = [0, 0, 0, 0]
+  const taken = []
+  for (const [s, k] of idx) {
+    if (taken.length >= top || s <= 0) break
+    if (taken.some((j) => Math.abs(j - k) < 32)) continue
+    taken.push(k)
+    v[Math.floor(k / 2) % 4] += s
+  }
+  return v
+}
+const withPrior = (v, lam = 0.3) => {
+  const tot = v.reduce((a, b) => a + b, 0) || 1
+  return v.map((x, p) => x / tot + (p === 0 ? lam : 0))
+}
+for (const W of [8, 16]) for (const sharp of [0, 1]) for (const lam of [0.2, 0.3, 0.4])
+  M[`kickHalf_W${W}_s${sharp}_l${lam}`] = (f) => withPrior(kickEntryVotesHalf(f, W, 8, sharp), lam)
 M.kickPrior = (f) => {
   const v = kickEntryVotes(f)
   const tot = v.reduce((a, b) => a + b, 0) || 1
@@ -181,6 +233,8 @@ function evaluate(fn) {
 }
 const isMain = process.argv[1] != null && import.meta.url.endsWith(path.basename(process.argv[1]))
 const fmt = ([a, b]) => `${a}/${b}`.padStart(6)
+if (isMain) console.log(`${relistened} answers changed by the listening round
+`)
 if (isMain) console.log(`${songs.length} songs (${HOLDOUT ? 'SEALED HOLDOUT' : 'train'}); truth beat distribution: ${[0, 1, 2, 3].map((p) => songs.filter((s) => s.truth === p).length).join(' ')}\n`)
 if (isMain) console.log(`${'method'.padEnd(26)}   all  dance   ${genres.map((g) => g.slice(0, 6).padStart(6)).join(' ')}`)
 const results = isMain ? Object.entries(M).map(([name, fn]) => [name, evaluate(fn)]) : []
