@@ -5,6 +5,7 @@ import {
   VIEW_BARS,
   pickBarSample,
   pickVocalSample,
+  pickFreshSample,
   disputedSongs,
   neutralSec,
   snapToBeat,
@@ -36,7 +37,11 @@ import { TagWaveform } from '@/app/components/TagWaveform'
  * disagree, opened with no marker at all — no computer's guess and no earlier
  * answer on screen — so the third look is not pulled toward either.
  */
-type Mode = 'bar' | 'decide' | 'vocal'
+/**
+ * 'fresh' (v0.9.5) is the same blind marking, on House/Techno/Trance songs no
+ * "1" was ever given for — the fair test of a detector tuned on the 105 others.
+ */
+type Mode = 'bar' | 'decide' | 'fresh' | 'vocal'
 type Loaded = Awaited<ReturnType<typeof ctl.tagPrepare>>
 
 function He({ children, className = '' }: { children: React.ReactNode; className?: string }) {
@@ -58,6 +63,9 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
   const [taggedDecide, setTaggedDecide] = useState<Set<string> | null>(null)
   /** Computed from the stored answers, so it is the same list on every open and in every browser that has them. */
   const [decideSample, setDecideSample] = useState<SampleEntry[]>([])
+  /** Every song that already has a "1" answer (any round) — what the fresh round leaves out. `null` until read. */
+  const [answeredEver, setAnsweredEver] = useState<Set<string> | null>(null)
+  const [taggedFresh, setTaggedFresh] = useState<Set<string> | null>(null)
   const [saving, setSaving] = useState(false)
   const recording = useStore((s) => s.recording.active != null)
   /** Tracks skipped this session because they could not be opened — shown, never silently dropped. */
@@ -108,14 +116,18 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
     setTaggedVocal(new Set(all.vocal.flatMap((t) => [t.contentHash, t.trackId])))
     setTaggedDecide(new Set(all.decide.flatMap((t) => [t.contentHash, t.trackId])))
     setDecideSample(disputedSongs(all.bar, all.mark))
+    setTaggedFresh(new Set(all.fresh.flatMap((t) => [t.contentHash, t.trackId])))
+    // Fresh-round answers stay in: a song answered there is still part of the round, counted as done — not dropped from it.
+    setAnsweredEver((prev) => prev ?? new Set([...all.mark, ...all.decide, ...all.bar].flatMap((t) => [t.contentHash, t.trackId])))
   }, [])
   useEffect(() => {
     void refreshTagged()
   }, [refreshTagged])
 
-  const sample = mode === 'bar' ? barSample : mode === 'decide' ? decideSample : vocalSample
+  const freshSample = useMemo(() => (answeredEver ? pickFreshSample(tracks, answeredEver) : []), [tracks, answeredEver])
+  const sample = mode === 'bar' ? barSample : mode === 'decide' ? decideSample : mode === 'fresh' ? freshSample : vocalSample
   const isBar = mode !== 'vocal'
-  const blind = mode === 'decide'
+  const blind = mode === 'decide' || mode === 'fresh'
   // A rescan mid-session gives a new sample; the old position would point
   // into it at random, skipping or repeating songs. Keyed on the song list,
   // not the array: the library array changes on every analysis update, and
@@ -127,7 +139,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
     setBusy(false)
     setIndex(0)
   }, [sampleKey])
-  const tagged = mode === 'bar' ? taggedBar : mode === 'decide' ? taggedDecide : taggedVocal
+  const tagged = mode === 'bar' ? taggedBar : mode === 'decide' ? taggedDecide : mode === 'fresh' ? taggedFresh : taggedVocal
 
   /** Next sample entry not yet answered, from `from` on. A track the library already hashed is checked without opening it. */
   const nextOpen = useCallback(
@@ -165,10 +177,10 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
           setIndex(i)
           setCurrent(view)
           const first = view.marks[0] ?? null
-          const start = mode === 'decide' ? null : first
+          const start = blind ? null : first
           markRef.current = start
           setMarkSec(start)
-          const centre = first != null && view.grid && mode === 'decide' ? neutralSec(first, entry.trackId, view.grid.bpm, view.durationSec) : first
+          const centre = first != null && view.grid && blind ? neutralSec(first, entry.trackId, view.grid.bpm, view.durationSec) : first
           if (view.grid && centre != null) setViewStart(viewStartFor(centre, view.grid.bpm, view.durationSec))
           plays.current = 0
           openedAt.current = performance.now()
@@ -181,7 +193,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
       setIndex(sample.length)
       setBusy(false)
     },
-    [nextOpen, sample, mode, tagged, stopSound],
+    [nextOpen, sample, mode, blind, tagged, stopSound],
   )
 
   // One answer at a time: a double-click would save twice and open twice.
@@ -204,7 +216,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
         startMarkSec: blind ? null : (current?.marks[spot] ?? null),
         answerMs: performance.now() - openedAt.current,
         plays: plays.current,
-        decide: blind,
+        round: mode === 'decide' ? 'decide' : mode === 'fresh' ? 'fresh' : undefined,
       }),
     )
   const answerVocal = (a: VocalAnswer) => answer((h) => ctl.tagSaveVocal(h, a))
@@ -328,6 +340,11 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
               הכרעה ({decideSample.length})
             </Button>
           )}
+          {(freshSample.length > 0 || mode === 'fresh') && (
+            <Button variant="toggle" active={mode === 'fresh'} size="sm" onClick={() => switchMode('fresh')}>
+              סבב חדש ({freshSample.length})
+            </Button>
+          )}
           <Button variant="toggle" active={mode === 'vocal'} size="sm" onClick={() => switchMode('vocal')}>
             שירה
           </Button>
@@ -358,7 +375,19 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
 
         {sample.length > 0 && !current && !busy && (
           <div className="mx-auto max-w-xl space-y-3">
-            {mode === 'decide' ? (
+            {mode === 'fresh' ? (
+              <>
+                <He>
+                  אלה {sample.length} שירי האוס, טכנו וטראנס שעוד אף פעם לא סימנת בהם את ה-"1". המחשב לא ראה אותם כשכיוונו אותו, ולכן רק הם יכולים
+                  להגיד אם הוא באמת מגיע ל-95%.
+                </He>
+                <He>
+                  כמו בהכרעה: כל שיר נפתח בלי קו צהוב ובלי שום ניחוש. לחץ על ה-"1" של הדרופ, ורק אז יופיע הקו. אם הקיק נופל באמצע בין שני קווים, סמן את
+                  הפעימה שלפניו.
+                </He>
+                <He className="text-grid-muted">לא בטוח? דלג. דילוג לא נחשב טעות.</He>
+              </>
+            ) : mode === 'decide' ? (
               <>
                 <He>
                   אלה {sample.length} השירים שבהם ה-"1" שסימנת על גלי הקול שונה מזה שבחרת עם 4 הכפתורים. כאן אתה מכריע.

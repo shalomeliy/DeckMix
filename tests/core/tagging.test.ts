@@ -17,6 +17,7 @@ import {
   gridWithOneOn,
   pickBarSample,
   pickVocalSample,
+  pickFreshSample,
   vocalSpotSec,
 } from '@/core/tagging'
 
@@ -216,5 +217,37 @@ describe('v0.12.8 neutralSec', () => {
     const end = neutralSec(99.9, 'House/1.mp3', 120, 100)
     expect(end).toBeLessThanOrEqual(100)
     expect(((end - 99.9) / 0.5) % 1).toBeCloseTo(0)
+  })
+})
+
+describe('v0.9.5 pickFreshSample', () => {
+  const lib = [
+    ...Array.from({ length: 30 }, (_, i) => ({ id: `Trance/t${i}.mp3`, genre: 'Trance' })),
+    ...Array.from({ length: 5 }, (_, i) => ({ id: `House/h${i}.mp3`, genre: 'House' })),
+    ...Array.from({ length: 5 }, (_, i) => ({ id: `HipHop/x${i}.mp3`, genre: 'Hip Hop' })),
+  ]
+  it('takes every untagged dance song, and no other genre', () => {
+    const answered = new Set(['Trance/t0.mp3', 'House/h1.mp3'])
+    const s = pickFreshSample(lib, answered)
+    expect(s).toHaveLength(29 + 4)
+    expect(s.some((e) => e.genre === 'Hip Hop')).toBe(false)
+    expect(s.some((e) => answered.has(e.trackId))).toBe(false)
+    expect(s.every((e) => e.holdout)).toBe(true)
+  })
+  it('leaves out a song answered under another name, by content hash', () => {
+    const s = pickFreshSample([{ id: 'Trance/renamed.mp3', genre: 'Trance', contentHash: 'abc' }], new Set(['abc']))
+    expect(s).toEqual([])
+  })
+  // Trance had 9 songs and the owner added 19 (28/09): new songs in a small genre fall
+  // inside the bar sample's 24, and a "not in the bar sample" rule would have dropped them.
+  it('keeps new songs that the bar sample would also pick', () => {
+    const inBar = new Set(pickBarSample(lib).map((e) => e.trackId))
+    const fresh = pickFreshSample(lib, new Set())
+    expect(fresh.filter((e) => inBar.has(e.trackId)).length).toBeGreaterThan(0)
+  })
+  it('interleaves by genre, the same order every time', () => {
+    const a = pickFreshSample(lib, new Set())
+    expect(a.slice(0, 3).map((e) => e.genre)).toEqual(['House', 'Trance', 'House'])
+    expect(pickFreshSample([...lib].reverse(), new Set())).toEqual(a)
   })
 })

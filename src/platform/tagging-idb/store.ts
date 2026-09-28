@@ -14,6 +14,16 @@ const VOCAL_PREFIX = 'deckmix:tag:vocal:'
 const MARK_PREFIX = 'deckmix:tag:mark:'
 /** v0.12.8's blind tie-break on the songs whose two answers disagree. Its own prefix, so the two it settles stay as they were. */
 const DECIDE_PREFIX = 'deckmix:tag:decide:'
+/** v0.9.5's round on songs no detector was ever tuned on — the fair test. Its own prefix so it can never be mistaken for the 105 it is compared against. */
+const FRESH_PREFIX = 'deckmix:tag:fresh:'
+
+export interface AllTags {
+  bar: BarTag[]
+  mark: MarkTag[]
+  decide: MarkTag[]
+  fresh: MarkTag[]
+  vocal: VocalTag[]
+}
 
 /** Throws on failure, like `putGridCorrection` — the caller says so on screen. */
 export async function putMarkTag(tag: MarkTag): Promise<void> {
@@ -24,12 +34,16 @@ export async function putDecideTag(tag: MarkTag): Promise<void> {
   await set(DECIDE_PREFIX + tag.contentHash, tag)
 }
 
+export async function putFreshTag(tag: MarkTag): Promise<void> {
+  await set(FRESH_PREFIX + tag.contentHash, tag)
+}
+
 export async function putVocalTag(tag: VocalTag): Promise<void> {
   await set(VOCAL_PREFIX + tag.contentHash, tag)
 }
 
 /** Every stored tag. Throws on a blocked IndexedDB: an empty list there would read as "nothing tagged yet". */
-export async function getAllTags(): Promise<{ bar: BarTag[]; mark: MarkTag[]; decide: MarkTag[]; vocal: VocalTag[] }> {
+export async function getAllTags(): Promise<AllTags> {
   // Keys first, then only the tag values: this store is shared with the
   // analysis cache and the sampler's recorded audio, and reading every value
   // after each answer would pull all of it into memory (v0.9.0 review).
@@ -37,11 +51,13 @@ export async function getAllTags(): Promise<{ bar: BarTag[]; mark: MarkTag[]; de
   const barKeys = all.filter((k) => k.startsWith(BAR_PREFIX))
   const markKeys = all.filter((k) => k.startsWith(MARK_PREFIX))
   const decideKeys = all.filter((k) => k.startsWith(DECIDE_PREFIX))
+  const freshKeys = all.filter((k) => k.startsWith(FRESH_PREFIX))
   const vocalKeys = all.filter((k) => k.startsWith(VOCAL_PREFIX))
-  const [bar, mark, decide, vocal] = await Promise.all([
+  const [bar, mark, decide, fresh, vocal] = await Promise.all([
     getMany<BarTag>(barKeys),
     getMany<MarkTag>(markKeys),
     getMany<MarkTag>(decideKeys),
+    getMany<MarkTag>(freshKeys),
     getMany<VocalTag>(vocalKeys),
   ])
   // A key deleted between the two reads comes back undefined — not a tag.
@@ -49,6 +65,7 @@ export async function getAllTags(): Promise<{ bar: BarTag[]; mark: MarkTag[]; de
     bar: bar.filter((t): t is BarTag => t != null),
     mark: mark.filter((t): t is MarkTag => t != null),
     decide: decide.filter((t): t is MarkTag => t != null),
+    fresh: fresh.filter((t): t is MarkTag => t != null),
     vocal: vocal.filter((t): t is VocalTag => t != null),
   }
 }

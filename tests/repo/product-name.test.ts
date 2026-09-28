@@ -47,6 +47,8 @@ const STORAGE_KEYS = [
   'deckmix:tag:mark:',
   // v0.12.8: the blind tie-break on songs whose two answers disagree.
   'deckmix:tag:decide:',
+  // v0.9.5: the round on songs the detector was never tuned on.
+  'deckmix:tag:fresh:',
   'deckmix:tag:vocal:',
   'deckmix:tempo2:',
   'deckmix:trackMeta',

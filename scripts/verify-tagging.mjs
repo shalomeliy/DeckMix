@@ -15,7 +15,9 @@
  *     "הכרעה (1)" tab appears; its song opens with no marker, "this is the 1"
  *     is disabled, Space plays even clicks; a click marks and saves under
  *     deckmix:tag:decide: — the two answers it settles are left as they were.
- *  6. Export writes one JSON with every list; decks were never touched.
+ *  6. v0.9.5: a "סבב חדש (N)" tab with every dance song not answered yet, blind,
+ *     saved under deckmix:tag:fresh:.
+ *  7. Export writes one JSON with every list; decks were never touched.
  */
 import { chromium } from 'playwright'
 
@@ -306,6 +308,33 @@ ok(
   JSON.stringify({ decide: dec.d?.markSec, mark: dec.m?.markSec, corr: dec.corr?.grid }),
 )
 
+// v0.9.5: the fresh round — House/Techno/Trance songs with no "1" answer in any round, blind like the tie-break.
+const DANCE = ['House', 'Techno', 'Trance']
+const freshWant = await page.evaluate((dance) => {
+  const answered = new Set(
+    [...window.__mem.entries()].filter(([k]) => /^deckmix:tag:(mark|bar|decide):/.test(k)).map(([, v]) => v.trackId),
+  )
+  return dance.length * 8 - [...answered].filter((id) => dance.some((g) => id.startsWith(g + '/'))).length
+}, DANCE)
+const freshTab = page.getByRole('button', { name: `סבב חדש (${freshWant})` })
+ok(`a "סבב חדש (${freshWant})" tab: every dance song not answered yet`, (await freshTab.count()) === 1, await page.getByRole('dialog', { name: 'Tagging' }).locator('header').textContent())
+await freshTab.click()
+await waitCount(`נענו 0 מתוך ${freshWant}`)
+await page.getByRole('button', { name: 'להתחיל' }).click()
+await wave.waitFor({ timeout: 20000 })
+const freshGenre = await page.getByRole('dialog', { name: 'Tagging' }).locator('.text-base.font-bold').first().locator('xpath=following-sibling::div[1]').textContent()
+ok('the fresh song opens with nothing marked, and is a dance song', (await saveBtn.isDisabled()) && DANCE.some((g) => freshGenre.startsWith(g)), freshGenre)
+const box5 = await wave.boundingBox()
+await page.mouse.click(box5.x + box5.width * 0.5, box5.y + box5.height / 2)
+await saveBtn.click()
+await waitCount(`נענו 1 מתוך ${freshWant}`)
+const fresh = await page.evaluate(() => [...window.__mem.entries()].filter(([k]) => k.startsWith('deckmix:tag:fresh:')).map(([, v]) => v))
+ok(
+  'saved under deckmix:tag:fresh:, on a beat, and the song stays in the round (counted, not dropped)',
+  fresh.length === 1 && fresh[0].answer === 'marked' && fresh[0].startMarkSec === null && (await countText()) === `נענו 1 מתוך ${freshWant}`,
+  `${await countText()} ${JSON.stringify(fresh.map((f) => f.name))}`,
+)
+
 await page.getByRole('button', { name: 'שירה', exact: true }).click()
 await waitCount('תויגו 0 מתוך 10')
 ok('vocal tab: 2 per genre (the 8 in each folder, after the 6 sealed for the "1"), none tagged', (await countText()) === 'תויגו 0 מתוך 10', await countText())
@@ -338,7 +367,7 @@ const saved = await page.evaluate(() => window.__saved)
 const doc = saved ? JSON.parse(saved.text) : null
 ok(
   'export writes one JSON with the marks, the old 4-button list, the tie-breaks and the vocals, named deckmix-tags-*',
-  /^deckmix-tags-\d{4}-\d\d-\d\d\.json$/.test(saved?.name ?? '') && doc?.mark.length === 4 && doc?.bar.length === 2 && doc?.decide.length === 1 && doc?.vocal.length === 2,
+  /^deckmix-tags-\d{4}-\d\d-\d\d\.json$/.test(saved?.name ?? '') && doc?.mark.length === 4 && doc?.bar.length === 2 && doc?.decide.length === 1 && doc?.fresh?.length === 1 && doc?.vocal.length === 2,
   saved?.name,
 )
 

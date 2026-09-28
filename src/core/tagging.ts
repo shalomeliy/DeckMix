@@ -88,6 +88,40 @@ export function pickBarSample(tracks: readonly { id: string; genre?: string }[])
   return out
 }
 
+/** The genres v0.9.5's target is set on (Shalom, 28/09: ≥95% in House/Techno/Trance). */
+export const FRESH_GENRES = ['House', 'Techno', 'Trance'] as const
+
+/**
+ * The fresh round (v0.9.5): every House/Techno/Trance song with no "1" answer
+ * yet, by content hash or by the row it was tagged as. The detector was tuned
+ * on the 105 already tagged; only songs it never saw can say whether that
+ * tuning holds (Shalom asked, 28/09, and added 19 Trance songs for it — the
+ * first round had only 9). Not "outside the bar sample": new songs in a genre
+ * that had fewer than `BAR_PER_GENRE` fall *into* that sample, and would be
+ * missing from this one. Interleaved by genre, same stable order.
+ */
+export function pickFreshSample(
+  tracks: readonly { id: string; genre?: string; contentHash?: string }[],
+  answered: ReadonlySet<string>,
+): SampleEntry[] {
+  const groups = FRESH_GENRES.map(
+    (g) =>
+      [
+        g,
+        tracks
+          .filter((t) => t.genre === g && !answered.has(t.id) && !(t.contentHash && answered.has(t.contentHash)))
+          .map((t) => t.id)
+          .sort((a, b) => stableKey(a) - stableKey(b) || a.localeCompare(b)),
+      ] as const,
+  )
+  const out: SampleEntry[] = []
+  const most = Math.max(0, ...groups.map(([, ids]) => ids.length))
+  for (let i = 0; i < most; i++) {
+    for (const [genre, ids] of groups) if (i < ids.length) out.push({ trackId: ids[i], genre, holdout: true })
+  }
+  return out
+}
+
 /** The vocal sample: songs right after the bar holdout in the same order, so the two sealed sets do not overlap. */
 export function pickVocalSample(tracks: readonly { id: string; genre?: string }[]): SampleEntry[] {
   const groups = genreGroups(tracks).map(
@@ -305,7 +339,8 @@ export function tagsExportText(
   vocal: readonly VocalTag[],
   exportedAt: number,
   decide: readonly MarkTag[] = [],
+  fresh: readonly MarkTag[] = [],
 ): string {
   // `bar` keeps its name and shape, so a v0.9.0 script finds its list — as long as it does not insist on schema 1.
-  return JSON.stringify({ app: 'DeckMix', kind: 'tags', schema: MARK_SCHEMA, exportedAt, mark, bar, decide, vocal }, null, 2)
+  return JSON.stringify({ app: 'DeckMix', kind: 'tags', schema: MARK_SCHEMA, exportedAt, mark, bar, decide, fresh, vocal }, null, 2)
 }

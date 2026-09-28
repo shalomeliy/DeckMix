@@ -81,14 +81,12 @@ import {
   startMarkSec,
   tagsExportText,
   vocalSpotSec,
-  type BarTag,
   type MarkAnswer,
   type MarkTag,
   type SampleEntry,
   type VocalAnswer,
-  type VocalTag,
 } from '@/core/tagging'
-import { getAllTags, putDecideTag, putMarkTag, putVocalTag } from '@/platform/tagging-idb/store'
+import { getAllTags, putDecideTag, putFreshTag, putMarkTag, putVocalTag, type AllTags } from '@/platform/tagging-idb/store'
 import { TagPlayer } from '@/platform/audio-webaudio/tag-player'
 import {
   hasMixEntryNear,
@@ -4573,8 +4571,12 @@ export interface MarkInput {
   startMarkSec: number | null
   answerMs: number
   plays: number
-  /** v0.12.8: a blind tie-break answer, stored apart from the two answers it settles. */
-  decide?: boolean
+  /**
+   * Which blind round the answer belongs to, each stored apart: v0.12.8's
+   * tie-break (apart from the two answers it settles) or v0.9.5's fresh round.
+   * Absent = the waveform round.
+   */
+  round?: 'decide' | 'fresh'
 }
 
 /**
@@ -4613,7 +4615,7 @@ export async function tagSaveMark(shownHash: string, input: MarkInput): Promise<
     taggedAt: Date.now(),
   }
   try {
-    await (input.decide ? putDecideTag(tag) : putMarkTag(tag))
+    await (input.round === 'decide' ? putDecideTag(tag) : input.round === 'fresh' ? putFreshTag(tag) : putMarkTag(tag))
     if (markSec != null && grid) {
       const next = setDownbeatAt(grid.bpm, markSec)
       await putGridCorrection(c.contentHash, ownerCorrection(next, tag.taggedAt))
@@ -4652,7 +4654,7 @@ export async function tagSaveVocal(shownHash: string, answer: VocalAnswer): Prom
 }
 
 /** Every tag so far, or `null` with the reason on screen — never an empty list standing in for "could not read". */
-export async function tagLoadAll(): Promise<{ bar: BarTag[]; mark: MarkTag[]; decide: MarkTag[]; vocal: VocalTag[] } | null> {
+export async function tagLoadAll(): Promise<AllTags | null> {
   try {
     return await getAllTags()
   } catch (err) {
@@ -4666,10 +4668,10 @@ export async function tagExport(): Promise<void> {
   const { setNotice } = useStore.getState()
   const day = new Date().toISOString().slice(0, 10)
   try {
-    const r = await saveTagsJson(tagsExportText(all.bar, all.mark, all.vocal, Date.now(), all.decide), `deckmix-tags-${day}.json`)
+    const r = await saveTagsJson(tagsExportText(all.bar, all.mark, all.vocal, Date.now(), all.decide, all.fresh), `deckmix-tags-${day}.json`)
     if (r === 'ok')
       setNotice({
-        text: `Exported ${all.mark.length} waveform "1" tags, ${all.bar.length} earlier 4-button "1" tags, ${all.decide.length} tie-break answers and ${all.vocal.length} vocal tags.`,
+        text: `Exported ${all.mark.length} waveform "1" tags, ${all.bar.length} earlier 4-button "1" tags, ${all.decide.length} tie-break answers, ${all.fresh.length} new-round answers and ${all.vocal.length} vocal tags.`,
         tone: 'info',
         source: 'tagging',
       })
