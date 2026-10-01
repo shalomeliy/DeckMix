@@ -27,6 +27,7 @@ import {
   type VocalResult,
 } from '@/core/sound/vocal-timeline'
 import type { PcmData } from '@/core/ports/analyzer'
+import { voiceCues, type VoiceCues } from '@/core/sound/voice-cues'
 
 const TARGET_SR = 22050
 const FRAME = 2048
@@ -59,6 +60,8 @@ export interface VocalFeatures {
   motion: Float32Array
   /** Log of the harmonic vocal-band energy — whether anything is there at all. */
   level: Float32Array
+  /** v0.12.15: pitch instability, flatness and mel-cepstral coefficients (voice-cues.ts). Not part of the score yet. */
+  cues: VoiceCues
 }
 
 export type FeaturesOrState = { features: VocalFeatures } | { result: VocalResult }
@@ -242,7 +245,8 @@ export function vocalFeatures(pcm: PcmData): FeaturesOrState {
     motion[t] = Math.sqrt(s / n)
   }
 
-  return { features: { frameSec: HOP / sr2, frames, stereo, harmonic, centre, bright, motion, level } }
+  const cues = voiceCues(mag, frames, B, kLo, hz)
+  return { features: { frameSec: HOP / sr2, frames, stereo, harmonic, centre, bright, motion, level, cues } }
 }
 
 /** The constants of the score. Fitted on the training clips; see the file comment. */

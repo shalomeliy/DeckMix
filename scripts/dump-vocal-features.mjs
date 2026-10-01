@@ -4,7 +4,7 @@
  * score can be fitted offline on the owner's TRAINING clips without decoding again. The sealed songs are
  * dumped like the others, but the fitting script never reads their labels.
  *
- *   node scripts/dump-vocal-features.mjs   ->  %TEMP%/vocal-features.json   (needs npm run dev on :5173)
+ *   node scripts/dump-vocal-features.mjs   ->  %TEMP%/vocal-features.json   (needs npm run dev; DEV=http://localhost:<port> when it is not on 5173)
  */
 import fs from 'node:fs'
 import os from 'node:os'
@@ -38,8 +38,8 @@ const rows = []
 for (let i = 0; i < songs.length; i++) {
   const r = await page
     .evaluate(
-      async ({ i, base }) => {
-        const V = 'http://localhost:5173/src'
+      async ({ i, base, dev }) => {
+        const V = `${dev}/src`
         const { pcmFromAudioBuffer } = await import(`${V}/platform/analyzer-js/analyze.ts`)
         const { vocalFeatures } = await import(`${V}/core/sound/vocal-presence.ts`)
         const { repairWav } = await import(`${V}/core/wav-repair.ts`)
@@ -66,9 +66,10 @@ for (let i = 0; i < songs.length; i++) {
           bright: a(f.bright),
           motion: a(f.motion),
           level: a(f.level),
+          cues: { fluct: a(f.cues.fluct), consist: a(f.cues.consist), flat: a(f.cues.flat), mfcc: Array.from(f.cues.mfcc, (v) => Math.round(v * 1e3) / 1e3) },
         }
       },
-      { i, base: BASE },
+      { i, base: BASE, dev: process.env.DEV ?? 'http://localhost:5173' },
     )
     .catch((e) => ({ error: String(e.message).split('\n')[0] }))
   rows.push({ s: songs[i], r })

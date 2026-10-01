@@ -56,13 +56,30 @@ def real_report(model, idx, tag):
         out[label] = f"{100*acc:.0f}% (n={mask.sum()}, baseline {100*base:.0f}%, AUC {auc:.2f})"
     print(f"  {tag:<34} real clips: all {out['all']}; dance {out['dance']}")
 
+# Which single feature separates the owner's real clips at all, with no training? (A diagnostic: it picks nothing.)
+# AUC 0.5 = no separation; 0.5 +/- 0.15 is worth a look. Sign shows which way: above 0.5 means "higher = vocal".
+print("\nunivariate AUC on the owner's training clips (mean of the feature over each 5 s clip):")
+ans_all = np.array([c["answer"] == "yes" for c in real["clips"]])
+dance_all = np.array([c["genre"] in DANCE for c in real["clips"]])
+for j, n in enumerate(names):
+    v = np.array([np.mean([r[j] for r in c["rows"]]) if c["rows"] else 0.0 for c in real["clips"]])
+    a_all = roc_auc_score(ans_all, v)
+    a_dance = roc_auc_score(ans_all[dance_all], v[dance_all]) if len(set(ans_all[dance_all])) > 1 else float("nan")
+    flag = "  <--" if abs(a_dance - 0.5) >= 0.15 and abs(a_all - 0.5) >= 0.1 else ""
+    print(f"  {n:<20} all {a_all:.2f}   dance {a_dance:.2f}{flag}")
+print()
+
+OLD = names[:16]
 sets = {
     "existing 4 cues only": ["harmonic_mean", "centre_mean", "bright_mean", "motion_mean", "stereo"],
     "all means (no spread, no context)": [n for n in names if n.endswith("_mean")] + ["stereo"],
-    "all 16 features": names,
+    "first 16 features": OLD,
     # Diagnostic, not a search: the strongest weight above is the LEVEL of the harmonic band, which in
     # a synthetic mix rises whenever a voice is laid on, but in a mastered song does not.
-    "all except level (13 features)": [n for n in names if not n.startswith("rel_level")],
+    "all except level (13 features)": [n for n in OLD if not n.startswith("rel_level")],
+    "new voice cues only (12)": names[16:],
+    "all 28 features": names,
+    "all 28 except level (25)": [n for n in names if not n.startswith("rel_level")],
 }
 for tag, cols in sets.items():
     model, idx = fit(cols)
@@ -72,6 +89,6 @@ for tag, cols in sets.items():
 
 model, idx = fit(names)
 coef = model.named_steps["logisticregression"].coef_[0]
-print("\nstrongest features in the 16-feature model (standardised weight):")
-for i in np.argsort(-np.abs(coef))[:8]:
+print("\nstrongest features in the 28-feature model (standardised weight):")
+for i in np.argsort(-np.abs(coef))[:10]:
     print(f"  {names[idx[i]]:<18} {coef[i]:+.2f}")
