@@ -3,10 +3,13 @@
  * optional vocal clips laid over them and the vocal label read off the vocal stem.
  *
  *   node scripts/train/make-mixes.mjs --count 20 [--seed 1] [--bars 48] [--sr 44100] [--stems]
- *        [--out %TEMP%/deckmix-mixes] [--vocals <dir>]
+ *        [--out %TEMP%/deckmix-mixes] [--vocals <dir>] [--max-clips 200]
  *
- * <dir> holds .wav vocal clips plus `sources.json`: { "<file.wav>": { "license": "CC-BY-4.0", "origin": "<url>" } }.
- * A clip with no entry, or a license that is not CC0 / CC BY, is REFUSED and listed — never used quietly.
+ * <dir> holds .wav vocal clips (any depth) plus `sources.json`:
+ *   { "_default": { "license": "CC-BY-4.0", "origin": "<url>" }, "<relative/file.wav>": { ...overrides } }.
+ * `_default` is for a whole dataset that carries one license (VocalSet); a per-file entry wins over it.
+ * A clip with no license at all, or one that is not CC0 / CC BY, is REFUSED and listed — never used quietly.
+ * At most --max-clips clips are decoded (chosen by a seeded shuffle): all 3,500 VocalSet files would be ~6 GB of RAM.
  * Output stays outside the repo (the data and its credits are not source code). `manifest.json` records,
  * per mix: seed, tempo, key, the vocal clips used, and the label cells (0 none, 1 voice, 2 ignore).
  */
@@ -34,9 +37,22 @@ try {
   const refused = []
   if (vocalsDir) {
     const declared = JSON.parse(fs.readFileSync(path.join(vocalsDir, 'sources.json'), 'utf8'))
-    const files = fs.readdirSync(vocalsDir).filter((f) => f.toLowerCase().endsWith('.wav'))
-    const records = files.map((f) => ({ id: f, license: declared[f]?.license ?? '', origin: declared[f]?.origin ?? '' }))
+    const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]))
+    const all = walk(vocalsDir)
+      .map((f) => path.relative(vocalsDir, f).split(path.sep).join('/'))
+      .filter((f) => f.toLowerCase().endsWith('.wav'))
+    const records = all.map((f) => ({ id: f, license: declared[f]?.license ?? declared._default?.license ?? '', origin: declared[f]?.origin ?? declared._default?.origin ?? '' }))
     const vetted = synth.vetSources(records)
+    // Seeded shuffle, then cap: the same --seed always picks the same clips.
+    let a = seed0 >>> 0
+    const rnd = () => ((a = (Math.imul(a, 1664525) + 1013904223) >>> 0) / 4294967296)
+    const maxClips = Number(arg('max-clips', 200))
+    for (let i = vetted.ok.length - 1; i > 0; i--) {
+      const j = Math.floor(rnd() * (i + 1))
+      ;[vetted.ok[i], vetted.ok[j]] = [vetted.ok[j], vetted.ok[i]]
+    }
+    if (vetted.ok.length > maxClips) console.log(`using ${maxClips} of ${vetted.ok.length} usable clips (--max-clips)`)
+    vetted.ok = vetted.ok.slice(0, maxClips)
     refused.push(...vetted.refused.map((x) => `${x.source.id}: ${x.reason}`))
     for (const s of vetted.ok) {
       try {
