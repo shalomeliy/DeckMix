@@ -36,6 +36,15 @@
         "--fresh"
       ],
       "port": 5190
+    },
+    {
+      "name": "deckmix-listen-pickup",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/listen-downbeat.mjs",
+        "--pickup"
+      ],
+      "port": 5191
     }
   ]
 }

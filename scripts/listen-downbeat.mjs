@@ -29,7 +29,10 @@ const ROOT = String.raw`C:\Users\Shalom\Music\Tracks`
 const HOLDOUT = process.argv.includes('--holdout')
 // --fresh (28/09, third round): the 43 songs of the v0.9.5 new round, their answer read from the features row
 const FRESH = process.argv.includes('--fresh')
-const OUT = path.join(os.homedir(), 'Downloads', FRESH ? 'deckmix-listen-2026-09-28-fresh.json' : HOLDOUT ? 'deckmix-listen-2026-09-28-test.json' : 'deckmix-listen-2026-09-28.json')
+// --pickup (01/10): the six dance songs where the ears' "1" is one beat before the kick comes back
+// (vocal pickup?). Not a measurement, a convention decision: no controls, nothing blinded about which is the kick.
+const PICKUP = process.argv.includes('--pickup')
+const OUT = PICKUP ? path.join(os.homedir(), 'Downloads', 'deckmix-listen-2026-10-01-pickup.json') : path.join(os.homedir(), 'Downloads', FRESH ? 'deckmix-listen-2026-09-28-fresh.json' : HOLDOUT ? 'deckmix-listen-2026-09-28-test.json' : 'deckmix-listen-2026-09-28.json')
 // the method each round was built against: the training round ran on kickPrior, the test round on the frozen one
 const METHOD = HOLDOUT || FRESH ? 'kickHalf_W16_s1_l0.3' : 'kickPrior'
 const TAGS = JSON.parse(fs.readFileSync(path.join(os.homedir(), 'Downloads', 'deckmix-tags-2026-09-28 - 26 songs.json'), 'utf8'))
@@ -69,6 +72,45 @@ const items = [...disagree.map((x) => ({ ...x, control: false })), ...controls.m
       offsetBeats: d,
     }
   })
+if (PICKUP) {
+  const rises = JSON.parse(fs.readFileSync(path.join(process.env.TEMP ?? '.', 'halfbeat-rises.json'), 'utf8'))
+  const marks = new Map()
+  for (const f of ['deckmix-tags-2026-09-28 - 26 songs.json', 'deckmix-tags-2026-09-28 - 46 songs.json', 'deckmix-tags-2026-10-01 - 272 songs.json']) {
+    const t = JSON.parse(fs.readFileSync(path.join(os.homedir(), 'Downloads', f), 'utf8'))
+    for (const m of [...(t.mark ?? []), ...(t.fresh ?? [])]) if (m.markSec != null) marks.set(m.trackId, m.markSec)
+  }
+  items.length = 0
+  for (const r of rises) {
+    const rel = detectorRel(r)
+    if (rel !== 3) continue // truth = detector - 1: the ears' 1 is a beat before the kick entry
+    const beat = 60 / r.grid.bpm
+    const markSec = marks.get(r.id)
+    if (markSec == null) continue
+    const mine = r.grid.offsetSec + Math.round((markSec - r.grid.offsetSec) / beat) * beat
+    const mineIsA = rnd() < 0.5
+    items.push({ i: items.length, contentHash: r.id, trackId: r.id, control: false, bpm: r.grid.bpm, a: mineIsA ? mine : mine + beat, b: mineIsA ? mine + beat : mine, mineIsA, offsetBeats: 1 })
+  }
+}
+function detectorRel(r) {
+  const x = r.bands[0]
+  const sorted = Float64Array.from(x).sort()
+  const p = sorted[Math.floor(0.9 * (sorted.length - 1))]
+  const n = x.map((v) => v / p)
+  const mean = (a, b) => { let t = 0; for (let i = a; i < b; i++) t += n[i]; return t / (b - a) }
+  const sc = []
+  for (let k = 16; k + 16 <= n.length; k++) {
+    const rr = mean(k, k + 16) - mean(k - 16, k)
+    const jump = n[k] - Math.max(n[k - 1], n[k - 2])
+    if (rr > 0 && jump > 0) sc.push([rr * jump, k])
+  }
+  sc.sort((a, b) => b[0] - a[0])
+  const votes = [0, 0, 0, 0], taken = []
+  for (const [v, k] of sc) { if (taken.length >= 8) break; if (taken.some((j) => Math.abs(j - k) < 32)) continue; taken.push(k); votes[Math.floor(k / 2) % 4] += v }
+  const tot = votes.reduce((a, b) => a + b, 0) || 1
+  const s2 = votes.map((v, q) => v / tot + (q === 0 ? 0.3 : 0))
+  const got = [0, 1, 2, 3].sort((a, b) => s2[b] - s2[a])[0]
+  return (r.truth - got + 4) % 4
+}
 console.log(`${disagree.length} disagreements + ${controls.length} controls = ${items.length} songs`)
 
 const saved = fs.existsSync(OUT) ? JSON.parse(fs.readFileSync(OUT, 'utf8')) : { answers: {} }
@@ -82,7 +124,7 @@ button:hover{border-color:#aaa} button.play{background:#2d3b5c} button.ans{backg
 .muted{color:#999;font-size:14px} h1{font-size:22px} .name{font-size:18px;margin:12px 0}
 </style>
 <h1>איפה ה-1? סבב האזנה</h1>
-<p class="muted">כל שיר מתנגן פעמיים על אותו קטע, עם תקתוק חזק על ה-"1" ותקתוק חלש על שאר הפעימות. ההבדל היחיד בין א' ל-ב' הוא איפה התקתוק החזק. בחר את זה שנשמע נכון.</p>
+${PICKUP ? '<p class="muted"><b>זו לא בדיקה אלא החלטה:</b> בכל שיר, אחד התקתוקים החזקים על הפעימה שבה הקיק חוזר, והשני פעימה לפניה (שם בדרך כלל נכנס הוואקאל או ההכנה). בחר איפה לדעתך ה-"1" של השיר בשבילך ואותו כלל נשתמש בכל הספרייה.</p>' : ''}<p class="muted">כל שיר מתנגן פעמיים על אותו קטע, עם תקתוק חזק על ה-"1" ותקתוק חלש על שאר הפעימות. ההבדל היחיד בין א' ל-ב' הוא איפה התקתוק החזק. בחר את זה שנשמע נכון.</p>
 <div id="app">טוען…</div>
 <script type="module">
 const items = ${JSON.stringify(publicItems)}
@@ -185,4 +227,4 @@ http
     }
     res.writeHead(404).end()
   })
-  .listen(FRESH ? 5190 : HOLDOUT ? 5189 : 5188, '127.0.0.1', () => console.log(`open http://127.0.0.1:${FRESH ? 5190 : HOLDOUT ? 5189 : 5188}`))
+  .listen(PICKUP ? 5191 : PICKUP ? 5191 : FRESH ? 5190 : HOLDOUT ? 5189 : 5188, '127.0.0.1', () => console.log(`open http://127.0.0.1:${PICKUP ? 5191 : PICKUP ? 5191 : FRESH ? 5190 : HOLDOUT ? 5189 : 5188}`))
