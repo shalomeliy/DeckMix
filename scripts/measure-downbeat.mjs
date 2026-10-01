@@ -21,10 +21,19 @@ const read = (f) => JSON.parse(fs.readFileSync(path.join(DL, f), 'utf8'))
 const t26 = read('deckmix-tags-2026-09-28 - 26 songs.json')
 const t46 = read('deckmix-tags-2026-09-28 - 46 songs.json')
 const decide = new Map(t26.decide.filter((d) => d.answer === 'marked').map((d) => [d.contentHash, d.markSec]))
+// 01/10: the 272-song round. Only songs no earlier file had are 'fresh2' - the method was frozen
+// (a746d1f) before this file was opened, and no listening round has touched these answers.
+const t272 = read('deckmix-tags-2026-10-01 - 272 songs.json')
 const songs = [
   ...t26.mark.filter((m) => m.detectorGrid).map((m) => ({ ...m, set: m.holdout ? 'sealed' : 'train', truthSec: decide.get(m.contentHash) ?? m.markSec })),
   ...t46.fresh.filter((m) => m.answer === 'marked' && m.detectorGrid).map((m) => ({ ...m, set: 'fresh', truthSec: m.markSec })),
 ]
+const seen = new Set(songs.map((x) => x.contentHash))
+for (const m of t272.fresh) {
+  if (m.answer !== 'marked' || !m.detectorGrid || seen.has(m.contentHash)) continue
+  seen.add(m.contentHash)
+  songs.push({ ...m, set: 'fresh2', truthSec: m.markSec })
+}
 // the listening rounds: where the ears picked the other click, that is the answer
 for (const f of ['deckmix-listen-2026-09-28.json', 'deckmix-listen-2026-09-28-test.json', 'deckmix-listen-2026-09-28-fresh.json']) {
   if (!fs.existsSync(path.join(DL, f))) continue
@@ -94,7 +103,7 @@ for (const src of ['wave', 'kick']) {
 console.log(`
 ${src === 'wave' ? 'cached waveform low band (<200 Hz)' : 'kick band from the decoded track (<150 Hz, buildOnsetEnvelope)'}`)
 const rowsSrc = all.map((x) => ({ s: x.s, r: x.r?.error ? x.r : x.r?.[src] }))
-for (const set of ['train', 'sealed', 'fresh', 'unseen']) {
+for (const set of ['train', 'sealed', 'fresh', 'fresh2', 'unseen']) {
   const sel = rowsSrc.filter(({ s, r }) => !r?.error && DANCE.has(s.genre) === (GENRE_SET === 'dance') && (set === 'unseen' ? s.set !== 'train' : s.set === set))
   const ok = (x) => (x.r ? x.r.beat : 0) === beatOf(x.s.truthSec, x.s.detectorGrid)
   const first = sel.filter((x) => beatOf(x.s.truthSec, x.s.detectorGrid) === 0).length
