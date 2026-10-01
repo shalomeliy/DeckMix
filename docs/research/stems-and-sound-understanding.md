@@ -1,6 +1,6 @@
 # Stems and sound understanding — research report
 
-Written 2026-09-24 for ROADMAP v0.20.0 ("Stems") and the "sounds similar" work (v0.8.18).
+Written 2026-09-24 for ROADMAP v0.12.15 (was v0.20.0) ("Stems") and the "sounds similar" work (v0.8.18).
 Research only: no code was changed. It answers one question: **what is the best legal,
 feasible way for DeckMix to "understand" drums versus vocals versus bass+melody, and
 later to play stems?**
@@ -45,7 +45,7 @@ gates: **a data decision** (§8.4) and **a freedom-to-operate patent opinion** (
 
 ### The ROADMAP claim, checked
 
-`ROADMAP.md` v0.20.0 says the Demucs code is MIT but the weights are "for scientific use only".
+`ROADMAP.md` v0.12.15 says the Demucs code is MIT but the weights are "for scientific use only".
 **VERIFIED, and stated precisely:**
 
 - The code's LICENSE (https://github.com/facebookresearch/demucs/blob/main/LICENSE) is the

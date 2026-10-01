@@ -68,7 +68,11 @@ describe('no other DJ software is named outside the named exemptions', () => {
   it('holds for every tracked text file', () => {
     requireGit()
     const hits: string[] = []
-    for (const file of git('ls-files').split('\n')) {
+    // File and folder names count too (owner, 01/10: the notes pages' names as well as
+    // their text), and so do new files not yet committed — a name is checked before
+    // it ever reaches a commit.
+    for (const file of git('ls-files', '--cached', '--others', '--exclude-standard').split('\n')) {
+      if (file && !EXEMPT.has(file) && namesIn(file.replace(/\.[^./]+$/, ''))) hits.push(`${file} (file name)`)
       if (!TEXT.test(file) || EXEMPT.has(file) || file === 'package-lock.json') continue
       read(file)
         .split('\n')
