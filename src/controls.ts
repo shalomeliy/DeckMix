@@ -4551,11 +4551,14 @@ export async function tagPrepare(entry: SampleEntry, opts: { needGrid: boolean; 
   if (opts.suspectClips) {
     // Main thread, a few seconds: the same detector the app ships, run once to find where it hears singing. A failure is not hidden —
     // the clips fall back to random spots, are saved as `random`, and the screen shows the count of suspect clips.
+    // Let the "opening…" text paint first, and drop a song a newer request already replaced before spending seconds on it.
+    await new Promise((res) => setTimeout(res, 0))
+    if (seq !== tagSeq) return null
     const r = detectVocalTimeline(pcmFromAudioBuffer(buffer))
     if (r.timeline) vocalClips = vocalRound2Clips(entry.trackId, buffer.duration, r.timeline.cells)
     else {
       vocalClips = vocalRound2Clips(entry.trackId, buffer.duration, null)
-      tagFail(`"${name}": the vocal detector gave no timeline (${r.state}), so all its clips are random spots.`)
+      tagFail(`"${name}": גלאי השירה לא החזיר תוצאה (${r.state}), לכן כל הקטעים בשיר הזה אקראיים.`)
     }
   }
   tagCurrent = { entry, name, contentHash, buffer, detectorGrid, shownGrid, replaced, vocalClips }
