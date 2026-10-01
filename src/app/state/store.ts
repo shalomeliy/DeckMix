@@ -97,6 +97,7 @@ function emptyDeck(id: DeckId): DeckState {
     vinylMode: true,
     scratching: false,
     loopActive: false,
+    loopRange: null,
     loopBeats: 4,
     cueMonitor: false,
     padMode: 'hotcue',

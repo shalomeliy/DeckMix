@@ -439,6 +439,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     cuePointSec,
     excellentMixPoints,
     loopActive: false,
+    loopRange: null,
   })
   // A (re)load can change this deck's bpm/tempo as much as touching the
   // tempo fader does — found by change-reviewer (v0.8.6): loading a track
@@ -635,7 +636,7 @@ export function ejectDeck(deckId: DeckId) {
   // track, so it doesn't pop straight back up as a suggestion.
   markRecentlyRemoved(st.track.id)
   const deck = engine.decks[deckId]
-  deck.clearLoop()
+  stopLoop(deckId)
   deck.unload()
   patchDeck(deckId, {
     track: null,
@@ -651,6 +652,7 @@ export function ejectDeck(deckId: DeckId) {
     hotCues: [],
     cuePointSec: 0,
     loopActive: false,
+    loopRange: null,
     scratching: false,
     excellentMixPoints: [],
   })
@@ -1524,19 +1526,35 @@ export function renameHotCue(deckId: DeckId, index: number, label: string) {
   persistCues(deckId)
 }
 
+/**
+ * The only two doors to the engine's loop. The waveform draws the loop from
+ * `loopRange` in the store, so a loop set straight on the engine (Loop Roll
+ * never touches `loopActive`) would play with nothing on screen — the same
+ * "audible but invisible" gap the project refuses everywhere else.
+ */
+function startLoop(deckId: DeckId, startSec: number, endSec: number) {
+  engine.decks[deckId].setLoop(startSec, endSec)
+  useStore.getState().patchDeck(deckId, { loopRange: { startSec, endSec } })
+}
+
+function stopLoop(deckId: DeckId) {
+  engine.decks[deckId].clearLoop()
+  useStore.getState().patchDeck(deckId, { loopRange: null })
+}
+
 export function toggleLoop(deckId: DeckId) {
   const deck = engine.decks[deckId]
   if (!deck.hasTrack) return
   const { patchDeck, decks } = useStore.getState()
   const st = decks[deckId]
   if (st.loopActive) {
-    deck.clearLoop()
+    stopLoop(deckId)
     patchDeck(deckId, { loopActive: false })
   } else {
     const bpm = st.bpm ?? 120
     const beatSec = 60 / bpm
     const start = quantizeIfOn(deckId, deck.position)
-    deck.setLoop(start, start + beatSec * st.loopBeats)
+    startLoop(deckId, start, start + beatSec * st.loopBeats)
     patchDeck(deckId, { loopActive: true })
   }
 }
@@ -1550,7 +1568,7 @@ export function setLoopBeats(deckId: DeckId, beats: number) {
     const deck = engine.decks[deckId]
     const beatSec = 60 / st.bpm
     const start = deck.loopStart ?? deck.position
-    deck.setLoop(start, start + beatSec * b)
+    startLoop(deckId, start, start + beatSec * b)
   }
 }
 
@@ -1579,9 +1597,11 @@ function releaseLoopRoll(deckId: DeckId) {
   const rate = tempoToRate(tempo, settings.values.tempoRange)
   const elapsedSec = (engine.currentTime - roll.startedAtSec) * rate
   const target = loopRollReturnSec(roll.entrySec, elapsedSec, deck.duration)
-  deck.clearLoop()
+  stopLoop(deckId)
   deck.seek(target)
-  useStore.getState().patchDeck(deckId, { positionSec: target })
+  // A roll pressed over a normal loop replaced it in the engine; leaving `loopActive`
+  // on would light the LOOP button with no loop behind it.
+  useStore.getState().patchDeck(deckId, { positionSec: target, loopActive: false })
 }
 
 /**
@@ -1602,7 +1622,7 @@ export function setPadMode(deckId: DeckId, mode: PadMode) {
   if (st.padMode === mode) return
   releaseLoopRoll(deckId)
   if (st.padMode === 'loop' && mode !== 'loop' && st.loopActive) {
-    engine.decks[deckId].clearLoop()
+    stopLoop(deckId)
     patchDeck(deckId, { loopActive: false })
     setNotice({
       text: `Loop stopped on deck ${deckId} — switched away from Loop mode.`,
@@ -1624,13 +1644,13 @@ function pressLoopPad(deckId: DeckId, beats: number) {
   const { patchDeck, decks } = useStore.getState()
   const st = decks[deckId]
   if (st.loopActive && st.loopBeats === beats) {
-    deck.clearLoop()
+    stopLoop(deckId)
     patchDeck(deckId, { loopActive: false })
     return
   }
   const bpm = st.bpm ?? 120
   const start = quantizeIfOn(deckId, deck.position)
-  deck.setLoop(start, start + (60 / bpm) * beats)
+  startLoop(deckId, start, start + (60 / bpm) * beats)
   patchDeck(deckId, { loopActive: true, loopBeats: beats })
 }
 
@@ -1640,7 +1660,7 @@ function pressLoopRollPad(deckId: DeckId, beats: number): () => void {
   const bpm = useStore.getState().decks[deckId].bpm ?? 120
   const entrySec = quantizeIfOn(deckId, deck.position)
   loopRollByDeck[deckId] = { entrySec, startedAtSec: engine.currentTime }
-  deck.setLoop(entrySec, entrySec + (60 / bpm) * beats)
+  startLoop(deckId, entrySec, entrySec + (60 / bpm) * beats)
   return () => releaseLoopRoll(deckId)
 }
 

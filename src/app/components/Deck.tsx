@@ -363,6 +363,7 @@ export function Deck({ deckId }: { deckId: DeckId }) {
         offsetSec={deck.beatGrid?.offsetSec ?? 0}
         barUnsure={deck.barOneUnsure}
         hotCues={deck.hotCues}
+        loopRange={deck.loopRange}
         color={color}
         loading={deck.loading}
         onSeek={(s) => ctl.seekDeckByHand(deckId, s)}

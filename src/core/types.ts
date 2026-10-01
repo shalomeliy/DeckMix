@@ -195,6 +195,8 @@ export interface DeckState {
   /** a hand is on the platter right now */
   scratching: boolean
   loopActive: boolean
+  /** where the engine's loop actually is, Loop Roll included; null = none. Drawn on the waveform. */
+  loopRange: { startSec: number; endSec: number } | null
   loopBeats: number
   cueMonitor: boolean
   /** which pad-grid mode this deck's pads are in (v0.5.0). Not persisted — resets to 'hotcue' on app reload, but survives a track load on the same deck. */

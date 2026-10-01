@@ -19,6 +19,8 @@ interface Props {
   /** v0.9.5: the bar line's "1" is the detector's unsure guess — bar lines are drawn dashed. */
   barUnsure?: boolean
   hotCues: HotCue[]
+  /** the engine's loop, Loop Roll included (v0.12.9). Drawn as a band so a loop that is playing is never invisible. */
+  loopRange?: { startSec: number; endSec: number } | null
   color: string
   loading?: boolean
   onSeek: (sec: number) => void
@@ -50,6 +52,7 @@ export function Waveform({
   offsetSec = 0,
   barUnsure = false,
   hotCues,
+  loopRange = null,
   color,
   loading = false,
   onSeek,
@@ -235,6 +238,26 @@ export function Waveform({
       }
     }
 
+    // loop band — over the body but under the grid and cues, so the bar lines
+    // stay readable inside it. Clamped to the canvas: a long loop's far edge is
+    // off-screen and must not draw a stray edge line at the border.
+    if (loopRange) {
+      const x0 = w / 2 + (loopRange.startSec - positionSec) * PX_PER_SEC
+      const x1 = w / 2 + (loopRange.endSec - positionSec) * PX_PER_SEC
+      if (x1 > 0 && x0 < w) {
+        const l = Math.max(0, x0)
+        ctx.fillStyle = 'rgba(80,255,150,0.16)'
+        ctx.fillRect(l, 0, Math.min(w, x1) - l, h)
+        ctx.fillStyle = 'rgba(80,255,150,0.95)'
+        if (x0 >= 0) ctx.fillRect(x0 - 1, 0, 2, h)
+        if (x1 <= w) ctx.fillRect(x1 - 1, 0, 2, h)
+        // set again: with both edges off-screen the fill above is still the 0.16 tint
+        ctx.fillStyle = 'rgba(80,255,150,0.95)'
+        ctx.font = '700 9px Inter Variable, sans-serif'
+        ctx.fillText('LOOP', l + 4, h - 5)
+      }
+    }
+
     // hot cue flags
     for (const cue of hotCues) {
       const x = w / 2 + (cue.positionSec - positionSec) * PX_PER_SEC
@@ -263,7 +286,7 @@ export function Waveform({
     ctx.closePath()
     ctx.fillStyle = '#fff'
     ctx.fill()
-  }, [peaks, bands, positionSec, durationSec, bpm, offsetSec, barUnsure, hotCues, color, loading, size, PX_PER_SEC, hiResCanvas, waveformColorByEq])
+  }, [peaks, bands, positionSec, durationSec, bpm, offsetSec, barUnsure, hotCues, loopRange, color, loading, size, PX_PER_SEC, hiResCanvas, waveformColorByEq])
 
   const seekToPointer = (clientX: number) => {
     const canvas = canvasRef.current
