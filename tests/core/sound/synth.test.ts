@@ -168,7 +168,7 @@ describe('realism (round 3)', () => {
   it('lets a laid-on voice raise the level of the mix less than the plain mix does', () => {
     // The point of the bus compressor: round 2 showed the classifier learning "louder = vocal".
     expect(levelLift(true)).toBeLessThan(levelLift(false))
-  })
+  }, 30_000) // eight mixes with reverb: fine alone, over the 5 s default when the whole suite shares the CPU
 
   it('keeps the stems summing to the mixture with the compressor in', () => {
     const m = makeMix(32, [clip], opts)
