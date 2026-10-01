@@ -40,7 +40,7 @@ def cells(cs):
 
 def run(tag, use_syn, real_w, cols):
     idx = [names.index(n) for n in cols]
-    p_clip, a_clip, dance = [], [], []
+    p_clip, a_clip, dance, genre = [], [], [], []
     for held in songs:
         tr = [c for c in clips if c["hash"] != held]
         te = [c for c in clips if c["hash"] == held]
@@ -55,14 +55,21 @@ def run(tag, use_syn, real_w, cols):
         m.fit(X, y, logisticregression__sample_weight=w)
         for c in te:
             p_clip.append(m.predict_proba(np.array(c["rows"])[:, idx])[:, 1].mean())
-            a_clip.append(c["answer"] == "yes"); dance.append(c["genre"] in DANCE)
+            a_clip.append(c["answer"] == "yes"); dance.append(c["genre"] in DANCE); genre.append(c["genre"])
     p, a, d = map(np.array, (p_clip, a_clip, dance))
+    gn = np.array(genre)
     out = []
-    for label, mk in (("all", np.ones_like(a, bool)), ("dance", d)):
+    # Per genre as well as the 3-genre group: the owner's whole library is dance music (Mizrahi, HipHop too, 01/10),
+    # so "dance vs not" is not the split that matters; the genres' vocal rates are.
+    for label, mk in [("all", np.ones_like(a, bool)), ("H/T/T", d)] + [(g, gn == g) for g in sorted(set(gn))]:
+        if mk.sum() == 0:
+            continue
         base = max(a[mk].mean(), 1 - a[mk].mean())
         auc = roc_auc_score(a[mk], p[mk]) if len(set(a[mk])) > 1 else float("nan")
-        out.append(f"{label} {100*((p[mk]>=0.5)==a[mk]).mean():.0f}% (n={mk.sum()}, 'always no/yes' {100*base:.0f}%, AUC {auc:.2f})")
-    print(f"  {tag:<38} " + "; ".join(out))
+        out.append(f"{label} {100*((p[mk]>=0.5)==a[mk]).mean():.0f}% (n={mk.sum()}, base {100*base:.0f}%, yes {100*a[mk].mean():.0f}%, AUC {auc:.2f})")
+    print(f"  {tag}")
+    for line in out:
+        print("      " + line)
 
 for set_name, cols in (("28 features", names), ("28 minus level", [n for n in names if not n.startswith("rel_level")])):
     print(f"\n{set_name}:")
