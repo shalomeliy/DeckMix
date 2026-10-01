@@ -46,6 +46,14 @@ for (const f of ['deckmix-listen-2026-09-28.json', 'deckmix-listen-2026-09-28-te
 }
 const beatOf = (sec, g) => ((Math.round((sec - g.offsetSec) / (60 / g.bpm)) % 4) + 4) % 4
 
+// 01/10 (later): 15 psytrance songs Shalom added and marked, the first genuinely unseen DANCE songs since 28/09
+const tNew = read('deckmix-tags-2026-10-01 - NEW.json')
+for (const m of tNew.mark) {
+  if (m.answer !== 'marked' || !m.detectorGrid || seen.has(m.contentHash)) continue
+  seen.add(m.contentHash)
+  songs.push({ ...m, set: 'fresh3', truthSec: m.markSec })
+}
+
 const server = http.createServer((req, res) => {
   if (req.url === '/__blank') return res.writeHead(200, { 'Content-Type': 'text/html' }).end('<!doctype html><title>m</title>')
   const s = songs[Number(req.url.split('/').pop())]
@@ -103,7 +111,7 @@ for (const src of ['wave', 'kick']) {
 console.log(`
 ${src === 'wave' ? 'cached waveform low band (<200 Hz)' : 'kick band from the decoded track (<150 Hz, buildOnsetEnvelope)'}`)
 const rowsSrc = all.map((x) => ({ s: x.s, r: x.r?.error ? x.r : x.r?.[src] }))
-for (const set of ['train', 'sealed', 'fresh', 'fresh2', 'unseen']) {
+for (const set of ['train', 'sealed', 'fresh', 'fresh2', 'fresh3', 'unseen']) {
   const sel = rowsSrc.filter(({ s, r }) => !r?.error && DANCE.has(s.genre) === (GENRE_SET === 'dance') && (set === 'unseen' ? s.set !== 'train' : s.set === set))
   const ok = (x) => (x.r ? x.r.beat : 0) === beatOf(x.s.truthSec, x.s.detectorGrid)
   const first = sel.filter((x) => beatOf(x.s.truthSec, x.s.detectorGrid) === 0).length
