@@ -1,4 +1,5 @@
 import { pcmFromAudioBuffer } from '@/platform/analyzer-js/analyze'
+import { detectVocalTimeline } from '@/core/sound/vocal-presence'
 import { kickEnvelope } from '@/platform/analyzer-js/beat'
 import { barOneApplies, chooseBarGrid, detectBarOne } from '@/core/downbeat'
 import { analysisCache } from '@/platform/analyze-cache-idb/store'
@@ -87,6 +88,8 @@ import {
   type MarkTag,
   type SampleEntry,
   type VocalAnswer,
+  type VocalPick,
+  vocalRound2Clips,
 } from '@/core/tagging'
 import { getAllTags, putDecideTag, putFreshTag, putMarkTag, putVocalTag, type AllTags } from '@/platform/tagging-idb/store'
 import { TagPlayer } from '@/platform/audio-webaudio/tag-player'
@@ -4454,6 +4457,8 @@ let tagCurrent: {
   shownGrid: BeatGrid | null
   /** The owner's saved phase correction `startGrid` did not start from — a save replaces it. */
   replaced: BeatGrid | null
+  /** Where each of the song's vocal clips starts, and how it was chosen — one source for playing and for saving, so they cannot disagree. */
+  vocalClips: { atSec: number[]; pick: VocalPick[] }
 } | null = null
 
 export interface TagTrackView {
@@ -4471,6 +4476,8 @@ export interface TagTrackView {
   bands: Float32Array | null
   /** The song had a phase correction of the owner's that the marker does not start from, and saving will replace. */
   replacesCorrection: boolean
+  /** How each vocal clip was chosen; all `random` outside the second round. */
+  clipPicks: VocalPick[]
 }
 
 function tagFail(text: string): null {
@@ -4479,7 +4486,7 @@ function tagFail(text: string): null {
 }
 
 /** Read, hash and decode one sample track, and find where to play it. `null` means it could not be prepared, with the reason on screen. */
-export async function tagPrepare(entry: SampleEntry, opts: { needGrid: boolean }): Promise<TagTrackView | null> {
+export async function tagPrepare(entry: SampleEntry, opts: { needGrid: boolean; suspectClips?: boolean }): Promise<TagTrackView | null> {
   tagStop()
   tagCurrent = null
   const seq = ++tagSeq
@@ -4539,7 +4546,19 @@ export async function tagPrepare(entry: SampleEntry, opts: { needGrid: boolean }
     }
   }
   if (seq !== tagSeq) return null // a newer song was asked for meanwhile — this one is dropped, not shown
-  tagCurrent = { entry, name, contentHash, buffer, detectorGrid, shownGrid, replaced }
+  let vocalClips = { atSec: vocalSpotsSec(entry.trackId, buffer.duration), pick: [] as VocalPick[] }
+  vocalClips.pick = vocalClips.atSec.map(() => 'random' as const)
+  if (opts.suspectClips) {
+    // Main thread, a few seconds: the same detector the app ships, run once to find where it hears singing. A failure is not hidden —
+    // the clips fall back to random spots, are saved as `random`, and the screen shows the count of suspect clips.
+    const r = detectVocalTimeline(pcmFromAudioBuffer(buffer))
+    if (r.timeline) vocalClips = vocalRound2Clips(entry.trackId, buffer.duration, r.timeline.cells)
+    else {
+      vocalClips = vocalRound2Clips(entry.trackId, buffer.duration, null)
+      tagFail(`"${name}": the vocal detector gave no timeline (${r.state}), so all its clips are random spots.`)
+    }
+  }
+  tagCurrent = { entry, name, contentHash, buffer, detectorGrid, shownGrid, replaced, vocalClips }
   return {
     name,
     genre: entry.genre,
@@ -4551,6 +4570,7 @@ export async function tagPrepare(entry: SampleEntry, opts: { needGrid: boolean }
     peaks,
     bands,
     replacesCorrection: replaced != null,
+    clipPicks: vocalClips.pick,
   }
 }
 
@@ -4581,7 +4601,7 @@ export function tagPlayheadSec(): number | null {
 export function tagPlayVocal(clip: number) {
   const c = tagCurrent
   if (!c) return
-  const at = vocalSpotsSec(c.entry.trackId, c.buffer.duration)[clip]
+  const at = c.vocalClips.atSec[clip]
   if (at == null) return
   getTagPlayer().playClip(c.buffer, at, VOCAL_CLIP_SEC)
 }
@@ -4679,7 +4699,7 @@ export async function tagSaveMark(shownHash: string, input: MarkInput): Promise<
 export async function tagSaveVocal(shownHash: string, answer: VocalAnswer, clip: number): Promise<boolean> {
   const c = tagTarget(shownHash)
   if (!c) return false
-  const at = vocalSpotsSec(c.entry.trackId, c.buffer.duration)[clip]
+  const at = c.vocalClips.atSec[clip]
   if (at == null) return false
   try {
     await putVocalTag({
@@ -4691,6 +4711,7 @@ export async function tagSaveVocal(shownHash: string, answer: VocalAnswer, clip:
       holdout: c.entry.holdout,
       clipIndex: clip,
       atSec: at,
+      pick: c.vocalClips.pick[clip],
       answer,
       taggedAt: Date.now(),
     })

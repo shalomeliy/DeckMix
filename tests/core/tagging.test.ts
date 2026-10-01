@@ -16,6 +16,9 @@ import {
   gridWithOneOn,
   pickBarSample,
   pickVocalSample,
+  pickVocalRound2Sample,
+  suspectClipSpots,
+  vocalRound2Clips,
   pickFreshSample,
   vocalSpotsSec,
   vocalSongsDone,
@@ -281,5 +284,62 @@ describe('v0.9.5 pickFreshSample', () => {
     const a = pickFreshSample(lib, new Set())
     expect(a.slice(0, 3).map((e) => e.genre)).toEqual(['House', 'Trance', 'House'])
     expect(pickFreshSample([...lib].reverse(), new Set())).toEqual(a)
+  })
+})
+
+describe('second vocal round (v0.12.15)', () => {
+  const tracks = lib({ House: 80, Techno: 60, Trance: 40, HipHop: 40, Mizrahi: 40 })
+  it('never touches a sealed song or repeats a first-round one', () => {
+    // The bar sample's other songs are fine (the first vocal round already uses some); the sealed ones and the first round are not.
+    const used = new Set([...pickBarSample(tracks).filter((s) => s.holdout), ...pickVocalSample(tracks)].map((s) => s.trackId))
+    const r2 = pickVocalRound2Sample(tracks)
+    expect(r2).toHaveLength(100)
+    expect(r2.some((e) => used.has(e.trackId))).toBe(false)
+    expect(r2.some((e) => e.holdout)).toBe(false)
+  })
+  it('a small genre gives what it has, and the sample does not depend on scan order', () => {
+    const small = pickVocalRound2Sample(lib({ A: 30, B: 5 }))
+    expect(small.filter((e) => e.genre === 'A')).toHaveLength(18) // 30 − 12 already used
+    expect(small.filter((e) => e.genre === 'B')).toHaveLength(0)
+    expect(pickVocalRound2Sample([...tracks].reverse())).toEqual(pickVocalRound2Sample(tracks))
+  })
+
+  // 100 s song: cells of 0.5 s. Singing at 40–46 s (cells 80–91) and one weaker patch at 70–73 s.
+  const cells = new Uint8Array(200)
+  cells.fill(1, 80, 92)
+  cells.fill(2, 140, 146)
+  it('suspect clips sit on the vocal cells, best first, apart from each other and from `avoid`', () => {
+    const [first, second] = suspectClipSpots(cells, 100, 2)
+    expect(first).toBeGreaterThanOrEqual(40 - 1e-9)
+    expect(first + VOCAL_CLIP_SEC).toBeLessThanOrEqual(46 + 1e-9)
+    expect(Math.abs(second - first)).toBeGreaterThanOrEqual(VOCAL_CLIP_SEC)
+    const withAvoid = suspectClipSpots(cells, 100, 1, [first])
+    expect(Math.abs(withAvoid[0] - first)).toBeGreaterThanOrEqual(VOCAL_CLIP_SEC)
+  })
+  it('no vocal or unsure cell means no suspect, rather than an invented one', () => {
+    expect(suspectClipSpots(new Uint8Array(200), 100, 3)).toEqual([])
+  })
+  it('stays inside the middle 70%', () => {
+    const edge = new Uint8Array(200).fill(1, 0, 20) // singing only in the first 10 s
+    expect(suspectClipSpots(edge, 100, 1)).toEqual([])
+  })
+  it('a song gets three clips, about half suspect, and says what each really was', () => {
+    let suspect = 0
+    const ids = Array.from({ length: 40 }, (_, i) => `House/${i}.mp3`)
+    for (const id of ids) {
+      const r = vocalRound2Clips(id, 100, cells)
+      expect(r.atSec).toHaveLength(VOCAL_CLIPS_PER_SONG)
+      expect(r.pick).toHaveLength(VOCAL_CLIPS_PER_SONG)
+      expect(vocalRound2Clips(id, 100, cells)).toEqual(r) // the same every time
+      suspect += r.pick.filter((p) => p === 'suspect').length
+      r.atSec.forEach((a, i) => r.atSec.forEach((b, j) => i < j && expect(Math.abs(a - b)).toBeGreaterThanOrEqual(VOCAL_CLIP_SEC - 1e-9)))
+    }
+    expect(suspect / (ids.length * VOCAL_CLIPS_PER_SONG)).toBeGreaterThan(0.4)
+    expect(suspect / (ids.length * VOCAL_CLIPS_PER_SONG)).toBeLessThan(0.6)
+  })
+  it('with no timeline every clip is the fixed random spot and is labelled random', () => {
+    const r = vocalRound2Clips('Techno/x.mp3', 240, null)
+    expect(r.pick).toEqual(['random', 'random', 'random'])
+    expect(r.atSec).toEqual(vocalSpotsSec('Techno/x.mp3', 240))
   })
 })

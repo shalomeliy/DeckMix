@@ -7,6 +7,7 @@
  * Pure: which tracks, where in each track to play, and what gets stored.
  */
 import { BEATS_PER_BAR, shiftGrid } from '@/core/beatgrid'
+import { CELL_UNSURE, CELL_VOCAL, VOCAL_CELL_SEC } from '@/core/sound/vocal-timeline'
 import type { BeatGrid } from '@/core/types'
 
 export const TAG_SCHEMA = 1
@@ -29,8 +30,11 @@ export const VOCAL_CLIP_SEC = 5
  * song. 30 songs × 3 = 90 quick answers.
  */
 export const VOCAL_CLIPS_PER_SONG = 3
-/** Schema 2: `clipIndex` was added. No schema-1 vocal tag was ever exported (0 of 0), so nothing needs migrating. */
-export const VOCAL_SCHEMA = 2
+/**
+ * Schema 2: `clipIndex` was added. No schema-1 vocal tag was ever exported (0 of 0), so nothing needs migrating.
+ * Schema 3 (v0.12.15): optional `pick`. A tag without it is a first-round clip at a fixed spot, i.e. `random`.
+ */
+export const VOCAL_SCHEMA = 3
 
 /**
  * v0.9.1's marker tags. Schema 2, a separate kind from v0.9.0's `BarTag`:
@@ -154,6 +158,82 @@ export function pickVocalSample(tracks: readonly { id: string; genre?: string }[
     }
   }
   return out
+}
+
+/**
+ * The second vocal round (v0.12.15, Shalom 01/10: ~100 more songs). Songs from
+ * position 12 on in each genre's stable order: 0–5 are the sealed bar test,
+ * 6–7 the sealed vocal test, 8–11 the first round's other songs — so nothing
+ * here can touch a sealed song, and nothing repeats. Never `holdout`: these
+ * answers are for training; the final measure stays on the sealed 30 clips.
+ */
+export const VOCAL2_PER_GENRE = 20
+export function pickVocalRound2Sample(tracks: readonly { id: string; genre?: string }[]): SampleEntry[] {
+  const from = HOLDOUT_PER_GENRE + VOCAL_PER_GENRE
+  const groups = genreGroups(tracks).map(([g, ids]) => [g, ids.slice(from, from + VOCAL2_PER_GENRE)] as const)
+  const out: SampleEntry[] = []
+  for (let i = 0; i < VOCAL2_PER_GENRE; i++) {
+    for (const [genre, ids] of groups) if (i < ids.length) out.push({ trackId: ids[i], genre, holdout: false })
+  }
+  return out
+}
+
+/** How a clip was chosen — stored with its answer, because "suspect" clips are enriched in vocals and must never be read as a fair sample. */
+export type VocalPick = 'suspect' | 'random'
+
+/**
+ * Up to `count` clip starts where the current detector thinks there is singing:
+ * the 5-second windows with the most vocal cells (an unsure cell counts half),
+ * inside the middle 70% of the song, none overlapping another or an `avoid`
+ * start. A window with no vocal or unsure cell at all is not a suspect, so
+ * fewer than `count` may come back — the caller says so and falls back.
+ */
+export function suspectClipSpots(cells: ArrayLike<number>, durationSec: number, count: number, avoid: readonly number[] = []): number[] {
+  const win = Math.round(VOCAL_CLIP_SEC / VOCAL_CELL_SEC)
+  const firstCell = Math.ceil((durationSec * 0.15) / VOCAL_CELL_SEC)
+  const lastCell = Math.floor((durationSec * 0.85) / VOCAL_CELL_SEC) - win
+  const scored: { cell: number; score: number }[] = []
+  for (let c = firstCell; c <= lastCell && c + win <= cells.length; c++) {
+    let score = 0
+    for (let i = c; i < c + win; i++) score += cells[i] === CELL_VOCAL ? 2 : cells[i] === CELL_UNSURE ? 1 : 0
+    if (score > 0) scored.push({ cell: c, score })
+  }
+  scored.sort((a, b) => b.score - a.score || a.cell - b.cell)
+  const out: number[] = []
+  for (const { cell } of scored) {
+    if (out.length >= count) break
+    const at = cell * VOCAL_CELL_SEC
+    if ([...out, ...avoid].some((o) => Math.abs(o - at) < VOCAL_CLIP_SEC)) continue
+    out.push(at)
+  }
+  return out
+}
+
+/**
+ * The three clips of a second-round song: about half suspect, half random —
+ * one song gets two suspects, the next one, alternating by a stable key so the
+ * mix is the same every open. A suspect slot the detector cannot fill (no
+ * timeline, nothing singing-like) becomes the random spot and is recorded as
+ * `random`: the label says how the clip was really chosen.
+ */
+export function vocalRound2Clips(trackId: string, durationSec: number, cells: ArrayLike<number> | null): { atSec: number[]; pick: VocalPick[] } {
+  const random = vocalSpotsSec(trackId, durationSec)
+  const wanted: VocalPick[] = stableKey(`pick:${trackId}`) % 2 ? ['suspect', 'suspect', 'random'] : ['suspect', 'random', 'random']
+  const randomSlots = wanted.flatMap((w, i) => (w === 'random' ? [random[i]] : []))
+  const suspects = cells ? suspectClipSpots(cells, durationSec, wanted.filter((w) => w === 'suspect').length, randomSlots) : []
+  let next = 0
+  const atSec: number[] = []
+  const pick: VocalPick[] = []
+  wanted.forEach((w, i) => {
+    if (w === 'suspect' && next < suspects.length) {
+      atSec.push(suspects[next++])
+      pick.push('suspect')
+    } else {
+      atSec.push(random[i])
+      pick.push('random')
+    }
+  })
+  return { atSec, pick }
 }
 
 /**
@@ -304,6 +384,8 @@ export interface VocalTag {
   /** Which of the song's `VOCAL_CLIPS_PER_SONG` clips this answer is for (0-based). */
   clipIndex: number
   atSec: number
+  /** How the clip was chosen; absent = the first round's fixed spots (`random`). Suspect clips are biased — training only, never the final measure. */
+  pick?: VocalPick
   answer: VocalAnswer
   taggedAt: number
 }

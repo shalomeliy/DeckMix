@@ -7,6 +7,7 @@ import {
   VOCAL_CLIPS_PER_SONG,
   firstUnansweredClip,
   pickVocalSample,
+  pickVocalRound2Sample,
   vocalClipsAnswered,
   vocalSongsDone,
   pickFreshSample,
@@ -45,7 +46,7 @@ import { TagWaveform } from '@/app/components/TagWaveform'
  * 'fresh' (v0.9.5) is the same blind marking, on House/Techno/Trance songs no
  * "1" was ever given for — the fair test of a detector tuned on the 105 others.
  */
-type Mode = 'bar' | 'decide' | 'fresh' | 'vocal'
+type Mode = 'bar' | 'decide' | 'fresh' | 'vocal' | 'vocal2'
 type Loaded = Awaited<ReturnType<typeof ctl.tagPrepare>>
 
 function He({ children, className = '' }: { children: React.ReactNode; className?: string }) {
@@ -60,6 +61,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
   const tracks = useStore((s) => s.library.tracks)
   const barSample = useMemo(() => pickBarSample(tracks), [tracks])
   const vocalSample = useMemo(() => pickVocalSample(tracks), [tracks])
+  const vocal2Sample = useMemo(() => pickVocalRound2Sample(tracks), [tracks])
   const [mode, setMode] = useState<Mode>('bar')
   /** contentHash and trackId of every stored tag, per kind — `null` until read, and nothing can be answered before that. */
   const [taggedBar, setTaggedBar] = useState<Set<string> | null>(null)
@@ -134,8 +136,9 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
   }, [refreshTagged])
 
   const freshSample = useMemo(() => (answeredEver ? pickFreshSample(tracks, answeredEver) : []), [tracks, answeredEver])
-  const sample = mode === 'bar' ? barSample : mode === 'decide' ? decideSample : mode === 'fresh' ? freshSample : vocalSample
-  const isBar = mode !== 'vocal'
+  const sample = mode === 'bar' ? barSample : mode === 'decide' ? decideSample : mode === 'fresh' ? freshSample : mode === 'vocal2' ? vocal2Sample : vocalSample
+  const isVocal = mode === 'vocal' || mode === 'vocal2'
+  const isBar = !isVocal
   const blind = mode === 'decide' || mode === 'fresh'
   // A rescan mid-session gives a new sample; the old position would point
   // into it at random, skipping or repeating songs. Keyed on the song list,
@@ -148,6 +151,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
     setBusy(false)
     setIndex(0)
   }, [sampleKey])
+  // Both vocal rounds share one set: a song is done once all its clips are answered.
   const tagged = mode === 'bar' ? taggedBar : mode === 'decide' ? taggedDecide : mode === 'fresh' ? taggedFresh : taggedVocal
 
   /** Next sample entry not yet answered, from `from` on. A track the library already hashed is checked without opening it. */
@@ -180,7 +184,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
       setBusy(true)
       while (i < sample.length) {
         const entry: SampleEntry = sample[i]
-        const view = await ctl.tagPrepare(entry, { needGrid: mode !== 'vocal' })
+        const view = await ctl.tagPrepare(entry, { needGrid: !isVocal, suspectClips: mode === 'vocal2' })
         if (seq !== openSeq.current) return
         if (view && !tagged?.has(view.contentHash)) {
           setIndex(i)
@@ -203,7 +207,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
       setIndex(sample.length)
       setBusy(false)
     },
-    [nextOpen, sample, mode, blind, tagged, stopSound],
+    [nextOpen, sample, mode, isVocal, blind, tagged, stopSound],
   )
 
   // One answer at a time: a double-click would save twice and open twice.
@@ -317,7 +321,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
   // re-registered these listeners every frame of playback, and two quick
   // arrow presses could read the same stale marker (v0.9.1 review).
   useEffect(() => {
-    if (mode === 'vocal' || !current || !grid) return
+    if (isVocal || !current || !grid) return
     const beatSec = 60 / grid.bpm
     const onKey = (e: KeyboardEvent) => {
       const m = markRef.current
@@ -346,7 +350,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('keyup', onKeyUp)
     }
-  }, [mode, current, grid, spot, startSecAt, moveMark, play, stopSound])
+  }, [isVocal, current, grid, spot, startSecAt, moveMark, play, stopSound])
 
   return (
     <div role="dialog" aria-modal="true" aria-label="Tagging" className="absolute inset-0 z-40 flex flex-col bg-surface-0/97 backdrop-blur-sm">
@@ -368,6 +372,9 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
           )}
           <Button variant="toggle" active={mode === 'vocal'} size="sm" onClick={() => switchMode('vocal')}>
             שירה
+          </Button>
+          <Button variant="toggle" active={mode === 'vocal2'} size="sm" onClick={() => switchMode('vocal2')}>
+            שירה – סבב שני ({vocal2Sample.length})
           </Button>
         </div>
         <span className="tnum text-xs text-grid-muted" data-testid="tag-count">
@@ -429,6 +436,16 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
                     {oldBarCount} התשובות מהשיטה הקודמת (4 הכפתורים) שמורות בצד ונכנסות לקובץ הייצוא, כדי להשוות. כאן מתחילים מחדש.
                   </He>
                 )}
+              </>
+            ) : mode === 'vocal2' ? (
+              <>
+                <He>
+                  סבב שני: {sample.length} שירים חדשים, בערך אותו מספר מכל ז'אנר. בכל שיר 3 קטעים של 5 שניות. בערך חצי מהקטעים נבחרים במקומות שהמחשב חושב
+                  שנשמעת שם שירה, והחצי השני אקראי, כדי שיהיו מספיק דוגמאות של שירה גם בריקודים.
+                </He>
+                <He className="text-grid-muted">
+                  השירים האלה לא כוללים את שירי המבחן הסופי, והקטעים "החשודים" משמשים רק ללימוד, אף פעם לא למדידה. "לא בטוח" זו תשובה טובה.
+                </He>
               </>
             ) : (
               <>
@@ -547,7 +564,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        {current && mode === 'vocal' && (
+        {current && isVocal && (
           <div className="mx-auto max-w-xl space-y-4">
             <div>
               <div className="text-base font-bold">{current.name}</div>
@@ -558,7 +575,13 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
             </div>
             <He className="text-xs text-grid-muted">
               קטע {clip + 1} מתוך {VOCAL_CLIPS_PER_SONG} של השיר הזה.
+              {mode === 'vocal2' && (current.clipPicks[clip] === 'suspect' ? ' (נבחר כי המחשב חושב ששרים שם)' : ' (נבחר אקראית)')}
             </He>
+            {mode === 'vocal2' && !current.clipPicks.includes('suspect') && (
+              <He className="text-2xs text-warn">
+                המחשב לא מצא בשיר הזה מקום שנשמע לו כמו שירה, אז כל הקטעים אקראיים.
+              </He>
+            )}
             <He className="text-2xs text-grid-muted">
               "יש שירה" = קול אנושי שרים או ראפ, שנשמע כקול מוביל או בולט. קול רקע ("אוווו"), קטעי קול חתוכים
               וקריאות קצרות של פחות משנייה = "אין שירה". אם לא ברור — "לא בטוח".
