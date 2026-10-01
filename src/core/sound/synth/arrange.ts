@@ -5,7 +5,7 @@
  * Returns the three instrument groups as separate stereo stems, because a future separator
  * is trained on stems and the vocal classifier needs the instrumental level for its labels.
  */
-import { addBass, addClap, addHat, addKick, addPad, addSnare } from '@/core/sound/synth/instruments'
+import { addBass, addClap, addHat, addKick, addLead, addPad, addSnare } from '@/core/sound/synth/instruments'
 import { chance, createRng, dbToGain, pick, uniform, type Rng } from '@/core/sound/synth/rng'
 
 export type Stereo = [Float32Array, Float32Array]
@@ -24,6 +24,8 @@ export interface ArrangeOptions {
   bars: number
   /** Fixed tempo; otherwise drawn from 118–140, the range the owner's dance library lives in. */
   bpm?: number
+  /** Add a gliding, vibrato lead in some blocks (round 3). Off by default so older seeds render as they did. */
+  lead?: boolean
 }
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -70,6 +72,14 @@ export function renderInstrumental(seed: number, opts: ArrangeOptions): Instrume
   const gBass = level(-6)
   const gPad = level(-18)
 
+  // The lead draws from its own stream: switching it on must not move a single drum hit.
+  const leadRng = opts.lead ? createRng(seed ^ 0x51ed270b) : null
+  const leadBlocks = new Set<number>()
+  if (leadRng) for (let b = 0; b < Math.ceil(opts.bars / BLOCK_BARS); b++) if (chance(leadRng, 0.5)) leadBlocks.add(b)
+  const gLead = leadRng ? dbToGain(-15 + uniform(leadRng, -3, 3)) : 0
+  const leadPan = leadRng ? uniform(leadRng, -0.4, 0.4) : 0
+  const leadVibrato = leadRng ? uniform(leadRng, 10, 35) : 0
+
   const scratch = new Float32Array(Math.ceil(beat * 2))
   const hit = (fn: (b: Float32Array) => void, at: number, p: number): void => {
     scratch.fill(0)
@@ -93,6 +103,15 @@ export function renderInstrumental(seed: number, opts: ArrangeOptions): Instrume
       const chordRoot = 36 + root + scale[degrees[Math.floor(k / 2) % degrees.length] % 7]
       if (flags.drums) drumBar(r, barStart, beat, sr, { kickStyle, useClap, hatPan, gKick, gSnare, gHat }, hit)
       if (flags.bass) bassBar(bass, barStart, beat, sr, bassStyle, midiHz(chordRoot), gBass)
+      if (leadRng && leadBlocks.has(Math.floor((b + k) / BLOCK_BARS))) {
+        let prev = midiHz(60 + root + scale[0])
+        for (let q = 0; q < 8; q++) {
+          if (!chance(leadRng, 0.7)) continue
+          const hzNote = midiHz(60 + root + scale[Math.floor(uniform(leadRng, 0, 7))] + (chance(leadRng, 0.25) ? 12 : 0))
+          addLead(other[0], other[1], Math.round(barStart + q * (beat / 2)), (beat * 0.9) / sr, hzNote, prev, sr, gLead, leadPan, leadVibrato)
+          prev = hzNote
+        }
+      }
       if (flags.pad && k % 2 === 0) {
         const chord = [0, minor ? 3 : 4, 7].map((s) => midiHz(chordRoot + 12 + s))
         addPad(other[0], other[1], barStart, (bar * 2) / sr, chord, sr, gPad)

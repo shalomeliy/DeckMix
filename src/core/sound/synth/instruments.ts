@@ -113,3 +113,43 @@ export function addPad(
     }
   }
 }
+
+/**
+ * A lead line: two detuned sawtooths through a low-pass, gliding from the previous pitch and, once the note has
+ * settled, with vibrato. It is here on purpose as a HARD NEGATIVE — it moves its pitch like a voice does, so a
+ * "pitch instability means voice" shortcut gets punished instead of rewarded (round 2's feature `fluct`).
+ */
+export function addLead(
+  left: Float32Array,
+  right: Float32Array,
+  at: number,
+  dur: number,
+  hz: number,
+  fromHz: number,
+  sr: number,
+  gain: number,
+  pan: number,
+  vibratoCents: number,
+): void {
+  const n = room(left, at, Math.floor(dur * sr))
+  const a = lpCoef(3200, sr)
+  const glide = Math.floor(0.06 * sr)
+  const rel = Math.floor(0.04 * sr)
+  const gl = Math.cos(((pan + 1) * Math.PI) / 4)
+  const gr = Math.sin(((pan + 1) * Math.PI) / 4)
+  let p1 = 0
+  let p2 = 0
+  let lp = 0
+  for (let i = 0; i < n; i++) {
+    const t = i / sr
+    const base = i < glide ? fromHz + (hz - fromHz) * (i / glide) : hz
+    const vib = t > 0.15 ? Math.pow(2, (vibratoCents * Math.sin(TWO_PI * 5.5 * t)) / 1200) : 1
+    const f = base * vib
+    p1 += f / sr
+    p2 += (f * 1.004) / sr
+    lp += a * (2 * (p1 % 1) - 1 + (2 * (p2 % 1) - 1) - lp)
+    const v = gain * lp * Math.min(1, i / (0.01 * sr)) * Math.min(1, (n - i) / rel)
+    left[at + i] += v * gl
+    right[at + i] += v * gr
+  }
+}

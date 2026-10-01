@@ -128,3 +128,53 @@ describe('vetSources', () => {
     ])
   })
 })
+
+describe('realism (round 3)', () => {
+  const clip = fakeVoice(20)
+  const opts = { sampleRate: SR, bars: 24 }
+  const rmsDb = (x: Float32Array, a: number, b: number): number => {
+    let s = 0
+    for (let i = a; i < b; i++) s += x[i] * x[i]
+    return 10 * Math.log10(s / (b - a) + 1e-12)
+  }
+  /** Mean level of the mixture in cells that carry a voice minus cells that do not, in dB, over several seeds. */
+  function levelLift(realism: boolean): number {
+    const cell = Math.floor(0.5 * SR)
+    let lift = 0
+    let n = 0
+    for (const seed of [21, 22, 23, 24]) {
+      const m = makeMix(seed, [clip], { ...opts, realism })
+      let v = 0
+      let nv = 0
+      let q = 0
+      let nq = 0
+      m.labels.forEach((l, k) => {
+        const d = rmsDb(m.mixture[0], k * cell, (k + 1) * cell)
+        if (l === CELL_VOCAL) (v += d), nv++
+        else if (l === CELL_NONE) (q += d), nq++
+      })
+      if (nv && nq) (lift += v / nv - q / nq), n++
+    }
+    return lift / n
+  }
+
+  it('is a different mix from the plain one, and still rebuilds from its seed', () => {
+    const plain = makeMix(31, [clip], { ...opts, realism: false })
+    const real = makeMix(31, [clip], opts)
+    expect(same(plain.mixture[0], real.mixture[0])).toBe(false)
+    expect(same(real.mixture[0], makeMix(31, [clip], opts).mixture[0])).toBe(true)
+  })
+
+  it('lets a laid-on voice raise the level of the mix less than the plain mix does', () => {
+    // The point of the bus compressor: round 2 showed the classifier learning "louder = vocal".
+    expect(levelLift(true)).toBeLessThan(levelLift(false))
+  })
+
+  it('keeps the stems summing to the mixture with the compressor in', () => {
+    const m = makeMix(32, [clip], opts)
+    for (let i = 0; i < m.mixture[0].length; i += 991) {
+      const sum = m.stems.drums[0][i] + m.stems.bass[0][i] + m.stems.other[0][i] + m.stems.vocals[0][i]
+      expect(Math.abs(sum - m.mixture[0][i])).toBeLessThan(1e-5)
+    }
+  })
+})
