@@ -293,7 +293,7 @@ describe('second vocal round (v0.12.15)', () => {
     // The bar sample's other songs are fine (the first vocal round already uses some); the sealed ones and the first round are not.
     const used = new Set([...pickBarSample(tracks).filter((s) => s.holdout), ...pickVocalSample(tracks)].map((s) => s.trackId))
     const r2 = pickVocalRound2Sample(tracks)
-    expect(r2).toHaveLength(100)
+    expect(r2).toHaveLength(200) // 68 + 48 + 28 + 28 + 28 left after the first 12 of each genre
     expect(r2.some((e) => used.has(e.trackId))).toBe(false)
     expect(r2.some((e) => e.holdout)).toBe(false)
   })
@@ -301,6 +301,12 @@ describe('second vocal round (v0.12.15)', () => {
     const small = pickVocalRound2Sample(lib({ A: 30, B: 5 }))
     expect(small.filter((e) => e.genre === 'A')).toHaveLength(18) // 30 − 12 already used
     expect(small.filter((e) => e.genre === 'B')).toHaveLength(0)
+  })
+  it('stops at 300, taking the small genres whole and interleaving, so an early stop is still balanced', () => {
+    const big = pickVocalRound2Sample(lib({ House: 32, Techno: 42, Trance: 28, HipHop: 176, Mizrahi: 101 }))
+    expect(big).toHaveLength(300)
+    for (const g of ['House', 'Techno', 'Trance']) expect(big.filter((e) => e.genre === g)).toHaveLength(({ House: 20, Techno: 30, Trance: 16 } as Record<string, number>)[g])
+    expect(new Set(big.slice(0, 15).map((e) => e.genre)).size).toBe(5)
     expect(pickVocalRound2Sample([...tracks].reverse())).toEqual(pickVocalRound2Sample(tracks))
   })
 

@@ -161,19 +161,22 @@ export function pickVocalSample(tracks: readonly { id: string; genre?: string }[
 }
 
 /**
- * The second vocal round (v0.12.15, Shalom 01/10: ~100 more songs). Songs from
+ * The second vocal round (v0.12.15, Shalom 01/10: first ~100 more songs, then raised to 300 for accuracy). Songs from
  * position 12 on in each genre's stable order: 0–5 are the sealed bar test,
  * 6–7 the sealed vocal test, 8–11 the first round's other songs — so nothing
  * here can touch a sealed song, and nothing repeats. Never `holdout`: these
  * answers are for training; the final measure stays on the sealed 30 clips.
  */
-export const VOCAL2_PER_GENRE = 20
+export const VOCAL2_TOTAL = 300
 export function pickVocalRound2Sample(tracks: readonly { id: string; genre?: string }[]): SampleEntry[] {
   const from = HOLDOUT_PER_GENRE + VOCAL_PER_GENRE
-  const groups = genreGroups(tracks).map(([g, ids]) => [g, ids.slice(from, from + VOCAL2_PER_GENRE)] as const)
+  const groups = genreGroups(tracks).map(([g, ids]) => [g, ids.slice(from)] as const)
   const out: SampleEntry[] = []
-  for (let i = 0; i < VOCAL2_PER_GENRE; i++) {
-    for (const [genre, ids] of groups) if (i < ids.length) out.push({ trackId: ids[i], genre, holdout: false })
+  // Round-robin by genre until `VOCAL2_TOTAL`: a small genre (the dance ones, where the detector is weakest) is taken whole
+  // and early, the big ones fill the rest, and stopping at any point still leaves every genre represented.
+  const rounds = Math.max(0, ...groups.map(([, ids]) => ids.length))
+  for (let i = 0; i < rounds && out.length < VOCAL2_TOTAL; i++) {
+    for (const [genre, ids] of groups) if (i < ids.length && out.length < VOCAL2_TOTAL) out.push({ trackId: ids[i], genre, holdout: false })
   }
   return out
 }
