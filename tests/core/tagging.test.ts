@@ -226,11 +226,12 @@ describe('v0.9.5 pickFreshSample', () => {
     ...Array.from({ length: 5 }, (_, i) => ({ id: `House/h${i}.mp3`, genre: 'House' })),
     ...Array.from({ length: 5 }, (_, i) => ({ id: `HipHop/x${i}.mp3`, genre: 'Hip Hop' })),
   ]
-  it('takes every untagged dance song, and no other genre', () => {
+  it('takes every untagged song, dance genres first, then the rest (Shalom, 01/10)', () => {
     const answered = new Set(['Trance/t0.mp3', 'House/h1.mp3'])
     const s = pickFreshSample(lib, answered)
-    expect(s).toHaveLength(29 + 4)
-    expect(s.some((e) => e.genre === 'Hip Hop')).toBe(false)
+    expect(s).toHaveLength(29 + 4 + 5)
+    expect(s.slice(0, 33).every((e) => e.genre !== 'Hip Hop')).toBe(true)
+    expect(s.slice(33).every((e) => e.genre === 'Hip Hop')).toBe(true)
     expect(s.some((e) => answered.has(e.trackId))).toBe(false)
     expect(s.every((e) => e.holdout)).toBe(true)
   })
@@ -244,6 +245,9 @@ describe('v0.9.5 pickFreshSample', () => {
     const inBar = new Set(pickBarSample(lib).map((e) => e.trackId))
     const fresh = pickFreshSample(lib, new Set())
     expect(fresh.filter((e) => inBar.has(e.trackId)).length).toBeGreaterThan(0)
+  })
+  it('a song with no genre is still in the round, never dropped', () => {
+    expect(pickFreshSample([{ id: 'Final/x.mp3' }], new Set()).map((e) => e.trackId)).toEqual(['Final/x.mp3'])
   })
   it('interleaves by genre, the same order every time', () => {
     const a = pickFreshSample(lib, new Set())

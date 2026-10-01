@@ -314,16 +314,17 @@ const freshWant = await page.evaluate((dance) => {
   const answered = new Set(
     [...window.__mem.entries()].filter(([k]) => /^deckmix:tag:(mark|bar|decide):/.test(k)).map(([, v]) => v.trackId),
   )
-  return dance.length * 8 - [...answered].filter((id) => dance.some((g) => id.startsWith(g + '/'))).length
+  // since 01/10 every genre, not only dance: 5 folders × 8 songs, minus every song answered
+  return 40 - answered.size
 }, DANCE)
 const freshTab = page.getByRole('button', { name: `סבב חדש (${freshWant})` })
-ok(`a "סבב חדש (${freshWant})" tab: every dance song not answered yet`, (await freshTab.count()) === 1, await page.getByRole('dialog', { name: 'Tagging' }).locator('header').textContent())
+ok(`a "סבב חדש (${freshWant})" tab: every song not answered yet`, (await freshTab.count()) === 1, await page.getByRole('dialog', { name: 'Tagging' }).locator('header').textContent())
 await freshTab.click()
 await waitCount(`נענו 0 מתוך ${freshWant}`)
 await page.getByRole('button', { name: 'להתחיל' }).click()
 await wave.waitFor({ timeout: 20000 })
 const freshGenre = await page.getByRole('dialog', { name: 'Tagging' }).locator('.text-base.font-bold').first().locator('xpath=following-sibling::div[1]').textContent()
-ok('the fresh song opens with nothing marked, and is a dance song', (await saveBtn.isDisabled()) && DANCE.some((g) => freshGenre.startsWith(g)), freshGenre)
+ok('the fresh song opens with nothing marked, and dance songs come first', (await saveBtn.isDisabled()) && DANCE.some((g) => freshGenre.startsWith(g)), freshGenre)
 const box5 = await wave.boundingBox()
 await page.mouse.click(box5.x + box5.width * 0.5, box5.y + box5.height / 2)
 await saveBtn.click()

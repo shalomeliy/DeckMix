@@ -88,36 +88,47 @@ export function pickBarSample(tracks: readonly { id: string; genre?: string }[])
   return out
 }
 
-/** The genres v0.9.5's target is set on (Shalom, 28/09: ≥95% in House/Techno/Trance). */
+/** The genres v0.9.5's target is set on (Shalom, 28/09: ≥95% in House/Techno/Trance) — first in the round's order. */
 export const FRESH_GENRES = ['House', 'Techno', 'Trance'] as const
+/** A song with no genre still goes in the round, under this name — left out, it would be a silent gap. */
+export const NO_GENRE = 'ללא ז׳אנר'
 
 /**
- * The fresh round (v0.9.5): every House/Techno/Trance song with no "1" answer
- * yet, by content hash or by the row it was tagged as. The detector was tuned
- * on the 105 already tagged; only songs it never saw can say whether that
- * tuning holds (Shalom asked, 28/09, and added 19 Trance songs for it — the
- * first round had only 9). Not "outside the bar sample": new songs in a genre
- * that had fewer than `BAR_PER_GENRE` fall *into* that sample, and would be
- * missing from this one. Interleaved by genre, same stable order.
+ * The fresh round (v0.9.5): every song with no "1" answer yet, by content
+ * hash or by the row it was tagged as. The detector was tuned on the 105
+ * tagged first; only songs it never saw can say whether that tuning holds.
+ * First House/Techno/Trance (Shalom added 19 Trance songs for it, 28/09), then
+ * — Shalom, 01/10: "keep giving me the songs I have not checked" — every other
+ * genre, then songs with none. Not "outside the bar sample": new songs in a
+ * genre that had fewer than `BAR_PER_GENRE` fall *into* that sample, and would
+ * be missing from this one. Interleaved by genre, same stable order.
  */
 export function pickFreshSample(
   tracks: readonly { id: string; genre?: string; contentHash?: string }[],
   answered: ReadonlySet<string>,
 ): SampleEntry[] {
-  const groups = FRESH_GENRES.map(
+  const open = tracks.filter((t) => !answered.has(t.id) && !(t.contentHash && answered.has(t.contentHash)))
+  const others = [...new Set(open.map((t) => t.genre).filter((g): g is string => !!g && !(FRESH_GENRES as readonly string[]).includes(g)))].sort()
+  const order = [...FRESH_GENRES, ...others, NO_GENRE]
+  const groups = order.map(
     (g) =>
       [
         g,
-        tracks
-          .filter((t) => t.genre === g && !answered.has(t.id) && !(t.contentHash && answered.has(t.contentHash)))
+        open
+          .filter((t) => (t.genre ?? NO_GENRE) === g)
           .map((t) => t.id)
           .sort((a, b) => stableKey(a) - stableKey(b) || a.localeCompare(b)),
       ] as const,
   )
   const out: SampleEntry[] = []
-  const most = Math.max(0, ...groups.map(([, ids]) => ids.length))
-  for (let i = 0; i < most; i++) {
-    for (const [genre, ids] of groups) if (i < ids.length) out.push({ trackId: ids[i], genre, holdout: true })
+  // Dance first, whole: the target was set there, and a half-done round should
+  // have measured those before the rest.
+  for (const dance of [true, false]) {
+    const part = groups.filter(([g]) => (FRESH_GENRES as readonly string[]).includes(g) === dance)
+    const most = Math.max(0, ...part.map(([, ids]) => ids.length))
+    for (let i = 0; i < most; i++) {
+      for (const [genre, ids] of part) if (i < ids.length) out.push({ trackId: ids[i], genre, holdout: true })
+    }
   }
   return out
 }
