@@ -3,7 +3,7 @@
  * optional vocal clips laid over them and the vocal label read off the vocal stem.
  *
  *   node scripts/train/make-mixes.mjs --count 20 [--seed 1] [--bars 48] [--sr 44100] [--stems]
- *        [--out %TEMP%/deckmix-mixes] [--vocals <dir>] [--max-clips 200]
+ *        [--out %TEMP%/deckmix-mixes] [--vocals <dir>] [--max-clips 200] [--excerpt-share 0.5]
  *
  * <dir> holds .wav vocal clips (any depth) plus `sources.json`:
  *   { "_default": { "license": "CC-BY-4.0", "origin": "<url>" }, "<relative/file.wav>": { ...overrides } }.
@@ -17,6 +17,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createServer } from 'vite'
+import { loadVocals } from './load-vocals.mjs'
 
 const arg = (name, dflt) => {
   const i = process.argv.indexOf(`--${name}`)
@@ -36,37 +37,9 @@ try {
   const clips = []
   const refused = []
   if (vocalsDir) {
-    const declared = JSON.parse(fs.readFileSync(path.join(vocalsDir, 'sources.json'), 'utf8'))
-    const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]))
-    const all = walk(vocalsDir)
-      .map((f) => path.relative(vocalsDir, f).split(path.sep).join('/'))
-      .filter((f) => f.toLowerCase().endsWith('.wav'))
-    const records = all.map((f) => ({ id: f, license: declared[f]?.license ?? declared._default?.license ?? '', origin: declared[f]?.origin ?? declared._default?.origin ?? '' }))
-    const vetted = synth.vetSources(records)
-    // Seeded shuffle, then cap: the same --seed always picks the same clips.
-    let a = seed0 >>> 0
-    const rnd = () => ((a = (Math.imul(a, 1664525) + 1013904223) >>> 0) / 4294967296)
-    const maxClips = Number(arg('max-clips', 200))
-    for (let i = vetted.ok.length - 1; i > 0; i--) {
-      const j = Math.floor(rnd() * (i + 1))
-      ;[vetted.ok[i], vetted.ok[j]] = [vetted.ok[j], vetted.ok[i]]
-    }
-    if (vetted.ok.length > maxClips) console.log(`using ${maxClips} of ${vetted.ok.length} usable clips (--max-clips)`)
-    vetted.ok = vetted.ok.slice(0, maxClips)
-    refused.push(...vetted.refused.map((x) => `${x.source.id}: ${x.reason}`))
-    for (const s of vetted.ok) {
-      try {
-        const w = synth.decodeWav(new Uint8Array(fs.readFileSync(path.join(vocalsDir, s.id))))
-        const mono = new Float32Array(w.channels[0].length)
-        for (const ch of w.channels) for (let i = 0; i < mono.length; i++) mono[i] += ch[i] / w.channels.length
-        clips.push({ id: s.id, samples: mono, sampleRate: w.sampleRate, license: s.license, origin: s.origin })
-      } catch (e) {
-        refused.push(`${s.id}: ${e.message}`)
-      }
-    }
-    console.log(`vocal clips: ${clips.length} used, ${refused.length} refused`)
-    for (const r of refused) console.log(`  REFUSED ${r}`)
-    if (!clips.length) throw new Error('--vocals was given but no clip could be used; refusing to make vocal-free data by accident')
+    const loaded = loadVocals(synth, vocalsDir, { maxClips: Number(arg('max-clips', 200)), seed: seed0, excerptShare: Number(arg('excerpt-share', 0.5)) })
+    clips.push(...loaded.clips)
+    refused.push(...loaded.refused)
   }
 
   fs.mkdirSync(out, { recursive: true })
