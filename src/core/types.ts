@@ -172,6 +172,13 @@ export interface DeckState {
    * to warn about).
    */
   beatGridConfirmed: boolean
+  /**
+   * The grid's "1" (which beat is the bar line) came from `core/downbeat.ts`
+   * and it was not sure (v0.9.5): the yellow lines are drawn dashed and a
+   * "bar 1 unsure" badge opens the grid panel. False once the owner's grid is
+   * in use, or after any edit or check of it.
+   */
+  barOneUnsure: boolean
   /** locked to the master deck's phase via SYNC (v0.3.0) */
   syncActive: boolean
   /** tempo fader value, -1..1 mapped to +/- range (see TEMPO_RANGE) */

@@ -22,6 +22,7 @@ src/
     key-parse.ts         parseKey/parseBpm — סולם ו-BPM כפי שתגית או אדם כותבים (עבר מ-tags.ts ב-v0.8.38)
     tag-merge.ts         מי מנצח: תגית / זיהוי / ערך שהבעלים הקליד (applyOwnerMeta, v0.8.38)
     tagging.ts           pickBarSample/pickVocalSample/dropSpots — מסך התיוג: אילו שירים, איפה לנגן, מה נשמר (v0.9.0)
+    downbeat.ts          detectBarOne — איזו פעימה היא ה-1: הקיק חוזר אחרי הפסקה, "בטוח" רק מעל 0.4 (v0.9.5)
     tempo-glide.ts       masterHasGone/glideTempoAt — מתי השיר הישן "נגמר" ואיך חוזרים לאט ל-BPM המקורי (v0.8.39)
     source-lookup.ts     beatportSearch — קישור חיפוש בלבד; האפליקציה אף פעם לא קוראת את Beatport (v0.8.38)
     ports/              ה‑interfaces: audio, source, transport, analyzer, clock,

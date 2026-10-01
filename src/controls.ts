@@ -1,4 +1,6 @@
 import { pcmFromAudioBuffer } from '@/platform/analyzer-js/analyze'
+import { kickEnvelope } from '@/platform/analyzer-js/beat'
+import { barOneApplies, chooseBarGrid, detectBarOne } from '@/core/downbeat'
 import { analysisCache } from '@/platform/analyze-cache-idb/store'
 import { analyzerWorker } from '@/platform/analyzer-worker'
 import { engine } from '@/platform/audio-webaudio/engine'
@@ -428,6 +430,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     bpm: track.bpm ?? null,
     beatGrid: null,
     beatGridConfirmed: false,
+    barOneUnsure: false,
     syncActive: false,
     peaks: null,
     bands: null,
@@ -452,6 +455,15 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
   // playable, so a failure here means "no waveform/grid yet", never "the
   // load failed" — caught on its own, never re-thrown to this function's
   // caller (v0.4.0 acceptance criterion 3).
+  // The kick envelope for the "1" (v0.9.5) — read now, while `buffer` is
+  // whole: the analysis below may transfer its channels to the worker.
+  // Best-effort like the analysis: without it the grid keeps its first-beat "1", marked unsure.
+  let kick: ReturnType<typeof kickEnvelope> | null = null
+  try {
+    kick = kickEnvelope(pcmFromAudioBuffer(buffer))
+  } catch (err) {
+    console.error('kick envelope failed', err)
+  }
   deckAnalysisPending[deckId] = track.id
   try {
     // No hash (a hashing failure above) means "not yet identified" — analysis
@@ -495,7 +507,13 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     const saved = contentHash ? await loadGridCorrection(contentHash) : null
     if (useStore.getState().decks[deckId].track?.id !== track.id) return
     const corrected = applySavedGridResult(saved)
-    const beatGrid = corrected ?? detectedGrid
+    // Which beat is the "1" (v0.9.5) — the rules, and why an unsure answer
+    // still moves the grid, are in core/downbeat.ts.
+    const barOne =
+      !corrected && kick && analysis.beatGrid && barOneApplies(detectedGrid, analysis.beatGrid)
+        ? detectBarOne(kick.low, kick.framesPerSec, analysis.beatGrid)
+        : null
+    const { beatGrid, barOneUnsure } = chooseBarGrid(detectedGrid, barOne, corrected)
     const deckBpm = corrected ? corrected.bpm : bpm
     // A key tag always wins (v0.8.27); this only fills a track that has none.
     const detectedKey = analysis.key ? detectedKeyFields(analysis.key) : {}
@@ -512,6 +530,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
       // a silently-assumed-fine grid. Cleared only by the user checking or
       // editing it (BeatGridPanel, v0.3.0 sub-step d), or by a saved edit.
       beatGridConfirmed: corrected ? true : analysis.beatGridConfirmed,
+      barOneUnsure,
       beatGrid,
       peaks: analysis.peaks,
       bands: analysis.bands,
@@ -625,6 +644,7 @@ export function ejectDeck(deckId: DeckId) {
     bpm: null,
     beatGrid: null,
     beatGridConfirmed: true,
+    barOneUnsure: false,
     syncActive: false,
     peaks: null,
     bands: null,
@@ -921,6 +941,8 @@ function persistGridCorrection(deckId: DeckId) {
   const st = decks[deckId]
   const hash = st.track?.contentHash
   if (!st.beatGrid) return
+  // Any edit or check is the owner looking at the grid — the "1" is no longer a guess shown as one.
+  if (st.barOneUnsure) useStore.getState().patchDeck(deckId, { barOneUnsure: false })
   if (!hash) {
     setNotice({
       text: 'Beat grid changed on screen, but this track has no identity yet, so it will not be remembered.',
@@ -2758,7 +2780,8 @@ export function discardRecordedMaster(): void {
  */
 export function confirmBeatGrid(deckId: DeckId) {
   const st = useStore.getState().decks[deckId]
-  if (st.beatGridConfirmed) return
+  // v0.9.5: closing the panel over an unsure "1" is checking it, as for an unconfirmed grid.
+  if (st.beatGridConfirmed && !st.barOneUnsure) return
   // No grid at all: nothing to save — the pill goes, as it always did.
   if (!st.beatGrid) return useStore.getState().patchDeck(deckId, { beatGridConfirmed: true })
   if (!gridEditAllowed(deckId)) return
@@ -4621,7 +4644,7 @@ export async function tagSaveMark(shownHash: string, input: MarkInput): Promise<
       await putGridCorrection(c.contentHash, ownerCorrection(next, tag.taggedAt))
       const { decks, patchDeck } = useStore.getState()
       for (const id of ['A', 'B'] as DeckId[]) {
-        if (decks[id].track?.contentHash === c.contentHash) patchDeck(id, { beatGrid: next, bpm: next.bpm, beatGridConfirmed: true })
+        if (decks[id].track?.contentHash === c.contentHash) patchDeck(id, { beatGrid: next, bpm: next.bpm, beatGridConfirmed: true, barOneUnsure: false })
       }
     }
     return true

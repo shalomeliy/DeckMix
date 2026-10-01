@@ -16,6 +16,8 @@ interface Props {
   bpm: number | null
   /** beat grid phase (v0.3.0) — seconds from track start to beat 0. 0 draws the grid from track start, same as before the grid existed. */
   offsetSec?: number
+  /** v0.9.5: the bar line's "1" is the detector's unsure guess — bar lines are drawn dashed. */
+  barUnsure?: boolean
   hotCues: HotCue[]
   color: string
   loading?: boolean
@@ -46,6 +48,7 @@ export function Waveform({
   durationSec,
   bpm,
   offsetSec = 0,
+  barUnsure = false,
   hotCues,
   color,
   loading = false,
@@ -211,7 +214,8 @@ export function Waveform({
         const x = Math.round(w / 2 + (beatTimeSec - positionSec) * PX_PER_SEC)
         if (b % BEATS_PER_BAR === 0) {
           ctx.fillStyle = 'rgba(255,196,46,0.95)'
-          ctx.fillRect(x - 1, 0, 3, h)
+          if (barUnsure) for (let y = 10; y < h - 10; y += 10) ctx.fillRect(x - 1, y, 3, 5)
+          else ctx.fillRect(x - 1, 0, 3, h)
           ctx.beginPath()
           ctx.moveTo(x - 6, 0)
           ctx.lineTo(x + 6, 0)
@@ -259,7 +263,7 @@ export function Waveform({
     ctx.closePath()
     ctx.fillStyle = '#fff'
     ctx.fill()
-  }, [peaks, bands, positionSec, durationSec, bpm, offsetSec, hotCues, color, loading, size, PX_PER_SEC, hiResCanvas, waveformColorByEq])
+  }, [peaks, bands, positionSec, durationSec, bpm, offsetSec, barUnsure, hotCues, color, loading, size, PX_PER_SEC, hiResCanvas, waveformColorByEq])
 
   const seekToPointer = (clientX: number) => {
     const canvas = canvasRef.current

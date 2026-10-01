@@ -109,6 +109,39 @@ export function buildOnsetEnvelope(pcm: PcmData): {
 }
 
 /**
+ * `buildOnsetEnvelope`'s lowest band alone (v0.9.5) — the kick envelope
+ * `core/downbeat.ts` reads to find the "1". Its own pass because it runs at
+ * every deck load, cached analysis or not: the full envelope cost ~190 ms on a
+ * 5-minute track, and the cached waveform's own low band (one split at 200 Hz,
+ * not 150) measured worse — 50/61 unseen songs against 53/61 from this one.
+ * tests/platform/kick-envelope.test.ts pins it equal to `bands[0]`.
+ */
+export function kickEnvelope(pcm: PcmData): { low: Float32Array; framesPerSec: number } {
+  const sr = pcm.sampleRate
+  const chans = pcm.channels
+  const nch = chans.length
+  const invCh = 1 / nch
+  const ch0 = chans[0]
+  const ch1 = nch > 1 ? chans[1] : ch0
+  const frame = Math.floor(sr / FRAMES_PER_SEC)
+  const frames = Math.floor(ch0.length / frame)
+  const low = new Float32Array(frames)
+  const dt = 1 / sr
+  const a1 = dt / (1 / (2 * Math.PI * 150) + dt)
+  let l1 = 0
+  for (let f = 0, i = 0; f < frames; f++) {
+    let b0 = 0
+    for (let n = 0; n < frame; n++, i++) {
+      const v = nch > 2 ? mixAt(chans, i, invCh) : nch === 2 ? (ch0[i] + ch1[i]) * 0.5 : ch0[i]
+      l1 += a1 * (v - l1)
+      b0 += l1 * l1
+    }
+    low[f] = Math.sqrt(b0 / frame)
+  }
+  return { low, framesPerSec: sr / frame }
+}
+
+/**
  * Beat grid estimate: bpm, phase, and whether either looks like a real
  * periodicity rather than a guess (see `core/beatgrid.ts`'s `CONFIDENCE_RATIO`
  * doc comment). `null` only when the track is too short to say anything at

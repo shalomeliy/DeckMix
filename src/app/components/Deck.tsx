@@ -319,6 +319,24 @@ export function Deck({ deckId }: { deckId: DeckId }) {
               <Pill tone="warn" label="unconfirmed grid" />
             </div>
           )}
+          {/* v0.9.5: the "1" is a guess the detector was not sure of — the
+              yellow lines are dashed, and this opens the panel to fix or
+              check it (its ✕ counts as checked). */}
+          {loaded && deck.barOneUnsure && !gridPanelOpen && (
+            <div className="mt-1 flex justify-end">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setGridPanelOpen(true)
+                }}
+                title='The computer is not sure which beat is the "1" here, so the yellow lines are dashed. Open to move it ("Set downbeat here" on the real 1) or close with ✕ if it is right.'
+                className="rounded-[var(--radius-xs)]"
+              >
+                <Pill tone="warn" label="bar 1 unsure" />
+              </button>
+            </div>
+          )}
           {gridPanelOpen && (
             <BeatGridPanel deckId={deckId} beatGrid={deck.beatGrid} onClose={confirmAndCloseGridPanel} />
           )}
@@ -343,6 +361,7 @@ export function Deck({ deckId }: { deckId: DeckId }) {
         durationSec={deck.durationSec}
         bpm={deck.bpm}
         offsetSec={deck.beatGrid?.offsetSec ?? 0}
+        barUnsure={deck.barOneUnsure}
         hotCues={deck.hotCues}
         color={color}
         loading={deck.loading}
