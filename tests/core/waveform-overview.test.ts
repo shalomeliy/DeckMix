@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { OVERVIEW_STRIDE, overviewColumns, overviewSecAt } from '@/core/waveform-overview.ts'
+import { OVERVIEW_STRIDE, overviewColumns, overviewLoopBox, overviewSecAt } from '@/core/waveform-overview.ts'
 
 /** `n` quiet buckets (min/max interleaved) with one loud one at `loudAt`. */
 function peaksWithSpike(n: number, loudAt: number): Float32Array {
@@ -65,5 +65,27 @@ describe('overviewSecAt', () => {
     expect(overviewSecAt(-5, 420, 300)).toBe(0)
     expect(overviewSecAt(500, 420, 300)).toBe(300)
     expect(overviewSecAt(10, 0, 300)).toBe(0)
+  })
+})
+
+describe('overviewLoopBox', () => {
+  it('places a loop as a share of the track', () => {
+    const b = overviewLoopBox({ startSec: 60, endSec: 90 }, 300)!
+    expect(b.leftPct).toBeCloseTo(20)
+    expect(b.widthPct).toBeCloseTo(10)
+  })
+  it('never lets a short loop vanish — a 2 s loop in a 6 min track is still drawn', () => {
+    const b = overviewLoopBox({ startSec: 100, endSec: 102 }, 360)!
+    expect(b.widthPct).toBeGreaterThanOrEqual(0.8)
+  })
+  it('stays inside the strip at the end of the track', () => {
+    const b = overviewLoopBox({ startSec: 299.9, endSec: 300 }, 300)!
+    expect(b.leftPct + b.widthPct).toBeLessThanOrEqual(100 + 1e-9)
+  })
+  it('draws nothing without a loop, a track, or a real range', () => {
+    expect(overviewLoopBox(null, 300)).toBeNull()
+    expect(overviewLoopBox({ startSec: 1, endSec: 2 }, 0)).toBeNull()
+    expect(overviewLoopBox({ startSec: 5, endSec: 5 }, 300)).toBeNull()
+    expect(overviewLoopBox({ startSec: 9, endSec: 3 }, 300)).toBeNull()
   })
 })

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSettings } from '@/app/hooks/useSettings'
 import { HintIcon } from '@/app/components/controls'
 import * as ctl from '@/controls'
-import { OVERVIEW_STRIDE, overviewColumns, overviewSecAt } from '@/core/waveform-overview'
+import { OVERVIEW_STRIDE, overviewColumns, overviewLoopBox, overviewSecAt } from '@/core/waveform-overview'
 import { bandRgb } from '@/app/components/waveform-colors'
 import type { DeckId, HotCue } from '@/core/types'
 
@@ -13,6 +13,8 @@ interface Props {
   positionSec: number
   durationSec: number
   hotCues: HotCue[]
+  /** the engine's loop, Loop Roll included (v0.12.10) — same source the scrolling waveform draws. */
+  loopRange?: { startSec: number; endSec: number } | null
   color: string
 }
 
@@ -26,7 +28,7 @@ interface Props {
  * every frame, and a second full redraw per deck is exactly the cost the
  * "two waveforms + overview at 60fps" bar in ROADMAP.md rules out.
  */
-export function WaveformOverview({ deckId, peaks, bands, positionSec, durationSec, hotCues, color }: Props) {
+export function WaveformOverview({ deckId, peaks, bands, positionSec, durationSec, hotCues, loopRange = null, color }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [width, setWidth] = useState(0)
   const { hiResCanvas, waveformColorByEq } = useSettings()
@@ -124,6 +126,8 @@ export function WaveformOverview({ deckId, peaks, bands, positionSec, durationSe
     if (drag.current?.pointerId === e.pointerId) drag.current = null
   }
 
+  // An element over the canvas, like the played shade: a loop change must not redraw the body.
+  const loopBox = overviewLoopBox(loopRange, durationSec)
   const pct = durationSec > 0 ? Math.max(0, Math.min(100, (positionSec / durationSec) * 100)) : 0
 
   // The hint sits beside the strip, not on it: on it, it covered the last
@@ -145,6 +149,13 @@ export function WaveformOverview({ deckId, peaks, bands, positionSec, durationSe
         {durationSec > 0 && peaks && (
           <>
             <div className="pointer-events-none absolute inset-y-0 left-0 bg-black/50" style={{ width: `${pct}%` }} />
+            {loopBox && (
+              <div
+                data-overview-loop={deckId}
+                className="pointer-events-none absolute inset-y-0 bg-[rgba(80,255,150,0.3)] shadow-[inset_0_0_0_1px_rgba(80,255,150,0.95)]"
+                style={{ left: `${loopBox.leftPct}%`, width: `${loopBox.widthPct}%` }}
+              />
+            )}
             <div
               className="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 bg-white shadow-[0_0_4px_#fff]"
               style={{ left: `${pct}%` }}

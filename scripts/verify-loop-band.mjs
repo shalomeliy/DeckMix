@@ -119,6 +119,15 @@ await page.evaluate(async () => {
   await new Promise((r) => setTimeout(r, 300))
 })
 
+// v0.12.10: the same loop on the whole-track strip — a DOM box over the canvas, not canvas pixels.
+const strip = () =>
+  page.evaluate(() => {
+    const el = document.querySelector('[data-overview-loop="A"]')
+    if (!el) return null
+    const w = el.parentElement.getBoundingClientRect()
+    const r = el.getBoundingClientRect()
+    return { left: (r.left - w.left) / w.width, width: r.width / w.width, px: r.width }
+  })
 const state = () =>
   page.evaluate(async () => {
     const d = (await window.mod('/src/app/state/store.ts')).useStore.getState().decks.A
@@ -147,6 +156,13 @@ await page.evaluate(async () => (await window.mod('/src/controls.ts')).toggleLoo
 await page.waitForTimeout(300)
 s = await state()
 ok('toggleLoop puts the loop range in the store', !!s.range && s.range.endSec > s.range.startSec && s.active, JSON.stringify(s))
+const sb = await strip()
+const st1 = await state()
+const dur = await page.evaluate(async () => (await window.mod('/src/app/state/store.ts')).useStore.getState().decks.A.durationSec)
+ok('the loop is on the whole-track strip at the right place', !!sb && Math.abs(sb.left - st1.range.startSec / dur) < 0.01, JSON.stringify(sb))
+ok('the strip box has a real width (the 0.8% floor itself is unit-tested: this track is only 20 s)', !!sb && sb.px >= 3, `${sb && sb.px.toFixed(1)}px`)
+const geo = () => page.evaluate(() => ({ h: document.querySelector('canvas[data-overview="A"]').getBoundingClientRect().height, scroll: document.documentElement.scrollHeight }))
+const withLoop = await geo()
 const on = await green()
 ok('the loop band is drawn (paused deck)', on > 20, `${on}px`)
 
@@ -155,6 +171,9 @@ await page.waitForTimeout(300)
 s = await state()
 ok('toggling off clears the range', s.range === null && !s.active)
 ok('the band disappears', (await green()) === 0)
+ok('the strip box disappears too', (await strip()) === null)
+const noLoop = await geo()
+ok('the strip keeps its height with and without a loop, and the page fits 710px', withLoop.h === noLoop.h && withLoop.scroll <= 710 && noLoop.scroll <= 710, JSON.stringify({ withLoop, noLoop }))
 
 // Loop Roll never sets loopActive — it must still be on screen.
 await page.evaluate(async () => {
@@ -169,6 +188,7 @@ await page.waitForTimeout(300)
 s = await state()
 ok('Loop Roll shows a range although loopActive stays false', !!s.range && !s.active, JSON.stringify(s))
 ok('Loop Roll band is drawn', (await green()) > 20)
+ok('Loop Roll is on the strip too', (await strip()) !== null)
 await page.evaluate(() => typeof window.__release === 'function' && window.__release())
 await page.waitForTimeout(300)
 s = await state()
@@ -209,6 +229,7 @@ await page.evaluate(async () => (await window.mod('/src/controls.ts')).ejectDeck
 await page.waitForTimeout(200)
 s = await state()
 ok('ejecting the deck clears the range', s.range === null)
+ok('ejecting clears the strip box', (await strip()) === null)
 
 ok('no page errors', errors.length === 0, errors.join(' | '))
 await browser.close()

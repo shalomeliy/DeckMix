@@ -64,3 +64,27 @@ export function overviewSecAt(x: number, width: number, durationSec: number): nu
   if (!(width > 0) || !(durationSec > 0)) return 0
   return Math.max(0, Math.min(durationSec, (x / width) * durationSec))
 }
+
+/**
+ * Where the loop sits on the strip, as percentages of its width. A 2-second
+ * loop in a 6-minute track is ~1% of the strip — under 5 px — so the width is
+ * floored at `minPct`: a loop that is playing must never shrink to nothing.
+ * `null` when there is nothing to draw (no loop, no track, an empty or
+ * reversed range), and the box is clamped so it never leaves the strip. A
+ * range wholly outside the track also gives `null`; the deck sets loops only
+ * from its own playhead, so the engine never produces one — if that changes,
+ * this is where a loop would silently stop being shown.
+ */
+export function overviewLoopBox(
+  range: { startSec: number; endSec: number } | null,
+  durationSec: number,
+  minPct = 0.8,
+): { leftPct: number; widthPct: number } | null {
+  if (!range || !(durationSec > 0) || !(range.endSec > range.startSec)) return null
+  const start = Math.max(0, Math.min(durationSec, range.startSec))
+  const end = Math.max(0, Math.min(durationSec, range.endSec))
+  if (!(end > start)) return null
+  const widthPct = Math.max(minPct, ((end - start) / durationSec) * 100)
+  const leftPct = Math.min((start / durationSec) * 100, 100 - widthPct)
+  return { leftPct, widthPct }
+}

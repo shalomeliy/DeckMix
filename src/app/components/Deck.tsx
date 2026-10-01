@@ -350,6 +350,7 @@ export function Deck({ deckId }: { deckId: DeckId }) {
         positionSec={deck.positionSec}
         durationSec={deck.durationSec}
         hotCues={deck.hotCues}
+        loopRange={deck.loopRange}
         color={color}
       />
 
