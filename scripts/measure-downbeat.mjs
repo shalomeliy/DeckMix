@@ -119,5 +119,14 @@ for (const set of ['train', 'sealed', 'fresh', 'fresh2', 'unseen']) {
 const ms = all.filter((x) => x.r?.envMs).map((x) => (x.r.envMs / x.r.dur) * 300)
 console.log(`
 kick band cost, scaled to a 5-minute track: median ${ms.sort((a, b) => a - b)[Math.floor(ms.length / 2)].toFixed(0)} ms`)
+if (process.argv.includes('--fails')) {
+  // every song the kick detector gets wrong, with where the ears put the "1" relative to the grid
+  for (const { s, r } of rows) {
+    const k = r?.kick
+    if (!k) continue
+    const truth = beatOf(s.truthSec, s.detectorGrid)
+    if (k.beat !== truth) console.log(`FAIL ${s.set} ${s.genre} truth=${truth} got=${k.beat} margin=${k.margin.toFixed(2)} ${s.trackId}`)
+  }
+}
 const errs = rows.filter((x) => x.r?.error)
 if (errs.length) console.log('errors:', errs.map((x) => `${x.s.trackId}: ${x.r.error}`))
