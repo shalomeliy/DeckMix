@@ -4,7 +4,11 @@ import {
   FINE_STEP_SEC,
   VIEW_BARS,
   pickBarSample,
+  VOCAL_CLIPS_PER_SONG,
+  firstUnansweredClip,
   pickVocalSample,
+  vocalClipsAnswered,
+  vocalSongsDone,
   pickFreshSample,
   disputedSongs,
   neutralSec,
@@ -75,6 +79,9 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false)
   /** Which drop spot the marker was last put on — "another place in the song" steps through them. */
   const [spot, setSpot] = useState(0)
+  /** Which of the song's three vocal clips is up (v0.9.10). */
+  const [clip, setClip] = useState(0)
+  const vocalTags = useRef<readonly { contentHash: string; clipIndex?: number }[]>([])
   const [markSec, setMarkSec] = useState<number | null>(null)
   const [viewStart, setViewStart] = useState(0)
   const [playhead, setPlayhead] = useState<number | null>(null)
@@ -113,7 +120,9 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
     // The "1" counts only the waveform tags: every song is tagged again (26/09), and the 4-button answers stay beside them.
     setTaggedBar(new Set(all.mark.flatMap((t) => [t.contentHash, t.trackId])))
     setOldBarCount(all.bar.length)
-    setTaggedVocal(new Set(all.vocal.flatMap((t) => [t.contentHash, t.trackId])))
+    vocalTags.current = all.vocal
+    // A song is done only when all its clips are: a half-answered one reopens on the first missing clip.
+    setTaggedVocal(vocalSongsDone(all.vocal))
     setTaggedDecide(new Set(all.decide.flatMap((t) => [t.contentHash, t.trackId])))
     setDecideSample(disputedSongs(all.bar, all.mark))
     setTaggedFresh(new Set(all.fresh.flatMap((t) => [t.contentHash, t.trackId])))
@@ -176,6 +185,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
         if (view && !tagged?.has(view.contentHash)) {
           setIndex(i)
           setCurrent(view)
+          setClip(Math.min(VOCAL_CLIPS_PER_SONG - 1, firstUnansweredClip(vocalClipsAnswered(vocalTags.current, view.contentHash))))
           const first = view.marks[0] ?? null
           const start = blind ? null : first
           markRef.current = start
@@ -219,7 +229,18 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
         round: mode === 'decide' ? 'decide' : mode === 'fresh' ? 'fresh' : undefined,
       }),
     )
-  const answerVocal = (a: VocalAnswer) => answer((h) => ctl.tagSaveVocal(h, a))
+  const answerVocal = async (a: VocalAnswer) => {
+    if (!current || saving) return
+    stopSound()
+    setSaving(true)
+    const saved = await ctl.tagSaveVocal(current.contentHash, a, clip)
+    setSaving(false)
+    if (!saved) return
+    await refreshTagged()
+    // The next clip of the same song, without decoding it again; after the last one, the next song.
+    if (clip + 1 < VOCAL_CLIPS_PER_SONG) setClip(clip + 1)
+    else void open(index + 1)
+  }
 
   // Within this sample, by the row each tag was sampled as — a count of every
   // stored tag could pass M after a rescan or a genre change (v0.9.0 review).
@@ -535,8 +556,15 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
                 {current.holdout ? ' · מבחן סופי' : ''}
               </div>
             </div>
+            <He className="text-xs text-grid-muted">
+              קטע {clip + 1} מתוך {VOCAL_CLIPS_PER_SONG} של השיר הזה.
+            </He>
+            <He className="text-2xs text-grid-muted">
+              "יש שירה" = קול אנושי שרים או ראפ, שנשמע כקול מוביל או בולט. קול רקע ("אוווו"), קטעי קול חתוכים
+              וקריאות קצרות של פחות משנייה = "אין שירה". אם לא ברור — "לא בטוח".
+            </He>
             <div className="flex justify-center">
-              <Button variant="ghost" onClick={() => ctl.tagPlayVocal()}>
+              <Button variant="ghost" onClick={() => ctl.tagPlayVocal(clip)}>
                 ▶ נגן 5 שניות
               </Button>
             </div>

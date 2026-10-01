@@ -22,6 +22,15 @@ export const TAG_GENRES = 5
 export const VOCAL_PER_GENRE = 6
 export const VOCAL_HOLDOUT_PER_GENRE = 2
 export const VOCAL_CLIP_SEC = 5
+/**
+ * Three clips per song (v0.9.10 spec, 01/10). One 5-second clip per song said
+ * nothing about the rest of the track: a song with vocals only at the end
+ * would match or miss on a single moment while the strip claims the whole
+ * song. 30 songs × 3 = 90 quick answers.
+ */
+export const VOCAL_CLIPS_PER_SONG = 3
+/** Schema 2: `clipIndex` was added. No schema-1 vocal tag was ever exported (0 of 0), so nothing needs migrating. */
+export const VOCAL_SCHEMA = 2
 
 /**
  * v0.9.1's marker tags. Schema 2, a separate kind from v0.9.0's `BarTag`:
@@ -219,11 +228,17 @@ export function markBeatOf(markSec: number, grid: BeatGrid): { beat: number; err
   return { beat: ((n % BEATS_PER_BAR) + BEATS_PER_BAR) % BEATS_PER_BAR, errSec: markSec - (grid.offsetSec + n * beatSec) }
 }
 
-/** A fixed spot for a track's vocal clip, away from intro and outro, the same every time. */
-export function vocalSpotSec(trackId: string, durationSec: number): number {
+/**
+ * Where the three vocal clips of a track start: one in each third of the
+ * middle 70% of the song (away from intro and outro), at a fixed place the
+ * same every time. Each clip stays inside its own third, so the three never
+ * overlap on a normal-length song.
+ */
+export function vocalSpotsSec(trackId: string, durationSec: number): number[] {
   const lo = durationSec * 0.15
-  const hi = Math.max(lo, durationSec * 0.85 - VOCAL_CLIP_SEC)
-  return lo + ((stableKey(trackId) % 1000) / 1000) * (hi - lo)
+  const seg = (durationSec * 0.7) / VOCAL_CLIPS_PER_SONG
+  const room = Math.max(0, seg - VOCAL_CLIP_SEC)
+  return Array.from({ length: VOCAL_CLIPS_PER_SONG }, (_, i) => lo + i * seg + ((stableKey(`${trackId}:${i}`) % 1000) / 1000) * room)
 }
 
 export type BarAnswer = 0 | 1 | 2 | 3 | 'skip' | 'wrongTempo'
@@ -286,9 +301,37 @@ export interface VocalTag {
   name: string
   genre: string
   holdout: boolean
+  /** Which of the song's `VOCAL_CLIPS_PER_SONG` clips this answer is for (0-based). */
+  clipIndex: number
   atSec: number
   answer: VocalAnswer
   taggedAt: number
+}
+
+/** Clips already answered for a song, by content hash — a record with no `clipIndex` counts as clip 0. */
+export function vocalClipsAnswered(tags: readonly { contentHash: string; clipIndex?: number }[], contentHash: string): Set<number> {
+  const out = new Set<number>()
+  for (const t of tags) if (t.contentHash === contentHash) out.add(t.clipIndex ?? 0)
+  return out
+}
+
+/** The first clip of a song with no answer yet, or `VOCAL_CLIPS_PER_SONG` when all are answered. */
+export function firstUnansweredClip(answered: ReadonlySet<number>): number {
+  for (let i = 0; i < VOCAL_CLIPS_PER_SONG; i++) if (!answered.has(i)) return i
+  return VOCAL_CLIPS_PER_SONG
+}
+
+/** Keys (content hash and library path) of the songs whose every clip is answered — what the screen counts as done. */
+export function vocalSongsDone(tags: readonly { contentHash: string; trackId: string; clipIndex?: number }[]): Set<string> {
+  const byHash = new Map<string, { trackId: string; clips: Set<number> }>()
+  for (const t of tags) {
+    const e = byHash.get(t.contentHash) ?? { trackId: t.trackId, clips: new Set<number>() }
+    e.clips.add(t.clipIndex ?? 0)
+    byHash.set(t.contentHash, e)
+  }
+  const done = new Set<string>()
+  for (const [hash, e] of byHash) if (firstUnansweredClip(e.clips) === VOCAL_CLIPS_PER_SONG) done.add(hash).add(e.trackId)
+  return done
 }
 
 /**

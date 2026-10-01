@@ -39,7 +39,8 @@ export async function putFreshTag(tag: MarkTag): Promise<void> {
 }
 
 export async function putVocalTag(tag: VocalTag): Promise<void> {
-  await set(VOCAL_PREFIX + tag.contentHash, tag)
+  // one record per clip: three per song (v0.9.10)
+  await set(`${VOCAL_PREFIX}${tag.contentHash}:${tag.clipIndex}`, tag)
 }
 
 /** Every stored tag. Throws on a blocked IndexedDB: an empty list there would read as "nothing tagged yet". */

@@ -12,13 +12,17 @@ import {
   startGrid,
   startMarkSec,
   tagsExportText,
-  VOCAL_CLIP_SEC,
   dropSpots,
   gridWithOneOn,
   pickBarSample,
   pickVocalSample,
   pickFreshSample,
-  vocalSpotSec,
+  vocalSpotsSec,
+  vocalSongsDone,
+  vocalClipsAnswered,
+  firstUnansweredClip,
+  VOCAL_CLIPS_PER_SONG,
+  VOCAL_CLIP_SEC,
 } from '@/core/tagging'
 
 const lib = (counts: Record<string, number>) =>
@@ -94,14 +98,38 @@ describe('gridWithOneOn', () => {
   })
 })
 
-describe('vocalSpotSec', () => {
-  it('lands away from intro and outro, and the whole clip fits', () => {
-    for (const id of ['a', 'b', 'House/3.mp3', 'x/y/z.flac']) {
-      const at = vocalSpotSec(id, 240)
-      expect(at).toBeGreaterThanOrEqual(36)
-      expect(at + VOCAL_CLIP_SEC).toBeLessThanOrEqual(204 + 1e-9)
-      expect(vocalSpotSec(id, 240)).toBe(at)
+describe('vocalSpotsSec', () => {
+  it('gives three fixed spots, one in each third of the middle 70%, never overlapping', () => {
+    for (const id of ['House/a.mp3', 'Techno/b.wav', 'Trance/ג.mp3']) {
+      const spots = vocalSpotsSec(id, 240)
+      expect(spots).toHaveLength(VOCAL_CLIPS_PER_SONG)
+      expect(vocalSpotsSec(id, 240)).toEqual(spots) // the same every time
+      spots.forEach((at, i) => {
+        expect(at).toBeGreaterThanOrEqual(240 * 0.15 + i * ((240 * 0.7) / 3) - 1e-9)
+        expect(at + VOCAL_CLIP_SEC).toBeLessThanOrEqual(240 * 0.15 + (i + 1) * ((240 * 0.7) / 3) + 1e-9)
+      })
+      expect(spots[1]).toBeGreaterThanOrEqual(spots[0] + VOCAL_CLIP_SEC)
+      expect(spots[2]).toBeGreaterThanOrEqual(spots[1] + VOCAL_CLIP_SEC)
     }
+  })
+})
+
+describe('vocal clips per song', () => {
+  const t = (hash: string, clipIndex?: number) => ({ contentHash: hash, trackId: `House/${hash}.mp3`, clipIndex })
+  it('a song is done only when all three clips are answered', () => {
+    expect(vocalSongsDone([t('a', 0), t('a', 1)]).has('a')).toBe(false)
+    const done = vocalSongsDone([t('a', 0), t('a', 1), t('a', 2), t('b', 0)])
+    expect(done.has('a')).toBe(true)
+    expect(done.has('House/a.mp3')).toBe(true)
+    expect(done.has('b')).toBe(false)
+  })
+  it('reopens a half-answered song on its first missing clip', () => {
+    expect(firstUnansweredClip(vocalClipsAnswered([t('a', 0), t('a', 2)], 'a'))).toBe(1)
+    expect(firstUnansweredClip(vocalClipsAnswered([], 'a'))).toBe(0)
+    expect(firstUnansweredClip(vocalClipsAnswered([t('a', 0), t('a', 1), t('a', 2)], 'a'))).toBe(VOCAL_CLIPS_PER_SONG)
+  })
+  it('a record without clipIndex counts as clip 0', () => {
+    expect([...vocalClipsAnswered([t('a')], 'a')]).toEqual([0])
   })
 })
 

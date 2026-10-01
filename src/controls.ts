@@ -76,13 +76,13 @@ import {
   MARK_SCHEMA,
   PLAY_BARS,
   PLAY_LEAD_BARS,
-  TAG_SCHEMA,
   VOCAL_CLIP_SEC,
+  VOCAL_SCHEMA,
   dropSpots,
   startGrid,
   startMarkSec,
   tagsExportText,
-  vocalSpotSec,
+  vocalSpotsSec,
   type MarkAnswer,
   type MarkTag,
   type SampleEntry,
@@ -4578,10 +4578,12 @@ export function tagPlayheadSec(): number | null {
   return tagPlayer?.positionSec() ?? null
 }
 
-export function tagPlayVocal() {
+export function tagPlayVocal(clip: number) {
   const c = tagCurrent
   if (!c) return
-  getTagPlayer().playClip(c.buffer, vocalSpotSec(c.entry.trackId, c.buffer.duration), VOCAL_CLIP_SEC)
+  const at = vocalSpotsSec(c.entry.trackId, c.buffer.duration)[clip]
+  if (at == null) return
+  getTagPlayer().playClip(c.buffer, at, VOCAL_CLIP_SEC)
 }
 
 export function tagStop() {
@@ -4674,18 +4676,21 @@ export async function tagSaveMark(shownHash: string, input: MarkInput): Promise<
   }
 }
 
-export async function tagSaveVocal(shownHash: string, answer: VocalAnswer): Promise<boolean> {
+export async function tagSaveVocal(shownHash: string, answer: VocalAnswer, clip: number): Promise<boolean> {
   const c = tagTarget(shownHash)
   if (!c) return false
+  const at = vocalSpotsSec(c.entry.trackId, c.buffer.duration)[clip]
+  if (at == null) return false
   try {
     await putVocalTag({
-      schema: TAG_SCHEMA,
+      schema: VOCAL_SCHEMA,
       contentHash: c.contentHash,
       trackId: c.entry.trackId,
       name: c.name,
       genre: c.entry.genre,
       holdout: c.entry.holdout,
-      atSec: vocalSpotSec(c.entry.trackId, c.buffer.duration),
+      clipIndex: clip,
+      atSec: at,
       answer,
       taggedAt: Date.now(),
     })
