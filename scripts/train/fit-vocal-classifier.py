@@ -60,6 +60,9 @@ sets = {
     "existing 4 cues only": ["harmonic_mean", "centre_mean", "bright_mean", "motion_mean", "stereo"],
     "all means (no spread, no context)": [n for n in names if n.endswith("_mean")] + ["stereo"],
     "all 16 features": names,
+    # Diagnostic, not a search: the strongest weight above is the LEVEL of the harmonic band, which in
+    # a synthetic mix rises whenever a voice is laid on, but in a mastered song does not.
+    "all except level (13 features)": [n for n in names if not n.startswith("rel_level")],
 }
 for tag, cols in sets.items():
     model, idx = fit(cols)
