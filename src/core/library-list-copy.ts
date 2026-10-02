@@ -66,7 +66,16 @@ export function libraryEmptyCopy(
    * "turn off Mix Only" advice would not bring anything back.
    */
   allSuggestionsPlayedHidden = false,
+  /** v0.8.45: "Duplicates only" is on and left nothing — its own message, or it would be blamed on Mix Only / "no audio files". */
+  duplicatesOnly = false,
 ): LibraryEmptyCopy {
+  if (duplicatesOnly && !similarToName) {
+    return {
+      title: 'No duplicates in this view',
+      body: 'Duplicates only is on, and no repeated song is left after the search or crate you chose. Clear a filter to see more. Identical copies are only recognised once a track has been loaded or analysed, so more may appear.',
+      offerMixOnlyReset: false,
+    }
+  }
   if (similarToName) {
     return {
       title: 'No similar tracks found yet',

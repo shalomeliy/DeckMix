@@ -18,6 +18,7 @@ import {
 import { useShallow } from 'zustand/react/shallow'
 import { bootCopy, bootFor, bootForScanError } from '@/core/library-boot'
 import { findSimilarTracks, orderBySimilarMatches } from '@/core/embedding-search'
+import { findDuplicates, type DuplicateGroup } from '@/core/duplicates'
 import { libraryEmptyCopy } from '@/core/library-list-copy'
 import { SEARCH_COLUMN_LABEL, columnSearchHint, type SearchColumn } from '@/core/library-search'
 import { applyOwnerMeta, mergeAnalysisPatch, mergeTagPatch } from '@/core/tag-merge'
@@ -133,6 +134,10 @@ export function Library() {
   // Same local-state shape as `mixOnly` — a view filter, not something any
   // other part of the app needs to know about.
   const [similarTo, setSimilarTo] = useState<string | null>(null)
+  // v0.8.45: only tracks that exist more than once. A view filter like `mixOnly`;
+  // it narrows `preMixList`, so it intersects with Mix Only / similar instead of
+  // being silently overridden by them.
+  const [dupOnly, setDupOnly] = useState(false)
   // v0.8.38: the track whose BPM/key the owner is checking against Beatport — see SourceCheckPanel.
   const [checking, setChecking] = useState<string | null>(null)
   // Which key notation to show. DJs are split between musical and Camelot and
@@ -692,7 +697,9 @@ export function Library() {
   // Kept separate from `list` so the empty state below can tell "mixOnly
   // filtered everything out" apart from "the folder genuinely has nothing" —
   // the two used to render the identical "no audio files" message.
-  const preMixList = ctl.sortedFilteredTracks()
+  const dupReport = useMemo(() => findDuplicates(library.tracks), [library.tracks])
+  const sortedFiltered = ctl.sortedFilteredTracks()
+  const preMixList = dupOnly ? duplicatesView(sortedFiltered, dupReport.byTrack, library.sortKey == null) : sortedFiltered
   const activeCrate = library.activeCrateId ? (crates.get(library.activeCrateId) ?? null) : null
   const list = similarTo
     ? orderBySimilarMatches(preMixList, similarMatches)
@@ -734,6 +741,7 @@ export function Library() {
     ...(mixOnly && !similarTo && tempoDirection && library.sortKey == null && anyPlaying && recs.size > 0
       ? [{ label: `Tempo: ${tempoDirection}`, clear: () => setTempoDirection(null) }]
       : []),
+    ...(dupOnly ? [{ label: 'Duplicates only', clear: () => setDupOnly(false) }] : []),
     ...(activeCrate ? [{ label: `Crate: ${activeCrate.name}`, clear: () => ctl.setActiveCrate(null) }] : []),
     ...(similarToTrack
       ? [{ label: `Similar to: ${similarToTrack.title ?? similarToTrack.name}`, clear: () => setSimilarTo(null) }]
@@ -777,6 +785,7 @@ export function Library() {
     queuedTotal > 0,
     similarToTrack ? (similarToTrack.title ?? similarToTrack.name) : null,
     allSuggestionsPlayedHidden,
+    dupOnly,
   )
   // Only a manual crate's membership can be edited from here — a smart
   // crate's contents are entirely rule-derived (`refreshSmartCrate`), so
@@ -1087,6 +1096,27 @@ export function Library() {
               {skippedTotal} skipped
             </span>
           )}
+          {!library.scanning && library.tracks.length > 1 && (
+            dupReport.groups.length > 0 ? (
+              <Button
+                variant="toggle"
+                size="sm"
+                active={dupOnly}
+                onClick={() => setDupOnly((v) => !v)}
+                title={duplicatesTitle(dupReport.groups, dupReport.unchecked)}
+              >
+                ⧉ {dupReport.groups.length} repeated song{dupReport.groups.length === 1 ? '' : 's'}
+              </Button>
+            ) : (
+              <span
+                className="text-2xs text-grid-dim"
+                title="Duplicates are found by identical content, or by the same artist/title and length. Identical content is only known once a track has been loaded or analysed."
+              >
+                no duplicates
+                {dupReport.unchecked > 0 && ` yet · ${dupReport.unchecked} not checkable yet`}
+              </span>
+            )
+          )}
           {/*
             Files that ARE tracks and could not be read: deleted between the
             scan and the tag pass, or access pulled. Until v0.2.8 an empty catch
@@ -1390,6 +1420,7 @@ export function Library() {
                   removableFromCrateId={removableFromCrateId}
                   loadedOnA={aHash != null && aHash === t.contentHash}
                   loadedOnB={bHash != null && bHash === t.contentHash}
+                  duplicate={dupReport.byTrack.get(t.id)}
                 />
               ))}
               {padBottom > 0 && (
@@ -1544,6 +1575,33 @@ function AnalysisIcon({ track }: { track: Track }) {
   return null
 }
 
+/** Only tracks that have a twin; with no column sort active, twins sit next to each other. */
+function duplicatesView(
+  tracks: Track[],
+  byTrack: ReadonlyMap<string, DuplicateGroup>,
+  groupThem: boolean,
+): Track[] {
+  const dups = tracks.filter((t) => byTrack.has(t.id))
+  if (!groupThem) return dups
+  const order = new Map<string, number>()
+  for (const t of dups) {
+    const g = byTrack.get(t.id)!.id
+    if (!order.has(g)) order.set(g, order.size)
+  }
+  return [...dups].sort((a, b) => order.get(byTrack.get(a.id)!.id)! - order.get(byTrack.get(b.id)!.id)!)
+}
+
+function duplicatesTitle(groups: DuplicateGroup[], unchecked: number): string {
+  const identical = groups.filter((g) => g.kind === 'identical').length
+  const probable = groups.length - identical
+  return [
+    `Songs in the library more than once: ${identical} identical, ${probable} probable (same artist/title and length). Nothing is deleted or moved — this only lists them. Identical copies are only recognised once a track has been loaded or analysed.`,
+    unchecked > 0 ? `${unchecked} tracks cannot be compared yet (no content hash and no tags/length) — more may appear.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+}
+
 function Row({
   track,
   selected,
@@ -1556,6 +1614,7 @@ function Row({
   removableFromCrateId,
   loadedOnA,
   loadedOnB,
+  duplicate,
 }: {
   track: Track
   selected: boolean
@@ -1572,6 +1631,8 @@ function Row({
   /** v0.8.2: this row's track is currently loaded on deck A/B (loaded, not necessarily playing — paused counts). */
   loadedOnA: boolean
   loadedOnB: boolean
+  /** v0.8.45: the group this track belongs to when the library holds it more than once. */
+  duplicate?: DuplicateGroup
 }) {
   const key = keyLabel(track, keyMode)
   const tone = keyColor(track.camelot)
@@ -1688,6 +1749,20 @@ function Row({
               style={{ color: DECK_COLOR[match.deck] }}
             >
               ≈
+            </span>
+          )}
+          {duplicate && (
+            <span
+              role="img"
+              aria-label={duplicate.kind === 'identical' ? 'Identical copy exists' : 'Probably the same song exists'}
+              title={
+                duplicate.kind === 'identical'
+                  ? `Identical file content: ${duplicate.trackIds.length} copies in the library`
+                  : `Probably the same song (same artist/title and length): ${duplicate.trackIds.length} files — the audio differs, e.g. MP3 and WAV`
+              }
+              className="shrink-0 rounded-[var(--radius-xs)] bg-surface-2 px-1 text-[10px] font-bold leading-4 text-warn"
+            >
+              {duplicate.kind === 'identical' ? '=' : '≈'}×{duplicate.trackIds.length}
             </span>
           )}
           {match && (
