@@ -10,6 +10,11 @@ import { libraryEmptyCopy } from '@/core/library-list-copy'
  * empty-state copy only ever checked the text filter, never `mixOnly`.
  */
 describe('libraryEmptyCopy', () => {
+  it('names Duplicates only when it is what emptied the table', () => {
+    const copy = libraryEmptyCopy('x', false, 0, null, false, null, false, true)
+    expect(copy.title).toBe('No duplicates in this view')
+  })
+
   it('blames the text filter when it matched nothing, even with mixOnly on', () => {
     const copy = libraryEmptyCopy('trance', true, 0)
     expect(copy.title).toBe('No tracks match that filter')
