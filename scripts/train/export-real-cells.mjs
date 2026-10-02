@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { cellFeatureRows, FEATURE_NAMES, CELL_SEC } from './cell-features.mjs'
 
-const tags = JSON.parse(fs.readFileSync(path.join(os.homedir(), 'Downloads', 'deckmix-tags-2026-10-01 - vocal.json'), 'utf8'))
+const tags = JSON.parse(fs.readFileSync(process.env.TAGS ?? path.join(os.homedir(), 'Downloads', 'deckmix-tags-2026-10-02- 100 vocals.json'), 'utf8'))
 const feats = new Map(JSON.parse(fs.readFileSync(path.join(process.env.TEMP, 'vocal-features.json'), 'utf8')).map((x) => [x.s.hash, x.r]))
 const CLIP = 5
 const rowsBySong = new Map()
@@ -24,7 +24,7 @@ for (const v of tags.vocal) {
   const rows = rowsBySong.get(v.contentHash)
   const a = Math.floor(v.atSec / CELL_SEC)
   const b = Math.min(rows.length, Math.ceil((v.atSec + CLIP) / CELL_SEC))
-  clips.push({ genre: v.genre, answer: v.answer, hash: v.contentHash.slice(0, 8), mono: !f.stereo, rows: rows.slice(a, b) })
+  clips.push({ genre: v.genre, answer: v.answer, pick: v.pick ?? 'random', hash: v.contentHash.slice(0, 8), mono: !f.stereo, rows: rows.slice(a, b) })
 }
 const out = path.join(process.env.TEMP, 'real-cells.json')
 fs.writeFileSync(out, JSON.stringify({ names: FEATURE_NAMES, clips }))

@@ -40,7 +40,7 @@ def cells(cs):
 
 def run(tag, use_syn, real_w, cols):
     idx = [names.index(n) for n in cols]
-    p_clip, a_clip, dance, genre = [], [], [], []
+    p_clip, a_clip, dance, genre, fair = [], [], [], [], []
     for held in songs:
         tr = [c for c in clips if c["hash"] != held]
         te = [c for c in clips if c["hash"] == held]
@@ -55,13 +55,16 @@ def run(tag, use_syn, real_w, cols):
         m.fit(X, y, logisticregression__sample_weight=w)
         for c in te:
             p_clip.append(m.predict_proba(np.array(c["rows"])[:, idx])[:, 1].mean())
-            a_clip.append(c["answer"] == "yes"); dance.append(c["genre"] in DANCE); genre.append(c["genre"])
+            a_clip.append(c["answer"] == "yes"); dance.append(c["genre"] in DANCE); genre.append(c["genre"]); fair.append(c.get("pick", "random") == "random")
     p, a, d = map(np.array, (p_clip, a_clip, dance))
     gn = np.array(genre)
+    fr = np.array(fair)
     out = []
     # Per genre as well as the 3-genre group: the owner's whole library is dance music (Mizrahi, HipHop too, 01/10),
     # so "dance vs not" is not the split that matters; the genres' vocal rates are.
-    for label, mk in [("all", np.ones_like(a, bool)), ("H/T/T", d)] + [(g, gn == g) for g in sorted(set(gn))]:
+    # The fair measure is the RANDOM clips only: 'suspect' clips were picked where the detector hears singing, so
+    # scoring on them flatters (or punishes) it. They still train; they are never the score.
+    for label, mk in [("all random", fr)] + [(g, (gn == g) & fr) for g in sorted(set(gn))]:
         if mk.sum() == 0:
             continue
         base = max(a[mk].mean(), 1 - a[mk].mean())

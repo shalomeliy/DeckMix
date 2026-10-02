@@ -14,7 +14,7 @@ import { chromium } from 'playwright'
 
 const ROOT = String.raw`C:\Users\Shalom\Music\Tracks`
 const DL = path.join(os.homedir(), 'Downloads')
-const tags = JSON.parse(fs.readFileSync(path.join(DL, 'deckmix-tags-2026-10-01 - vocal.json'), 'utf8'))
+const tags = JSON.parse(fs.readFileSync(process.env.TAGS ?? path.join(DL, 'deckmix-tags-2026-10-02- 100 vocals.json'), 'utf8'))
 const byHash = new Map()
 for (const v of tags.vocal) {
   if (!byHash.has(v.contentHash)) byHash.set(v.contentHash, { trackId: v.trackId, genre: v.genre, holdout: v.holdout, hash: v.contentHash })
