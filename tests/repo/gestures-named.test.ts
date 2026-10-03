@@ -50,6 +50,11 @@ const NAMED: Record<string, Named[]> = {
   ],
   'src/app/components/SourceCheckPanel.tsx': [{ token: 'onKeyDown=', count: 1, gesture: 'library.checkSource' }],
   'src/app/components/Deck.tsx': [{ token: 'onDrop=', count: 1, gesture: 'library.rows' }],
+  // v0.9.10b: the vocal strip's mark edges — drag, Shift = finer (once in the drag, once in the wheel nudge), wheel.
+  'src/app/components/VocalStrip.tsx': [
+    { token: 'e.shiftKey', count: 2, gesture: 'deck.vocalStrip' },
+    { token: 'onWheel=', count: 1, gesture: 'deck.vocalStrip' },
+  ],
   'src/app/components/Waveform.tsx': [
     // v0.8.28: wheel = quarter beat, Shift+wheel = whole beat
     { token: "addEventListener('wheel'", count: 1, gesture: 'deck.waveform' },

@@ -103,6 +103,11 @@ const HINT_BASE = {
   // v0.9.10b: the vocal strip under the overview.
   'deck.vocalStrip': {
     text: 'Where there are vocals in this track. Solid = vocals, dashed = not sure (treated as vocals by the timers), empty = none. The white line is the playhead. The two timers say when the vocals start and when they end. With "Mark vocals by hand" on, your own marks replace the computer\'s guess, and you can drag the edge of a purple mark to fix it (Shift = ten times finer, mouse wheel = 0.1 s).',
+    gestures: [
+      { mouse: 'Drag the edge of a purple mark', does: 'move that edge (needs "Mark vocals by hand" on)' },
+      { mouse: 'Shift + drag the edge', does: 'move it ten times finer' },
+      { mouse: 'Mouse wheel on the edge', does: 'nudge it 0.1 s (Shift: 0.02 s)' },
+    ],
   },
   // v0.9.1: the tagging screen's marker. Only while that screen shows a song's waveform.
   'tagging.marker': {
