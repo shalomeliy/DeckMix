@@ -115,3 +115,15 @@ export function addMarkedRegion(regions: readonly VocalRegion[], startPressSec: 
   if (hi - lo < MIN_REGION_SEC) return { ok: false, reason: 'too-short' }
   return addRegion(regions, lo - MARK_LEAD_SEC, hi + MARK_TAIL_SEC, durationSec)
 }
+
+/**
+ * Drags one edge of one mark (the owner, 03/10: resize the purple bars with the mouse). The edge stops MIN_REGION_SEC short of the other one, and
+ * stays inside the song; the time is kept to a hundredth. `null` when there is no such mark or the time is not a number — the caller keeps what it had.
+ */
+export function moveRegionEdge(regions: readonly VocalRegion[], index: number, edge: 'from' | 'to', sec: number, durationSec: number): VocalRegion[] | null {
+  const r = regions[index]
+  if (!r || !Number.isFinite(sec) || !(durationSec > 0)) return null
+  const hundredth = (x: number) => Math.round(x * 100) / 100
+  const next = edge === 'from' ? { fromSec: hundredth(Math.max(0, Math.min(sec, r.toSec - MIN_REGION_SEC))), toSec: r.toSec } : { fromSec: r.fromSec, toSec: hundredth(Math.min(durationSec, Math.max(sec, r.fromSec + MIN_REGION_SEC))) }
+  return regions.map((x, i) => (i === index ? next : x))
+}

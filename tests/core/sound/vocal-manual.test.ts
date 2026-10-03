@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MARK_LEAD_SEC, MARK_TAIL_SEC, MIN_REGION_SEC, addMarkedRegion, addRegion, effectiveTimeline, regionMask, removeLastRegion, undoLastEnd } from '@/core/sound/vocal-manual.ts'
+import { MARK_LEAD_SEC, MARK_TAIL_SEC, MIN_REGION_SEC, addMarkedRegion, addRegion, effectiveTimeline, regionMask, moveRegionEdge, removeLastRegion, undoLastEnd } from '@/core/sound/vocal-manual.ts'
 import { CELL_NONE, CELL_UNSURE, CELL_VOCAL, type VocalTimeline } from '@/core/sound/vocal-timeline.ts'
 
 const base = (s: string): VocalTimeline => ({ cells: Uint8Array.from([...s].map(Number)), stereo: true })
@@ -106,5 +106,24 @@ describe('undoLastEnd (a wrong "ended" press)', () => {
   it('only the last mark is undone, and nothing to undo is nothing', () => {
     expect(undoLastEnd([{ fromSec: 1, toSec: 3 }, { fromSec: 8, toSec: 12 }]).regions).toEqual([{ fromSec: 1, toSec: 3 }])
     expect(undoLastEnd([])).toEqual({ regions: [], reopenStartPressSec: null })
+  })
+})
+
+describe('moveRegionEdge (dragging a purple bar\'s edge)', () => {
+  const r = [{ fromSec: 10, toSec: 20 }, { fromSec: 30, toSec: 40 }]
+  it('moves just the chosen edge of the chosen mark', () => {
+    expect(moveRegionEdge(r, 1, 'from', 31.234, 60)).toEqual([r[0], { fromSec: 31.23, toSec: 40 }])
+    expect(moveRegionEdge(r, 0, 'to', 25, 60)).toEqual([{ fromSec: 10, toSec: 25 }, r[1]])
+  })
+  it('never lets the edges cross or get closer than the minimum, and never leaves the song', () => {
+    expect(moveRegionEdge(r, 0, 'from', 99, 60)).toEqual([{ fromSec: 20 - MIN_REGION_SEC, toSec: 20 }, r[1]])
+    expect(moveRegionEdge(r, 0, 'to', -5, 60)).toEqual([{ fromSec: 10, toSec: 10 + MIN_REGION_SEC }, r[1]])
+    expect(moveRegionEdge(r, 0, 'from', -5, 60)?.[0].fromSec).toBe(0)
+    expect(moveRegionEdge(r, 1, 'to', 999, 60)?.[1].toSec).toBe(60)
+  })
+  it('refuses what it cannot do, so the caller keeps what it had', () => {
+    expect(moveRegionEdge(r, 5, 'from', 1, 60)).toBeNull()
+    expect(moveRegionEdge(r, 0, 'from', NaN, 60)).toBeNull()
+    expect(moveRegionEdge(r, 0, 'from', 1, 0)).toBeNull()
   })
 })

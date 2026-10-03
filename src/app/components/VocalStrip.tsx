@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { HintIcon } from '@/app/components/controls'
 import { useSettings } from '@/app/hooks/useSettings'
 import { useStore } from '@/app/state/store'
 import * as ctl from '@/controls'
-import { MARK_LEAD_SEC, MARK_TAIL_SEC, effectiveTimeline, regionMask } from '@/core/sound/vocal-manual'
+import { MARK_LEAD_SEC, MARK_TAIL_SEC, effectiveTimeline } from '@/core/sound/vocal-manual'
 import {
   CELL_NONE,
   CELL_VOCAL,
@@ -26,6 +26,11 @@ const VOICE = '#c084fc'
 const mmss = (sec: number) => {
   const s = Math.max(0, Math.ceil(sec))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+const mmssTenths = (sec: number) => {
+  const t = Math.max(0, Math.round(sec * 10) / 10)
+  return `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`
 }
 
 /** The countdown line. Whole seconds only, so it changes once a second, not on every frame the playhead moves. */
@@ -58,16 +63,52 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
   const [confirmClear, setConfirmClear] = useState(false)
   // His marks win over the model's guess (core: `effectiveTimeline`). The open one is drawn up to the play position, in whole seconds like the timers.
   const secBucket = Math.floor(positionSec)
+  // The timers read the half-second cells of everything together: his marks over the guess, or only his marks once the song is finished.
   const timeline = useMemo(
     () => effectiveTimeline(vocal?.timeline ?? null, tag, durationSec, open ? { fromSec: open.startSec - MARK_LEAD_SEC, toSec: secBucket + MARK_TAIL_SEC } : null),
     [vocal?.timeline, tag, durationSec, open, secBucket],
   )
-  const manualSegs = useMemo(() => {
-    if (!tag && !open) return []
-    const mask = regionMask([...(tag?.regions ?? []), ...(open ? [{ fromSec: Math.min(open.startSec, secBucket) - MARK_LEAD_SEC, toSec: Math.max(open.startSec, secBucket) + MARK_TAIL_SEC }] : [])], durationSec)
-    return durationSec > 0 ? vocalStripSegments({ cells: mask, stereo: true }, durationSec, 600, 2).filter((s) => s.cell === CELL_VOCAL) : []
-  }, [tag, open, secBucket, durationSec])
-  const segs = useMemo(() => (timeline && durationSec > 0 ? vocalStripSegments(timeline, durationSec, 600, 2) : []), [timeline, durationSec])
+  // What is drawn: the model's guess (unless the song is finished — then it has no say), and over it his marks at their EXACT times, not rounded
+  // out to half seconds like the cells the timers read. The mark still open grows with the play position.
+  const displayTimeline = useMemo(() => {
+    if (tag?.finished) return null
+    return tag ? effectiveTimeline(vocal?.timeline ?? null, { regions: [], finished: false }, durationSec) : (vocal?.timeline ?? null)
+  }, [tag, vocal?.timeline, durationSec])
+  const segs = useMemo(() => (displayTimeline && durationSec > 0 ? vocalStripSegments(displayTimeline, durationSec, 600, 2) : []), [displayTimeline, durationSec])
+  const bars = [
+    ...(tag?.regions ?? []).map((r, i) => ({ ...r, index: i as number | null })),
+    ...(open ? [{ fromSec: Math.min(open.startSec, secBucket) - MARK_LEAD_SEC, toSec: Math.max(open.startSec, secBucket) + MARK_TAIL_SEC, index: null as number | null }] : []),
+  ]
+  // Dragging an edge (the owner, 03/10: resize the purple bars with the mouse). Only when marking is on and no mark is open.
+  const laneRef = useRef<HTMLDivElement>(null)
+  const drag = useRef<{ index: number; edge: 'from' | 'to'; lastX: number; sec: number } | null>(null)
+  const [dragInfo, setDragInfo] = useState<{ edge: 'from' | 'to'; sec: number } | null>(null)
+  const editable = vocalMarking && !!tag && !open && durationSec > 0
+  const startDrag = (e: React.PointerEvent<HTMLDivElement>, index: number, edge: 'from' | 'to', sec: number) => {
+    e.currentTarget.setPointerCapture(e.pointerId)
+    drag.current = { index, edge, lastX: e.clientX, sec }
+    setDragInfo({ edge, sec })
+    e.stopPropagation()
+  }
+  const moveDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = drag.current
+    const w = laneRef.current?.getBoundingClientRect().width
+    if (!d || !w) return
+    // Shift = ten times finer: the lane is ~400 px for a whole song, about half a second a pixel — too coarse for the last tenth.
+    d.sec += (e.clientX - d.lastX) * (durationSec / w) * (e.shiftKey ? 0.1 : 1)
+    d.lastX = e.clientX
+    ctl.setVocalRegionEdge(deckId, d.index, d.edge, d.sec, false)
+    setDragInfo({ edge: d.edge, sec: d.sec })
+  }
+  const endDrag = () => {
+    const d = drag.current
+    drag.current = null
+    setDragInfo(null)
+    if (d) ctl.setVocalRegionEdge(deckId, d.index, d.edge, d.sec, true)
+  }
+  const nudge = (e: React.WheelEvent<HTMLDivElement>, index: number, edge: 'from' | 'to', sec: number) => {
+    ctl.setVocalRegionEdge(deckId, index, edge, sec + (e.deltaY > 0 ? 1 : -1) * (e.shiftKey ? 0.02 : 0.1), true)
+  }
   const countdown = useMemo(() => (timeline ? vocalCountdown(timeline, secBucket, durationSec) : null), [timeline, secBucket, durationSec])
   // His finished marks replace whatever the model's state said (a Trance rule, a failure): the strip is now his, and the line says so.
   const note = tag?.finished ? 'סומן ידנית' : vocal ? vocalStateText(vocal.state, vocal.note) : durationSec > 0 ? 'שירה: לא נותח עדיין' : null
@@ -75,34 +116,63 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
   return (
     <div className="flex shrink-0 flex-col gap-0.5" data-vocal-strip={deckId} data-vocal-state={vocal?.state ?? 'none'}>
       <div className="flex items-center gap-1">
-        <div
-          className="relative h-2 flex-1 overflow-hidden rounded-[2px] bg-white/10"
-          role="img"
-          aria-label={timeline ? 'פס שירה: מלא = יש שירה, מקווקו = לא בטוח, ריק = אין שירה' : (note ?? 'אין פס שירה')}
-        >
-          {segs.map((s, i) =>
-            s.cell === CELL_NONE ? null : (
-              <div
-                key={i}
-                data-vocal-cell={s.cell === CELL_VOCAL ? 'vocal' : 'unsure'}
-                className="absolute inset-y-0"
-                style={{
-                  left: `${s.leftPct}%`,
-                  width: `${s.widthPct}%`,
-                  background: s.cell === CELL_VOCAL ? VOICE : `repeating-linear-gradient(90deg, ${VOICE} 0 2px, transparent 2px 4px)`,
-                }}
-              />
-            ),
-          )}
-          {manualSegs.map((m, i) => (
-            <div key={`m${i}`} data-vocal-manual className="absolute top-0 h-[2px] bg-white" style={{ left: `${m.leftPct}%`, width: `${m.widthPct}%` }} />
-          ))}
-          {timeline && durationSec > 0 && (
-            <>
-              <div className="pointer-events-none absolute inset-y-0 left-0 bg-black/50" style={{ width: `${pct}%` }} />
-              <div className="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 bg-white" style={{ left: `${pct}%` }} />
-            </>
-          )}
+        <div ref={laneRef} className="relative h-2 flex-1" role="img" aria-label={timeline ? 'פס שירה: מלא = יש שירה, מקווקו = לא בטוח, ריק = אין שירה' : (note ?? 'אין פס שירה')}>
+          <div className="absolute inset-0 overflow-hidden rounded-[2px] bg-white/10">
+            {segs.map((sg, i) =>
+              sg.cell === CELL_NONE ? null : (
+                <div
+                  key={i}
+                  data-vocal-cell={sg.cell === CELL_VOCAL ? 'vocal' : 'unsure'}
+                  className="absolute inset-y-0"
+                  style={{
+                    left: `${sg.leftPct}%`,
+                    width: `${sg.widthPct}%`,
+                    background: sg.cell === CELL_VOCAL ? VOICE : `repeating-linear-gradient(90deg, ${VOICE} 0 2px, transparent 2px 4px)`,
+                  }}
+                />
+              ),
+            )}
+            {durationSec > 0 &&
+              bars.map((m, i) => (
+                <div
+                  key={`m${i}`}
+                  data-vocal-manual
+                  className="absolute inset-y-0 border-t-2 border-white"
+                  style={{ left: `${(m.fromSec / durationSec) * 100}%`, width: `${((m.toSec - m.fromSec) / durationSec) * 100}%`, background: VOICE }}
+                />
+              ))}
+            {(timeline || bars.length > 0) && durationSec > 0 && (
+              <>
+                <div className="pointer-events-none absolute inset-y-0 left-0 bg-black/50" style={{ width: `${pct}%` }} />
+                <div className="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 bg-white" style={{ left: `${pct}%` }} />
+              </>
+            )}
+          </div>
+          {editable &&
+            bars.map((m) =>
+              m.index == null
+                ? null
+                : (['from', 'to'] as const).map((edge) => {
+                    const sec = edge === 'from' ? m.fromSec : m.toSec
+                    return (
+                      <div
+                        key={`h${m.index}${edge}`}
+                        data-vocal-handle={`${m.index}:${edge}`}
+                        title="גרור לשינוי הקצה. Shift = עדין פי 10. גלגלת העכבר = 0.1 שנייה (Shift = 0.02)."
+                        className="group absolute -inset-y-1 z-10 w-2.5 -translate-x-1/2 cursor-ew-resize touch-none"
+                        style={{ left: `${(sec / durationSec) * 100}%` }}
+                        onPointerDown={(e) => startDrag(e, m.index as number, edge, sec)}
+                        onPointerMove={moveDrag}
+                        onPointerUp={endDrag}
+                        onPointerCancel={endDrag}
+                        onLostPointerCapture={endDrag}
+                        onWheel={(e) => nudge(e, m.index as number, edge, sec)}
+                      >
+                        <div className="pointer-events-none absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-white/0 group-hover:bg-white" />
+                      </div>
+                    )
+                  }),
+            )}
         </div>
         {/* the overview above has a hint icon beside it; this one takes the same place, so the two lanes stay the same width */}
         <HintIcon id="deck.vocalStrip" />
@@ -185,7 +255,7 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
           style={{ color: countdown && (countdown.phase === 'in' || countdown.phase === 'before') ? VOICE : undefined }}
           title="הטיימרים סופרים גם קטעים של 'לא בטוח' כשירה, ומתעלמים מהפסקה קצרה מ-3 שניות בין שני קטעי שירה."
         >
-          {countdown ? countdownText(countdown) : null}
+          {dragInfo ? `${dragInfo.edge === 'from' ? 'התחלה' : 'סוף'} ${mmssTenths(dragInfo.sec)}` : countdown ? countdownText(countdown) : null}
         </span>
         {note && <span className="text-grid-muted">{note}</span>}
       </div>

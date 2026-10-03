@@ -147,6 +147,40 @@ if (ov) {
   ok('cancelling the start leaves no mark', (await page.locator('[data-vocal-strip="A"] [data-vocal-manual]').count()) === 0)
 }
 
+// Resizing a purple bar with the mouse: two handles per mark; a drag moves just that edge, Shift is ten times finer, the wheel nudges, and the
+// result is saved (read back from the IndexedDB record, not only from memory).
+if (ov) {
+  const at = async (fr) => { await page.mouse.click(ov.x + ov.width * fr, ov.y + ov.height / 2); await page.waitForTimeout(500) }
+  await at(0.3); await btn('התחילה שירה').click(); await at(0.5); await btn('נגמרה שירה').click(); await page.waitForTimeout(400)
+  const regions = () => page.evaluate(async () => {
+    const db = await new Promise((r) => { const q = indexedDB.open('keyval-store'); q.onsuccess = () => r(q.result) })
+    const st = db.transaction('keyval').objectStore('keyval')
+    const ks = await new Promise((r) => { const q = st.getAllKeys(); q.onsuccess = () => r(q.result) })
+    const out = []
+    for (const k of ks.filter((k) => String(k).startsWith('deckmix:vocalManual:'))) out.push(await new Promise((r) => { const q = st.get(k); q.onsuccess = () => r(q.result) }))
+    return out.flatMap((t) => t.regions)
+  })
+  ok('a mark has a handle at each edge', (await page.locator('[data-vocal-strip="A"] [data-vocal-handle]').count()) === 2)
+  const before = (await regions())[0]
+  const hEnd = await rect('[data-vocal-strip="A"] [data-vocal-handle="0:to"]')
+  if (hEnd) {
+    const x = hEnd.x + hEnd.width / 2, y = hEnd.y + hEnd.height / 2
+    await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x + 40, y, { steps: 5 }); await page.mouse.up(); await page.waitForTimeout(400)
+    const after = (await regions())[0]
+    const expectSec = 40 * (45 / ov.width)
+    ok('dragging the end handle 40 px moves only the end, by about 40 px worth of seconds, and saves it', Math.abs(after.toSec - before.toSec - expectSec) < 0.6 && after.fromSec === before.fromSec, `end ${before.toSec.toFixed(2)} -> ${after.toSec.toFixed(2)} (expected +${expectSec.toFixed(2)}), start ${before.fromSec} -> ${after.fromSec}`)
+    const h2 = await rect('[data-vocal-strip="A"] [data-vocal-handle="0:to"]')
+    await page.keyboard.down('Shift'); await page.mouse.move(h2.x + h2.width / 2, h2.y + h2.height / 2); await page.mouse.down(); await page.mouse.move(h2.x + h2.width / 2 + 40, h2.y + h2.height / 2, { steps: 5 }); await page.mouse.up(); await page.keyboard.up('Shift'); await page.waitForTimeout(400)
+    const fine = (await regions())[0]
+    ok('Shift makes the same 40 px drag about ten times smaller', Math.abs(fine.toSec - after.toSec - expectSec / 10) < 0.2, `end ${after.toSec.toFixed(2)} -> ${fine.toSec.toFixed(2)} (expected +${(expectSec / 10).toFixed(2)})`)
+    const h3 = await rect('[data-vocal-strip="A"] [data-vocal-handle="0:from"]')
+    await page.mouse.move(h3.x + h3.width / 2, h3.y + h3.height / 2); await page.mouse.wheel(0, 100); await page.waitForTimeout(500)
+    const nudged = (await regions())[0]
+    ok('the mouse wheel on a handle nudges that edge by 0.1 s and saves it', Math.abs(nudged.fromSec - fine.fromSec - 0.1) < 0.011, `start ${fine.fromSec} -> ${nudged.fromSec}`)
+  }
+  await btn('ביטול סיום').click(); await btn('ביטול התחלה').click(); await page.waitForTimeout(300)
+}
+
 // Teaching: after "finished", the button offers to teach the computer from this song; it then reads as taught and the library counts it.
 if (ov) {
   const at = async (fr) => { await page.mouse.click(ov.x + ov.width * fr, ov.y + ov.height / 2); await page.waitForTimeout(500) }

@@ -46,7 +46,7 @@ import {
 import { crossfadeProgress, exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
 import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
 import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
-import { addMarkedRegion, undoLastEnd, type VocalManualTag } from '@/core/sound/vocal-manual'
+import { addMarkedRegion, moveRegionEdge, undoLastEnd, type VocalManualTag } from '@/core/sound/vocal-manual'
 import { deleteVocalManual, getAllVocalManual, getVocalManual, putVocalManual } from '@/platform/vocal-manual-idb/store'
 import { deleteVocalStrip } from '@/platform/vocal-strip-idb/store'
 import { parseVocalMarksFile, vocalMarksExportText } from '@/core/sound/vocal-manual-file'
@@ -3905,6 +3905,20 @@ function manualTagFor(deckId: DeckId): VocalManualTag | null {
       updatedAt: Date.now(),
     }
   )
+}
+
+/**
+ * Drags or nudges one edge of one of his marks. While a drag is going it only updates what is on screen (`persist` false); the pointer-up, and every
+ * wheel notch, saves. A time the mark cannot take (see `moveRegionEdge`) leaves it as it was.
+ */
+export function setVocalRegionEdge(deckId: DeckId, index: number, edge: 'from' | 'to', sec: number, persist: boolean): void {
+  const s = useStore.getState()
+  const tag = manualTagFor(deckId)
+  const moved = tag ? moveRegionEdge(tag.regions, index, edge, sec, s.decks[deckId].durationSec) : null
+  if (!tag || !moved) return
+  const next = { ...tag, regions: moved, updatedAt: Date.now() }
+  if (persist) void saveVocalManual(next)
+  else s.setVocalManual(tag.contentHash, next)
 }
 
 /** Pressed "vocal started" → opens a mark at the play position; pressed again "vocal ended" → closes it. */
