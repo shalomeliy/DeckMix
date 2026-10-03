@@ -74,17 +74,17 @@ describe('effectiveTimeline', () => {
 })
 
 describe('reaction-time lead and tail', () => {
-  it('"started" lands a second before the press and "ended" a second after it, clamped to the song', () => {
-    expect(MARK_LEAD_SEC).toBe(1)
-    expect(MARK_TAIL_SEC).toBe(1)
+  it('"started" lands half a second before the press and "ended" half a second after it, clamped to the song', () => {
+    expect(MARK_LEAD_SEC).toBe(0.5)
+    expect(MARK_TAIL_SEC).toBe(0.5)
     const r = addMarkedRegion([], 4, 7, 20)
-    expect(r.ok && r.regions).toEqual([{ fromSec: 3, toSec: 8 }])
+    expect(r.ok && r.regions).toEqual([{ fromSec: 4 - MARK_LEAD_SEC, toSec: 7 + MARK_TAIL_SEC }])
     const edge = addMarkedRegion([], 0.4, 19.8, 20)
     expect(edge.ok && edge.regions).toEqual([{ fromSec: 0, toSec: 20 }])
   })
   it('works when he seeked back between the presses', () => {
     const r = addMarkedRegion([], 9, 5, 20)
-    expect(r.ok && r.regions).toEqual([{ fromSec: 4, toSec: 10 }])
+    expect(r.ok && r.regions).toEqual([{ fromSec: 5 - MARK_LEAD_SEC, toSec: 9 + MARK_TAIL_SEC }])
   })
   it('two accidental presses are still refused — the widening does not rescue a mis-click', () => {
     expect(addMarkedRegion([], 5, 5.2, 20)).toEqual({ ok: false, reason: 'too-short' })
@@ -101,7 +101,7 @@ describe('undoLastEnd (a wrong "ended" press)', () => {
     expect(u.regions).toEqual([])
     expect(u.reopenStartPressSec).toBe(10) // the start press, lead taken back off
     const again = addMarkedRegion(u.regions, u.reopenStartPressSec ?? 0, 20, 60)
-    expect(again.ok && again.regions).toEqual([{ fromSec: 9, toSec: 21 }])
+    expect(again.ok && again.regions).toEqual([{ fromSec: 10 - MARK_LEAD_SEC, toSec: 20 + MARK_TAIL_SEC }])
   })
   it('only the last mark is undone, and nothing to undo is nothing', () => {
     expect(undoLastEnd([{ fromSec: 1, toSec: 3 }, { fromSec: 8, toSec: 12 }]).regions).toEqual([{ fromSec: 1, toSec: 3 }])

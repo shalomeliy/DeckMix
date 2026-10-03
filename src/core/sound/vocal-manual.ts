@@ -91,11 +91,12 @@ export function effectiveTimeline(
 }
 
 /**
- * Reaction time (the owner, 03/10): from hearing the voice start to pressing the button takes half a second to a second, so "started" is
- * placed this much BEFORE the press and "ended" this much AFTER it (his wording). Whole seconds, fixed — not a setting.
+ * Reaction time (the owner, 03/10): from hearing the voice start to pressing the button takes a moment, so "started" is placed this much BEFORE
+ * the press and "ended" this much AFTER it (his wording). It was a full second first; he measured it on his own marks the same day and said it
+ * was too much, so it is half a second. Fixed, not a setting.
  */
-export const MARK_LEAD_SEC = 1
-export const MARK_TAIL_SEC = 1
+export const MARK_LEAD_SEC = 0.5
+export const MARK_TAIL_SEC = 0.5
 
 /**
  * The mark that two presses make. The too-short check is on the PRESSES, before the widening: two accidental presses a moment apart must still be
