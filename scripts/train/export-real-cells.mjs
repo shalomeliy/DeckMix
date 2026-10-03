@@ -8,7 +8,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { cellFeatureRows, FEATURE_NAMES, CELL_SEC } from './cell-features.mjs'
+import { cellFeatureRows, FEATURE_NAMES, CELL_SEC } from '../../src/core/sound/cell-features.ts'
 
 const tags = JSON.parse(fs.readFileSync(process.env.TAGS ?? path.join(os.homedir(), 'Downloads', 'deckmix-tags-2026-10-02- 100 vocals.json'), 'utf8'))
 const feats = new Map(JSON.parse(fs.readFileSync(path.join(process.env.TEMP, 'vocal-features.json'), 'utf8')).map((x) => [x.s.hash, x.r]))
@@ -17,6 +17,10 @@ const CLIP = 5
 // House/Techno (46 of 98) turned out to be 'unsure' or 'yes' on a second look, while 37 of 39 'yes' held — so the first-pass 'no' is the
 // noisy label. A re-check 'unsure' is not a label to learn from; it is counted below, never dropped silently.
 const review = new Map((tags.vocalReview ?? []).map((r) => [`${r.contentHash}:${r.clipIndex}`, r]))
+// UNSURE_AS=no (v0.9.11, the owner 03/10): the strip is for finding a LEAD vocal that would clash in a mix, and a single word or a faint
+// backing voice over the other song is welcome, not a clash — so those clips count as 'no'. Default `drop` keeps the earlier behaviour.
+const UNSURE_AS = process.env.UNSURE_AS === 'no' ? 'no' : 'drop'
+let unsureToNo = 0
 let reviewed = 0
 let reviewDiffers = 0
 const rowsBySong = new Map()
@@ -31,6 +35,10 @@ for (const v of tags.vocal) {
     reviewed++
     if (r.answer !== v.answer) reviewDiffers++
     answer = r.answer
+  }
+  if (answer === 'unsure' && UNSURE_AS === 'no') {
+    answer = 'no'
+    unsureToNo++
   }
   if (answer !== 'yes' && answer !== 'no') {
     // 'unsure' is a real answer the owner can give; it is not a label to learn from, but it is counted, never dropped silently.
@@ -51,6 +59,7 @@ for (const v of tags.vocal) {
 }
 const out = path.join(process.env.TEMP, 'real-cells.json')
 fs.writeFileSync(out, JSON.stringify({ names: FEATURE_NAMES, clips }))
+console.log(`UNSURE_AS=${UNSURE_AS}${UNSURE_AS === 'no' ? `: ${unsureToNo} 'unsure' clips counted as 'no'` : ''}`)
 console.log(`re-check answers used instead of the first pass: ${reviewed} clips, ${reviewDiffers} of them differ`)
 const unsureTotal = Object.values(unsure).reduce((a, b) => a + b, 0)
 console.log(`unsure answers left out (sealed clips excluded): ${unsureTotal}${unsureTotal ? ' (' + Object.entries(unsure).map(([g, n]) => `${g} ${n}`).join(', ') + ')' : ''}`)

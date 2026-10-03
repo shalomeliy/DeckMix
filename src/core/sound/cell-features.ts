@@ -1,34 +1,40 @@
 /**
- * One feature row per half-second cell, from the per-frame features that `vocalFeatures`
- * (src/core/sound/vocal-presence.ts) produces. Used for BOTH the synthetic mixes and the owner's
- * real songs, so training and measurement see exactly the same numbers.
+ * One feature row per half-second cell, from the per-frame features `vocalFeatures` (vocal-presence.ts) produces (v0.9.11 move
+ * into `core/`; it lived in scripts/train/ as a .mjs since v0.12.15). It is the ONE definition used for training the vocal
+ * classifier, for measuring it, and — now — for running it in the app: a trained model is only meaningful on rows built exactly
+ * the way its training rows were, and two copies of this maths is how that stops being true.
  *
- * Per feature (harmonic, centre, bright, motion, level-below-the-song's-loudest): the cell mean and
- * the within-cell spread, plus the mean over the five cells around it (a voice lasts longer than a
- * hit). Plus one flag: stereo. 5×3 + 1 = 16 numbers.
- * v0.12.15 adds the voice cues (src/core/sound/voice-cues.ts), three numbers each: pitch movement, the share
- * of peaks that persisted, flatness, and `mfcc_motion` — how much the cepstral coefficients 2–6 move within
- * ±1 s. A feature file without `cues` (the first real dump) is refused, not padded with zeros.
+ * Per feature (harmonic, centre, bright, motion, level-below-the-song's-loudest): the cell mean and the within-cell spread, plus
+ * the mean over the five cells around it (a voice lasts longer than a hit). Plus one flag: stereo. Then the voice cues
+ * (voice-cues.ts): pitch movement, the share of peaks that persisted, flatness, and `mfcc_motion` — how much the cepstral
+ * coefficients 2–6 move within ±1 s. 5×3 + 1 + 4×3 = 28 numbers.
+ *
+ * No imports on purpose: scripts/train/ runs this file straight under Node.
  */
 export const CELL_SEC = 0.5
-export const FEATURE_NAMES = [
+export const FEATURE_NAMES: readonly string[] = [
   ...['harmonic', 'centre', 'bright', 'motion', 'rel_level'].flatMap((k) => [`${k}_mean`, `${k}_std`, `${k}_ctx5`]),
   'stereo',
   ...['fluct', 'consist', 'flat', 'mfcc_motion'].flatMap((k) => [`${k}_mean`, `${k}_std`, `${k}_ctx5`]),
 ]
 
-export function cellFeatureRows(f, durationSec) {
+export interface CellFeatureInput {
+  frameSec: number
+  stereo: boolean
+  harmonic: ArrayLike<number>
+  centre: ArrayLike<number>
+  bright: ArrayLike<number>
+  motion: ArrayLike<number>
+  level: ArrayLike<number>
+  /** `mfcc` is frames × coefficients, row-major. A file without `cues` is refused, not padded with zeros. */
+  cues?: { mfcc: ArrayLike<number>; fluct: ArrayLike<number>; consist: ArrayLike<number>; flat: ArrayLike<number> }
+}
+
+export function cellFeatureRows(f: CellFeatureInput, durationSec: number): number[][] {
   const nCells = Math.max(1, Math.floor(durationSec / CELL_SEC))
   const nFrames = f.harmonic.length
   let maxLevel = -Infinity
   for (let t = 0; t < nFrames; t++) maxLevel = Math.max(maxLevel, f.level[t])
-  const series = {
-    harmonic: f.harmonic,
-    centre: f.centre,
-    bright: f.bright,
-    motion: f.motion,
-    rel_level: Array.from(f.level, (v) => v - maxLevel),
-  }
   if (!f.cues) throw new Error('features have no `cues` — dump them again with the current dump script')
   const MC = f.cues.mfcc.length / nFrames
   const mfccMotion = new Float32Array(nFrames)
@@ -46,10 +52,17 @@ export function cellFeatureRows(f, durationSec) {
     }
     mfccMotion[t] = tot / MC
   }
-  series.fluct = f.cues.fluct
-  series.consist = f.cues.consist
-  series.flat = f.cues.flat
-  series.mfcc_motion = mfccMotion
+  const series: Record<string, ArrayLike<number>> = {
+    harmonic: f.harmonic,
+    centre: f.centre,
+    bright: f.bright,
+    motion: f.motion,
+    rel_level: Array.from(f.level, (v) => v - maxLevel),
+    fluct: f.cues.fluct,
+    consist: f.cues.consist,
+    flat: f.cues.flat,
+    mfcc_motion: mfccMotion,
+  }
   const names = Object.keys(series)
   const mean = names.map(() => new Float64Array(nCells))
   const std = names.map(() => new Float64Array(nCells))
@@ -70,7 +83,7 @@ export function cellFeatureRows(f, durationSec) {
   }
   const stereo = f.stereo ? 1 : 0
   return Array.from({ length: nCells }, (_, c) => {
-    const row = []
+    const row: number[] = []
     names.forEach((_, i) => {
       if (i === 5) row.push(stereo) // keeps the first 16 columns exactly as before
       let ctx = 0

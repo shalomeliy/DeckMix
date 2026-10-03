@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createServer } from 'vite'
 import { loadVocals } from './load-vocals.mjs'
-import { cellFeatureRows, FEATURE_NAMES } from './cell-features.mjs'
+import { cellFeatureRows, FEATURE_NAMES } from '../../src/core/sound/cell-features.ts'
 
 const arg = (n, d) => (process.argv.includes(`--${n}`) ? process.argv[process.argv.indexOf(`--${n}`) + 1] : d)
 const count = Number(arg('count', 100))
