@@ -75,6 +75,12 @@ const NAMED: Record<string, Named[]> = {
     { token: "addEventListener('keydown'", count: 1, gesture: 'tagging.marker' },
     { token: 'e.shiftKey', count: 1, gesture: 'tagging.marker' },
     { token: "addEventListener('keyup'", count: 1, exempt: 'swallows Space on release, so a still-focused button is not pressed by it' },
+    // v0.9.11: Space plays the clip, 1 / 2 / 3 answer it (physical keys, so a Hebrew layout works)
+    { token: "addEventListener('keydown'", count: 1, gesture: 'tagging.vocal' },
+    { token: "addEventListener('keyup'", count: 1, exempt: 'swallows Space on release, so a still-focused button is not pressed by it' },
+    { token: 'e.ctrlKey', count: 1, exempt: 'a modifier guard, not a gesture: Ctrl/Alt/Meta + a digit is left to the browser' },
+    { token: 'e.metaKey', count: 1, exempt: 'a modifier guard, not a gesture: Ctrl/Alt/Meta + a digit is left to the browser' },
+    { token: 'e.altKey', count: 1, exempt: 'a modifier guard, not a gesture: Ctrl/Alt/Meta + a digit is left to the browser' },
   ],
 }
 

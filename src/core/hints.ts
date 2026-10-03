@@ -110,6 +110,14 @@ const HINT_BASE = {
       { key: 'Space', does: 'play from two bars before the "1", or stop (tagging screen)' },
     ],
   },
+  // v0.9.11: the vocal tagging screen's keys. Physical keys, so they work on a Hebrew layout.
+  'tagging.vocal': {
+    text: 'Vocal tagging: answer the 5-second clip with the keys 1, 2 or 3, or play it with Space.',
+    gestures: [
+      { key: 'Space', does: 'play the 5-second clip (vocal tagging screen)' },
+      { key: '1 / 2 / 3', does: 'answer: vocals / no vocals / not sure (vocal tagging screen)' },
+    ],
+  },
   // — pads, one hint per mode (v0.8.24; was one ~70-word hint shown nowhere) —
   'pads.hotcue': {
     text: 'Hot Cue: click an empty pad to set a cue at the playhead; click a set one to jump there. A "Mix in" pad runs the saved mix.',

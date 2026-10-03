@@ -14,12 +14,22 @@ const tags = JSON.parse(fs.readFileSync(process.env.TAGS ?? path.join(os.homedir
 const feats = new Map(JSON.parse(fs.readFileSync(path.join(process.env.TEMP, 'vocal-features.json'), 'utf8')).map((x) => [x.s.hash, x.r]))
 const CLIP = 5
 const rowsBySong = new Map()
+const unsure = {}
+const noFeatures = new Set()
 const clips = []
 for (const v of tags.vocal) {
   if (v.holdout) continue // sealed: never read
-  if (v.answer !== 'yes' && v.answer !== 'no') continue
+  if (v.answer !== 'yes' && v.answer !== 'no') {
+    // 'unsure' is a real answer the owner can give; it is not a label to learn from, but it is counted, never dropped silently.
+    unsure[v.genre] = (unsure[v.genre] ?? 0) + 1
+    continue
+  }
   const f = feats.get(v.contentHash)
-  if (!f || !f.harmonic) continue
+  if (!f || !f.harmonic) {
+    // A song whose features failed (e.g. it would not decode) takes its clips with it: say so.
+    noFeatures.add(v.trackId)
+    continue
+  }
   if (!rowsBySong.has(v.contentHash)) rowsBySong.set(v.contentHash, cellFeatureRows(f, f.harmonic.length * f.frameSec))
   const rows = rowsBySong.get(v.contentHash)
   const a = Math.floor(v.atSec / CELL_SEC)
@@ -28,4 +38,7 @@ for (const v of tags.vocal) {
 }
 const out = path.join(process.env.TEMP, 'real-cells.json')
 fs.writeFileSync(out, JSON.stringify({ names: FEATURE_NAMES, clips }))
+const unsureTotal = Object.values(unsure).reduce((a, b) => a + b, 0)
+console.log(`unsure answers left out (sealed clips excluded): ${unsureTotal}${unsureTotal ? ' (' + Object.entries(unsure).map(([g, n]) => `${g} ${n}`).join(', ') + ')' : ''}`)
+if (noFeatures.size) console.log(`WARNING ${noFeatures.size} song(s) have no features and are left out: ${[...noFeatures].join(' | ')}`)
 console.log(`${clips.length} training clips (yes ${clips.filter((c) => c.answer === 'yes').length}, no ${clips.filter((c) => c.answer === 'no').length}) -> ${out}`)

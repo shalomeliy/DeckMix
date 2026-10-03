@@ -352,6 +352,31 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
     }
   }, [isVocal, current, grid, spot, startSecAt, moveMark, play, stopSound])
 
+  // Vocal keys (v0.9.11). Physical keys (`e.code`), not letters: the owner types Hebrew, and a letter shortcut would
+  // change meaning with the keyboard layout. A key held down must not answer a whole song's clips in one press.
+  useEffect(() => {
+    if (!isVocal || !current) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return
+      if (e.code === 'Space') {
+        e.preventDefault()
+        ctl.tagPlayVocal(clip)
+      } else if (e.code === 'Digit1' || e.code === 'Numpad1') void answerVocal('yes')
+      else if (e.code === 'Digit2' || e.code === 'Numpad2') void answerVocal('no')
+      else if (e.code === 'Digit3' || e.code === 'Numpad3') void answerVocal('unsure')
+    }
+    // A button still focused from the last click would be pressed by Space's release.
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keyup', onKeyUp)
+    }
+  })
+
   return (
     <div role="dialog" aria-modal="true" aria-label="Tagging" className="absolute inset-0 z-40 flex flex-col bg-surface-0/97 backdrop-blur-sm">
       <header className="flex shrink-0 items-center gap-3 border-b border-hairline px-4 py-2.5">
@@ -588,18 +613,18 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
             </He>
             <div className="flex justify-center">
               <Button variant="ghost" onClick={() => ctl.tagPlayVocal(clip)}>
-                ▶ נגן 5 שניות
+                ▶ נגן 5 שניות (רווח)
               </Button>
             </div>
             <div className="flex justify-center gap-2">
               <Button variant="toggle" active disabled={saving} onClick={() => void answerVocal('yes')}>
-                יש שירה
+                יש שירה (1)
               </Button>
               <Button variant="toggle" active disabled={saving} onClick={() => void answerVocal('no')}>
-                אין שירה
+                אין שירה (2)
               </Button>
               <Button variant="ghost" disabled={saving} onClick={() => void answerVocal('unsure')}>
-                לא בטוח
+                לא בטוח (3)
               </Button>
             </div>
           </div>
