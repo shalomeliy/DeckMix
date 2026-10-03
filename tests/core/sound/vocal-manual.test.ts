@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MIN_REGION_SEC, addRegion, effectiveTimeline, regionMask, removeLastRegion } from '@/core/sound/vocal-manual.ts'
+import { MARK_LEAD_SEC, MARK_TAIL_SEC, MIN_REGION_SEC, addMarkedRegion, addRegion, effectiveTimeline, regionMask, removeLastRegion } from '@/core/sound/vocal-manual.ts'
 import { CELL_NONE, CELL_UNSURE, CELL_VOCAL, type VocalTimeline } from '@/core/sound/vocal-timeline.ts'
 
 const base = (s: string): VocalTimeline => ({ cells: Uint8Array.from([...s].map(Number)), stereo: true })
@@ -70,5 +70,24 @@ describe('effectiveTimeline', () => {
   it('finished with no marks left is an empty strip, not the model\'s', () => {
     const t = effectiveTimeline(base('1'.repeat(20)), { regions: [], finished: true }, DUR)!
     expect([...t.cells].every((c) => c === CELL_NONE)).toBe(true)
+  })
+})
+
+describe('reaction-time lead and tail', () => {
+  it('"started" lands a second before the press and "ended" a second after it, clamped to the song', () => {
+    expect(MARK_LEAD_SEC).toBe(1)
+    expect(MARK_TAIL_SEC).toBe(1)
+    const r = addMarkedRegion([], 4, 7, 20)
+    expect(r.ok && r.regions).toEqual([{ fromSec: 3, toSec: 8 }])
+    const edge = addMarkedRegion([], 0.4, 19.8, 20)
+    expect(edge.ok && edge.regions).toEqual([{ fromSec: 0, toSec: 20 }])
+  })
+  it('works when he seeked back between the presses', () => {
+    const r = addMarkedRegion([], 9, 5, 20)
+    expect(r.ok && r.regions).toEqual([{ fromSec: 4, toSec: 10 }])
+  })
+  it('two accidental presses are still refused — the widening does not rescue a mis-click', () => {
+    expect(addMarkedRegion([], 5, 5.2, 20)).toEqual({ ok: false, reason: 'too-short' })
+    expect(addMarkedRegion([], NaN, 5, 20)).toEqual({ ok: false, reason: 'bad-time' })
   })
 })

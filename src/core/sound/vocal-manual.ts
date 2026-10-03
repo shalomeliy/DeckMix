@@ -77,3 +77,22 @@ export function effectiveTimeline(
   for (let i = 0; i < Math.min(cells.length, mask.length); i++) if (mask[i]) cells[i] = CELL_VOCAL
   return { cells, stereo: base?.stereo ?? true }
 }
+
+/**
+ * Reaction time (the owner, 03/10): from hearing the voice start to pressing the button takes half a second to a second, so "started" is
+ * placed this much BEFORE the press and "ended" this much AFTER it (his wording). Whole seconds, fixed — not a setting.
+ */
+export const MARK_LEAD_SEC = 1
+export const MARK_TAIL_SEC = 1
+
+/**
+ * The mark that two presses make. The too-short check is on the PRESSES, before the widening: two accidental presses a moment apart must still be
+ * refused, not turned into a two-second vocal by the lead and tail.
+ */
+export function addMarkedRegion(regions: readonly VocalRegion[], startPressSec: number, endPressSec: number, durationSec: number): AddRegionResult {
+  if (![startPressSec, endPressSec].every(Number.isFinite)) return { ok: false, reason: 'bad-time' }
+  const lo = Math.min(startPressSec, endPressSec)
+  const hi = Math.max(startPressSec, endPressSec)
+  if (hi - lo < MIN_REGION_SEC) return { ok: false, reason: 'too-short' }
+  return addRegion(regions, lo - MARK_LEAD_SEC, hi + MARK_TAIL_SEC, durationSec)
+}

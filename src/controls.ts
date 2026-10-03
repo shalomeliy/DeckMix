@@ -46,8 +46,10 @@ import {
 import { crossfadeProgress, exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
 import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
 import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
-import { addRegion, removeLastRegion, type VocalManualTag } from '@/core/sound/vocal-manual'
-import { deleteVocalManual, getVocalManual, putVocalManual } from '@/platform/vocal-manual-idb/store'
+import { addMarkedRegion, removeLastRegion, type VocalManualTag } from '@/core/sound/vocal-manual'
+import { deleteVocalManual, getAllVocalManual, getVocalManual, putVocalManual } from '@/platform/vocal-manual-idb/store'
+import { parseVocalMarksFile, vocalMarksExportText } from '@/core/sound/vocal-manual-file'
+import { pickJsonFileText } from '@/platform/vocal-marks-file-fsaccess/reader'
 import {
   setLastPlayed as persistLastPlayedByHash,
   setTrackNote as persistTrackNoteByHash,
@@ -3923,7 +3925,7 @@ export async function toggleVocalMark(deckId: DeckId): Promise<void> {
     vocalNotice('סימון השירה שהיה פתוח היה של שיר אחר ולא נשמר.')
     return
   }
-  const added = addRegion(tag.regions, open.startSec, deck.positionSec, deck.durationSec)
+  const added = addMarkedRegion(tag.regions, open.startSec, deck.positionSec, deck.durationSec)
   if (!added.ok) {
     vocalNotice(added.reason === 'too-short' ? 'הסימון קצר מחצי שנייה ולא נשמר.' : 'הסימון לא נשמר: זמן לא תקין.')
     return
@@ -3963,6 +3965,53 @@ export async function clearVocalMarks(deckId: DeckId): Promise<void> {
     await deleteVocalManual(track.contentHash)
   } catch (err) {
     vocalNotice(`הסימונים הוסרו רק עד סגירת האפליקציה: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+/** Every song's hand-made marks to a new file the owner names — a backup that survives clearing the browser's data, and the input for training. */
+export async function exportVocalMarks(): Promise<void> {
+  const day = new Date().toISOString().slice(0, 10)
+  try {
+    const all = await getAllVocalManual()
+    if (all.length === 0) {
+      vocalNotice('אין עדיין סימוני שירה לייצא.', 'info')
+      return
+    }
+    const r = await saveTagsJson(vocalMarksExportText(all, Date.now()), `deckmix-vocal-marks-${day}.json`)
+    if (r === 'ok') vocalNotice(`יוצאו סימוני שירה של ${all.length} שירים (${all.filter((t) => t.finished).length} מהם גמורים).`, 'info')
+  } catch (err) {
+    vocalNotice(`סימוני השירה לא יוצאו: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+/**
+ * Brings a backup back. A song that already has marks here is KEPT as it is and counted as skipped — an import never overwrites his work —
+ * and every mark the file refuses is counted too, with the first reason.
+ */
+export async function importVocalMarks(): Promise<void> {
+  try {
+    const text = await pickJsonFileText()
+    if (text == null) return
+    const { tags, rejected } = parseVocalMarksFile(text)
+    const have = await getAllVocalManual()
+    const haveHashes = new Set(have.map((t) => t.contentHash))
+    let added = 0
+    let skipped = 0
+    for (const t of tags) {
+      if (haveHashes.has(t.contentHash)) {
+        skipped++
+        continue
+      }
+      await putVocalManual(t)
+      useStore.getState().setVocalManual(t.contentHash, t)
+      added++
+    }
+    const parts = [`נוספו ${added} שירים`]
+    if (skipped) parts.push(`${skipped} דולגו כי כבר יש להם סימון כאן`)
+    if (rejected.length) parts.push(`${rejected.length} נדחו (${rejected[0].name}: ${rejected[0].reason})`)
+    vocalNotice(parts.join(' · '), rejected.length ? 'warn' : 'info')
+  } catch (err) {
+    vocalNotice(`סימוני השירה לא יובאו: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
 
@@ -4966,10 +5015,11 @@ export async function tagExport(): Promise<void> {
   const { setNotice } = useStore.getState()
   const day = new Date().toISOString().slice(0, 10)
   try {
-    const r = await saveTagsJson(tagsExportText(all.bar, all.mark, all.vocal, Date.now(), all.decide, all.fresh, all.vocalReview, all.vocalMarks), `deckmix-tags-${day}.json`)
+    const manual = await getAllVocalManual() // throws on a blocked IndexedDB: an empty list there would read as "no marks"
+    const r = await saveTagsJson(tagsExportText(all.bar, all.mark, all.vocal, Date.now(), all.decide, all.fresh, all.vocalReview, all.vocalMarks, manual), `deckmix-tags-${day}.json`)
     if (r === 'ok')
       setNotice({
-        text: `Exported ${all.mark.length} waveform "1" tags, ${all.bar.length} earlier 4-button "1" tags, ${all.decide.length} tie-break answers, ${all.fresh.length} new-round answers and ${all.vocal.length} vocal tags and ${all.vocalReview.length} vocal re-check answers and ${all.vocalMarks.length} clips with voice regions drawn.`,
+        text: `Exported ${all.mark.length} waveform "1" tags, ${all.bar.length} earlier 4-button "1" tags, ${all.decide.length} tie-break answers, ${all.fresh.length} new-round answers and ${all.vocal.length} vocal tags and ${all.vocalReview.length} vocal re-check answers and ${all.vocalMarks.length} clips with voice regions drawn, and ${manual.length} songs with vocals marked by hand.`,
         tone: 'info',
         source: 'tagging',
       })

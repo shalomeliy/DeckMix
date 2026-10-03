@@ -676,7 +676,8 @@ export function tagsExportText(
   fresh: readonly MarkTag[] = [],
   vocalReview: readonly VocalReviewTag[] = [],
   vocalMarks: readonly VocalMarksTag[] = [],
+  vocalManual: readonly unknown[] = [],
 ): string {
   // `bar` keeps its name and shape, so a v0.9.0 script finds its list — as long as it does not insist on schema 1.
-  return JSON.stringify({ app: 'DeckMix', kind: 'tags', schema: MARK_SCHEMA, exportedAt, mark, bar, decide, fresh, vocal, vocalReview, vocalMarks }, null, 2)
+  return JSON.stringify({ app: 'DeckMix', kind: 'tags', schema: MARK_SCHEMA, exportedAt, mark, bar, decide, fresh, vocal, vocalReview, vocalMarks, vocalManual }, null, 2)
 }

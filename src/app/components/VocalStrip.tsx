@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useSettings } from '@/app/hooks/useSettings'
 import { useStore } from '@/app/state/store'
 import * as ctl from '@/controls'
-import { effectiveTimeline, regionMask } from '@/core/sound/vocal-manual'
+import { MARK_LEAD_SEC, MARK_TAIL_SEC, effectiveTimeline, regionMask } from '@/core/sound/vocal-manual'
 import {
   CELL_NONE,
   CELL_VOCAL,
@@ -58,12 +58,12 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
   // His marks win over the model's guess (core: `effectiveTimeline`). The open one is drawn up to the play position, in whole seconds like the timers.
   const secBucket = Math.floor(positionSec)
   const timeline = useMemo(
-    () => effectiveTimeline(vocal?.timeline ?? null, tag, durationSec, open ? { fromSec: open.startSec, toSec: secBucket } : null),
+    () => effectiveTimeline(vocal?.timeline ?? null, tag, durationSec, open ? { fromSec: open.startSec - MARK_LEAD_SEC, toSec: secBucket + MARK_TAIL_SEC } : null),
     [vocal?.timeline, tag, durationSec, open, secBucket],
   )
   const manualSegs = useMemo(() => {
     if (!tag && !open) return []
-    const mask = regionMask([...(tag?.regions ?? []), ...(open ? [{ fromSec: Math.min(open.startSec, secBucket), toSec: Math.max(open.startSec, secBucket) }] : [])], durationSec)
+    const mask = regionMask([...(tag?.regions ?? []), ...(open ? [{ fromSec: Math.min(open.startSec, secBucket) - MARK_LEAD_SEC, toSec: Math.max(open.startSec, secBucket) + MARK_TAIL_SEC }] : [])], durationSec)
     return durationSec > 0 ? vocalStripSegments({ cells: mask, stereo: true }, durationSec, 600, 2).filter((s) => s.cell === CELL_VOCAL) : []
   }, [tag, open, secBucket, durationSec])
   const segs = useMemo(() => (timeline && durationSec > 0 ? vocalStripSegments(timeline, durationSec, 600, 2) : []), [timeline, durationSec])
@@ -146,6 +146,12 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
               {confirmClear ? 'בטוח? לחץ שוב — כל הסימונים נמחקים' : 'חזרה לניחוש המחשב'}
             </button>
           )}
+          <button type="button" onClick={() => void ctl.exportVocalMarks()} title="שומר את הסימונים של כל השירים לקובץ חדש (גיבוי, ואחר כך אימון)." className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted">
+            ייצא סימונים
+          </button>
+          <button type="button" onClick={() => void ctl.importVocalMarks()} title="מחזיר סימונים מקובץ גיבוי. שיר שכבר יש לו סימון כאן לא נדרס." className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted">
+            ייבא סימונים
+          </button>
           {tag && (
             <span className="text-grid-muted">
               סימונים: {tag.regions.length} · {tag.finished ? 'גמור' : 'טיוטה על הניחוש'}
