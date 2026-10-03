@@ -6,7 +6,7 @@ import type { Track } from '@/core/types'
  * musical and Camelot spelling (`keyMode`, `Library.tsx`), but the wheel
  * order is the one ordering that means the same thing in either mode.
  */
-export type SortKey = 'title' | 'artist' | 'bpm' | 'key' | 'durationSec' | 'note' | 'lastPlayedAt'
+export type SortKey = 'title' | 'artist' | 'genre' | 'bpm' | 'key' | 'durationSec' | 'note' | 'lastPlayedAt'
 export type SortDir = 'asc' | 'desc'
 
 /** `8A` -> 16, `8B` -> 17 — wheel position first, then major/minor. `undefined` for anything that doesn't parse, same "goes last" treatment as a missing BPM. */
@@ -22,6 +22,9 @@ function sortValue(t: Track, key: SortKey): string | number | undefined {
       return (t.title ?? t.name).toLowerCase()
     case 'artist':
       return t.artist?.toLowerCase()
+    case 'genre':
+      // `t.genre` is already the effective one (the owner's manual pick over the folder's name), the same value the column shows
+      return t.genre?.toLowerCase()
     case 'bpm':
       return t.bpm
     case 'key':

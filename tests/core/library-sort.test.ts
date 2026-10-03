@@ -58,6 +58,17 @@ describe('sortTracks', () => {
     expect(sortTracks(played, 'lastPlayedAt', 'desc').map((t) => t.id)).toEqual(['new', 'old', 'never'])
   })
 
+  it('sorts genre A→Z, case-insensitively, a track with no genre last in both directions, ties by artist then title', () => {
+    const tracks = [
+      track('c', { genre: 'techno', artist: 'Zed' }),
+      track('none', { artist: 'Aaa' }),
+      track('a', { genre: 'House', artist: 'Mia' }),
+      track('b', { genre: 'house', artist: 'Abe' }),
+    ]
+    expect(sortTracks(tracks, 'genre', 'asc').map((t) => t.id)).toEqual(['b', 'a', 'c', 'none'])
+    expect(sortTracks(tracks, 'genre', 'desc').map((t) => t.id)).toEqual(['c', 'b', 'a', 'none'])
+  })
+
   it('does not mutate the input array', () => {
     const tracks = [track('b', { bpm: 2 }), track('a', { bpm: 1 })]
     const original = [...tracks]
