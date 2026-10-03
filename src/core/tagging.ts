@@ -403,6 +403,8 @@ export const VOCAL_REVIEW_SCHEMA = 1
 export const REVIEW_DANCE_GENRES = ['House', 'Techno'] as const
 /** A few clips from the rest, for the owner's own consistency — the ceiling no classifier can beat. Trance is left out: "no vocals" is a rule there, not a judgement. */
 export const REVIEW_CONSISTENCY_CLIPS = 20
+/** How many earlier 'yes' answers in those genres are asked again — see `pickVocalReview`. */
+export const REVIEW_DANCE_YES_CLIPS = 10
 
 export type ReviewGroup = 'dance' | 'consistency'
 
@@ -486,7 +488,12 @@ export function pickVocalReview(tags: readonly VocalTag[], libraryIds: ReadonlyS
   // each other (20 clips came from 8 songs), and a self-consistency sample from 8 songs is a sample of 8 songs.
   const byKey = (a: ReviewClip, b: ReviewClip) =>
     stableKey(`${a.clipIndex}:${a.contentHash}`) - stableKey(`${b.clipIndex}:${b.contentHash}`) || `${a.trackId}${a.clipIndex}`.localeCompare(`${b.trackId}${b.clipIndex}`)
-  const chosen = [...dance.sort(byKey), ...rest.sort(byKey).slice(0, REVIEW_CONSISTENCY_CLIPS)]
+  // Earlier 'no' and 'unsure' answers are asked again in full; of the 'yes' answers only a few. On the owner's first 30 re-checks all 17
+  // 'yes' stayed 'yes' while 5 of 13 'no' changed, so a second look at the 'no' side finds something and one at the 'yes' side
+  // mostly costs his time. A few 'yes' remain so that stability keeps being measured instead of assumed.
+  const danceNo = dance.filter((c) => c.previousAnswer !== 'yes')
+  const danceYes = dance.filter((c) => c.previousAnswer === 'yes').sort(byKey).slice(0, REVIEW_DANCE_YES_CLIPS)
+  const chosen = [...[...danceNo, ...danceYes].sort(byKey), ...rest.sort(byKey).slice(0, REVIEW_CONSISTENCY_CLIPS)]
   const clipsByTrack = new Map<string, ReviewClip[]>()
   const order: string[] = []
   for (const c of chosen) {

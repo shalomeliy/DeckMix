@@ -21,6 +21,7 @@ import {
   reviewSongsDone,
   reviewSummary,
   REVIEW_CONSISTENCY_CLIPS,
+  REVIEW_DANCE_YES_CLIPS,
   type VocalTag,
   suspectClipSpots,
   vocalRound2Clips,
@@ -367,7 +368,9 @@ describe('v0.9.11 blind re-check', () => {
     const tags = [...songs('House', 6, 5), ...songs('Techno', 4), ...songs('Hip Hop', 30)]
     const plan = pickVocalReview(tags, everyone(tags))
     const dance = [...plan.clipsByTrack.values()].flat().filter((c) => c.group === 'dance')
-    expect(dance).toHaveLength(5 * 3 + 4 * 3) // House song 5 is sealed
+    expect(dance.filter((c) => c.previousAnswer === 'no')).toHaveLength(9) // none of the 'no' answers is dropped
+    // every earlier 'no' (clip 1 of each of the 9 unsealed songs) plus only REVIEW_DANCE_YES_CLIPS of the 18 'yes' ones; House song 5 is sealed
+    expect(dance).toHaveLength(9 + REVIEW_DANCE_YES_CLIPS)
     expect(dance.every((c) => c.genre === 'House' || c.genre === 'Techno')).toBe(true)
     expect(plan.entries.every((e) => e.holdout === false)).toBe(true)
     expect([...plan.clipsByTrack.keys()]).not.toContain('House/s5.mp3')
