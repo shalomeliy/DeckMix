@@ -356,7 +356,7 @@ export function Deck({ deckId }: { deckId: DeckId }) {
         loopRange={deck.loopRange}
         color={color}
       />
-      {loaded && <VocalStrip vocal={trackVocal} durationSec={deck.durationSec} positionSec={deck.positionSec} deckId={deckId} />}
+      {loaded && <VocalStrip vocal={trackVocal} durationSec={deck.durationSec} positionSec={deck.positionSec} deckId={deckId} contentHash={deck.track?.contentHash} />}
 
       <Waveform
         deckId={deckId}

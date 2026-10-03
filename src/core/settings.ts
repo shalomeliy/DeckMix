@@ -105,6 +105,8 @@ export interface Settings {
   sourceCheck: boolean
   /** v0.9.0: the top bar's "Tag" button, which opens the tagging screen. Off by default — Shalom (25/09): a screen that covers the decks has no place in a live set. */
   taggingMode: boolean
+  /** v0.9.10b: the "vocal started / ended" buttons under each deck's vocal strip. Off by default: a live set has no use for them. */
+  vocalMarking: boolean
 }
 
 export const DEFAULTS: Settings = {
@@ -134,6 +136,7 @@ export const DEFAULTS: Settings = {
   hintMode: true, // temporary — user asked for hints on by default until further notice (2026-09-04)
   sourceCheck: false,
   taggingMode: false,
+  vocalMarking: false,
 }
 
 // ————————————————————————————————————————————————————————————————
@@ -433,6 +436,13 @@ export const FIELDS: Field[] = [
     key: 'taggingMode',
     label: 'Tagging (where is the "1", vocals)',
     help: 'Adds a "Tag" button to the top bar. It opens a screen where you mark which beat is the "1" and whether a short clip has vocals, so the app can be measured against your ears. Off during a set: the screen covers the decks.',
+    group: 'library',
+  },
+  {
+    kind: 'toggle',
+    key: 'vocalMarking',
+    label: 'Mark vocals by hand',
+    help: 'Adds buttons under each deck\'s vocal strip: press "vocal started" and "vocal ended" while the song plays, as many times as the song needs. Your marks are kept for that song for good and override the computer\'s guess. When you press "finished marking", everything you did not mark becomes empty.',
     group: 'library',
   },
 

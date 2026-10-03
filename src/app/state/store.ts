@@ -1,4 +1,5 @@
 import type { LibraryBoot } from '@/core/library-boot'
+import type { VocalManualTag } from '@/core/sound/vocal-manual'
 import { create } from 'zustand'
 import type {
   ChannelState,
@@ -376,6 +377,9 @@ export interface AppState {
    * degrades or substitutes belongs here rather than in a `console.warn`.
    */
   notice: { text: string; tone: 'warn' | 'info'; source: NoticeSource } | null
+  /** v0.9.10b: the owner's hand-made vocal marks by content hash (loaded when a track reaches a deck), and the mark each deck has open — pressed "started", not yet "ended". */
+  vocalManual: Record<string, VocalManualTag>
+  vocalMarkOpen: Record<DeckId, { contentHash: string; startSec: number } | null>
   /**
    * v0.8.20: the result of moving data saved before the rename to `deckmix:` keys.
    * It gets its own slot instead of `notice`, because `notice` holds one
@@ -403,6 +407,8 @@ export interface AppState {
   setMidi: (patch: Partial<AppState['midi']>) => void
   setOutput: (patch: Partial<AppState['output']>) => void
   setNotice: (notice: AppState['notice']) => void
+  setVocalManual: (contentHash: string, tag: VocalManualTag | null) => void
+  setVocalMarkOpen: (deckId: DeckId, open: AppState['vocalMarkOpen'][DeckId]) => void
   /**
    * Clear the notice only if it came from `source`.
    *
@@ -466,6 +472,8 @@ export const useStore = create<AppState>((set) => ({
   fxWorkletError: null,
   capabilities: detectCapabilities(),
   notice: null,
+  vocalManual: {},
+  vocalMarkOpen: { A: null, B: null },
   storageNotice: null,
   ai: {
     enabled: false,
@@ -521,5 +529,13 @@ export const useStore = create<AppState>((set) => ({
   setMidi: (patch) => set((s) => ({ midi: { ...s.midi, ...patch } })),
   setOutput: (patch) => set((s) => ({ output: { ...s.output, ...patch } })),
   setNotice: (notice) => set({ notice }),
+  setVocalManual: (contentHash, tag) =>
+    set((s) => {
+      const next = { ...s.vocalManual }
+      if (tag) next[contentHash] = tag
+      else delete next[contentHash]
+      return { vocalManual: next }
+    }),
+  setVocalMarkOpen: (deckId, open) => set((s) => ({ vocalMarkOpen: { ...s.vocalMarkOpen, [deckId]: open } })),
   clearNotice: (source) => set((s) => (s.notice?.source === source ? { notice: null } : {})),
 }))

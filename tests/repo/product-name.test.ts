@@ -43,6 +43,8 @@ const STORAGE_KEYS = [
   'deckmix:settings',
   // v0.9.10b: finished vocal strips, one per song+genre.
   'deckmix:vocalStrip:',
+  // v0.9.10b: the owner's hand-made vocal marks, one per song by content hash.
+  'deckmix:vocalManual:',
   // v0.9.0: the owner's tags, the ground truth the bar/vocal detectors are graded on.
   'deckmix:tag:bar:',
   // v0.9.1: the "1" marked on the waveform — its own prefix, so a re-tag never overwrites the 4-button answer it is compared with.

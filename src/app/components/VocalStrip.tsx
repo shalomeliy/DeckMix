@@ -1,4 +1,8 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
+import { useSettings } from '@/app/hooks/useSettings'
+import { useStore } from '@/app/state/store'
+import * as ctl from '@/controls'
+import { effectiveTimeline, regionMask } from '@/core/sound/vocal-manual'
 import {
   CELL_NONE,
   CELL_VOCAL,
@@ -13,7 +17,8 @@ interface Props {
   vocal: VocalResult | undefined
   durationSec: number
   positionSec: number
-  deckId: string
+  deckId: 'A' | 'B'
+  contentHash: string | undefined
 }
 
 const VOICE = '#c084fc'
@@ -44,12 +49,27 @@ function countdownText(c: VocalCountdown): string {
  * Under it, the two timers the owner asked for (03/10): when the voice starts and when it ends. They count "unsure" as voice (core: `vocalCountdown`).
  * When there is no strip, the line says why in words instead of staying blank (the project's "never skip silently").
  */
-export function VocalStrip({ vocal, durationSec, positionSec, deckId }: Props) {
-  const timeline = vocal?.timeline ?? null
-  const segs = useMemo(() => (timeline && durationSec > 0 ? vocalStripSegments(timeline, durationSec, 600, 2) : []), [timeline, durationSec])
+export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHash }: Props) {
+  const { vocalMarking } = useSettings()
+  const tag = useStore((s) => (contentHash ? s.vocalManual[contentHash] : undefined))
+  const openMark = useStore((s) => s.vocalMarkOpen[deckId])
+  const open = openMark && openMark.contentHash === contentHash ? openMark : null
+  const [confirmClear, setConfirmClear] = useState(false)
+  // His marks win over the model's guess (core: `effectiveTimeline`). The open one is drawn up to the play position, in whole seconds like the timers.
   const secBucket = Math.floor(positionSec)
+  const timeline = useMemo(
+    () => effectiveTimeline(vocal?.timeline ?? null, tag, durationSec, open ? { fromSec: open.startSec, toSec: secBucket } : null),
+    [vocal?.timeline, tag, durationSec, open, secBucket],
+  )
+  const manualSegs = useMemo(() => {
+    if (!tag && !open) return []
+    const mask = regionMask([...(tag?.regions ?? []), ...(open ? [{ fromSec: Math.min(open.startSec, secBucket), toSec: Math.max(open.startSec, secBucket) }] : [])], durationSec)
+    return durationSec > 0 ? vocalStripSegments({ cells: mask, stereo: true }, durationSec, 600, 2).filter((s) => s.cell === CELL_VOCAL) : []
+  }, [tag, open, secBucket, durationSec])
+  const segs = useMemo(() => (timeline && durationSec > 0 ? vocalStripSegments(timeline, durationSec, 600, 2) : []), [timeline, durationSec])
   const countdown = useMemo(() => (timeline ? vocalCountdown(timeline, secBucket, durationSec) : null), [timeline, secBucket, durationSec])
-  const note = vocal ? vocalStateText(vocal.state, vocal.note) : durationSec > 0 ? 'שירה: לא נותח עדיין' : null
+  // His finished marks replace whatever the model's state said (a Trance rule, a failure): the strip is now his, and the line says so.
+  const note = tag?.finished ? 'סומן ידנית' : vocal ? vocalStateText(vocal.state, vocal.note) : durationSec > 0 ? 'שירה: לא נותח עדיין' : null
   const pct = durationSec > 0 ? Math.max(0, Math.min(100, (positionSec / durationSec) * 100)) : 0
   return (
     <div className="flex shrink-0 flex-col gap-0.5" data-vocal-strip={deckId} data-vocal-state={vocal?.state ?? 'none'}>
@@ -73,6 +93,9 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId }: Props) {
               />
             ),
           )}
+          {manualSegs.map((m, i) => (
+            <div key={`m${i}`} data-vocal-manual className="absolute top-0 h-[2px] bg-white" style={{ left: `${m.leftPct}%`, width: `${m.widthPct}%` }} />
+          ))}
           {timeline && durationSec > 0 && (
             <>
               <div className="pointer-events-none absolute inset-y-0 left-0 bg-black/50" style={{ width: `${pct}%` }} />
@@ -83,6 +106,53 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId }: Props) {
         {/* the overview above has a hint icon (w-4) beside it; this keeps the two lanes the same width */}
         <span className="w-4 shrink-0" aria-hidden />
       </div>
+      {vocalMarking && contentHash && durationSec > 0 && (
+        <div className="flex flex-wrap items-center gap-1 text-xs" data-vocal-marking={deckId}>
+          <button
+            type="button"
+            onClick={() => void ctl.toggleVocalMark(deckId)}
+            className={`rounded-[var(--radius-sm)] px-2 py-1 font-semibold ${open ? 'bg-white text-black' : 'bg-surface-2 text-white'}`}
+            style={open ? undefined : { boxShadow: `inset 0 0 0 1px ${VOICE}` }}
+          >
+            {open ? 'נגמרה שירה' : 'התחילה שירה'}
+          </button>
+          <button type="button" onClick={() => void ctl.undoVocalMark(deckId)} className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted">
+            {open ? 'בטל סימון פתוח' : 'בטל אחרון'}
+          </button>
+          {!tag?.finished ? (
+            <button
+              type="button"
+              disabled={!tag || tag.regions.length === 0}
+              onClick={() => void ctl.finishVocalMarks(deckId)}
+              title="אחרי הלחיצה, כל מה שלא סימנת בשיר הזה יהיה ריק (במקום הניחוש של המחשב)."
+              className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted disabled:opacity-40"
+            >
+              סיימתי לסמן את השיר
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                if (!confirmClear) {
+                  setConfirmClear(true)
+                  return
+                }
+                setConfirmClear(false)
+                void ctl.clearVocalMarks(deckId)
+              }}
+              onBlur={() => setConfirmClear(false)}
+              className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-warn"
+            >
+              {confirmClear ? 'בטוח? לחץ שוב — כל הסימונים נמחקים' : 'חזרה לניחוש המחשב'}
+            </button>
+          )}
+          {tag && (
+            <span className="text-grid-muted">
+              סימונים: {tag.regions.length} · {tag.finished ? 'גמור' : 'טיוטה על הניחוש'}
+            </span>
+          )}
+        </div>
+      )}
       <div className="flex items-baseline justify-between gap-3 text-xs leading-none">
         <span
           data-vocal-countdown={deckId}

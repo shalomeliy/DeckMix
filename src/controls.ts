@@ -46,6 +46,8 @@ import {
 import { crossfadeProgress, exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
 import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
 import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
+import { addRegion, removeLastRegion, type VocalManualTag } from '@/core/sound/vocal-manual'
+import { deleteVocalManual, getVocalManual, putVocalManual } from '@/platform/vocal-manual-idb/store'
 import {
   setLastPlayed as persistLastPlayedByHash,
   setTrackNote as persistTrackNoteByHash,
@@ -450,6 +452,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     loopActive: false,
     loopRange: null,
   })
+  void onTrackLoadedForVocalMarks(deckId, contentHash)
   // A (re)load can change this deck's bpm/tempo as much as touching the
   // tempo fader does — found by change-reviewer (v0.8.6): loading a track
   // straight onto the deck that's already master silently left FX beat-sync
@@ -3866,6 +3869,119 @@ export function sortedFilteredTracks(): Track[] {
  * comment names), and that hash is kept on the track so nothing re-hashes it
  * a second time later.
  */
+/**
+ * v0.9.10b — the owner's hand-made vocal marks. All three are on the deck's own track, keyed by its content hash.
+ * Every refusal says why (the project's "never skip silently"); every save that fails says so.
+ */
+function vocalNotice(text: string, tone: 'warn' | 'info' = 'warn') {
+  useStore.getState().setNotice({ text, tone, source: 'library' })
+}
+
+async function saveVocalManual(tag: VocalManualTag): Promise<void> {
+  useStore.getState().setVocalManual(tag.contentHash, tag)
+  try {
+    await putVocalManual(tag)
+  } catch (err) {
+    vocalNotice(`סימוני השירה נשמרו רק עד סגירת האפליקציה: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+function manualTagFor(deckId: DeckId): VocalManualTag | null {
+  const s = useStore.getState()
+  const track = s.decks[deckId].track
+  if (!track?.contentHash) return null
+  return (
+    s.vocalManual[track.contentHash] ?? {
+      schema: 1,
+      contentHash: track.contentHash,
+      trackId: track.id,
+      name: track.name,
+      genre: track.genre,
+      regions: [],
+      finished: false,
+      updatedAt: Date.now(),
+    }
+  )
+}
+
+/** Pressed "vocal started" → opens a mark at the play position; pressed again "vocal ended" → closes it. */
+export async function toggleVocalMark(deckId: DeckId): Promise<void> {
+  const s = useStore.getState()
+  const deck = s.decks[deckId]
+  const tag = manualTagFor(deckId)
+  if (!deck.track || !tag) {
+    vocalNotice('אי אפשר לסמן שירה: אין שיר טעון בדק הזה (או שעוד לא זוהה הקובץ שלו).')
+    return
+  }
+  const open = s.vocalMarkOpen[deckId]
+  if (!open) {
+    s.setVocalMarkOpen(deckId, { contentHash: tag.contentHash, startSec: deck.positionSec })
+    return
+  }
+  s.setVocalMarkOpen(deckId, null)
+  if (open.contentHash !== tag.contentHash) {
+    vocalNotice('סימון השירה שהיה פתוח היה של שיר אחר ולא נשמר.')
+    return
+  }
+  const added = addRegion(tag.regions, open.startSec, deck.positionSec, deck.durationSec)
+  if (!added.ok) {
+    vocalNotice(added.reason === 'too-short' ? 'הסימון קצר מחצי שנייה ולא נשמר.' : 'הסימון לא נשמר: זמן לא תקין.')
+    return
+  }
+  await saveVocalManual({ ...tag, regions: added.regions, updatedAt: Date.now() })
+}
+
+/** Cancels a mark that was opened and not yet closed, without saving anything. */
+export function cancelOpenVocalMark(deckId: DeckId) {
+  useStore.getState().setVocalMarkOpen(deckId, null)
+}
+
+export async function undoVocalMark(deckId: DeckId): Promise<void> {
+  const s = useStore.getState()
+  if (s.vocalMarkOpen[deckId]) return cancelOpenVocalMark(deckId)
+  const tag = manualTagFor(deckId)
+  if (!tag || tag.regions.length === 0) {
+    vocalNotice('אין סימון לבטל בשיר הזה.', 'info')
+    return
+  }
+  await saveVocalManual({ ...tag, regions: removeLastRegion(tag.regions), updatedAt: Date.now() })
+}
+
+/** "I finished marking this song": from now on everything he did not mark is "no voice". */
+export async function finishVocalMarks(deckId: DeckId): Promise<void> {
+  const tag = manualTagFor(deckId)
+  if (!tag) return
+  await saveVocalManual({ ...tag, finished: true, updatedAt: Date.now() })
+}
+
+/** Throws his marks away and goes back to the computer's guess. The UI asks twice before calling this. */
+export async function clearVocalMarks(deckId: DeckId): Promise<void> {
+  const track = useStore.getState().decks[deckId].track
+  if (!track?.contentHash) return
+  useStore.getState().setVocalManual(track.contentHash, null)
+  try {
+    await deleteVocalManual(track.contentHash)
+  } catch (err) {
+    vocalNotice(`הסימונים הוסרו רק עד סגירת האפליקציה: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+/** On every load: drop a mark the old track left open (said so), and bring this song's saved marks into memory. */
+async function onTrackLoadedForVocalMarks(deckId: DeckId, contentHash: string | undefined) {
+  const s = useStore.getState()
+  if (s.vocalMarkOpen[deckId]) {
+    s.setVocalMarkOpen(deckId, null)
+    vocalNotice('סימון שירה שהיה פתוח בדק לא נשמר: נטען שיר אחר.')
+  }
+  if (!contentHash || s.vocalManual[contentHash]) return
+  try {
+    const tag = await getVocalManual(contentHash)
+    if (tag) useStore.getState().setVocalManual(contentHash, tag)
+  } catch (err) {
+    vocalNotice(`סימוני השירה של השיר לא נקראו: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
 export function setTrackGenre(trackId: string, genre: string) {
   const { library, setLibrary, setNotice } = useStore.getState()
   setLibrary({
