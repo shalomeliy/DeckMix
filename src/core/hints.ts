@@ -100,6 +100,10 @@ const HINT_BASE = {
       { mouse: 'Drag along the overview', does: 'travel through the track' },
     ],
   },
+  // v0.9.10b: the vocal strip under the overview.
+  'deck.vocalStrip': {
+    text: 'Where there are vocals in this track. Solid = vocals, dashed = not sure (treated as vocals by the timers), empty = none. The white line is the playhead. The two timers say when the vocals start and when they end. With "Mark vocals by hand" on, your own marks replace the computer\'s guess.',
+  },
   // v0.9.1: the tagging screen's marker. Only while that screen shows a song's waveform.
   'tagging.marker': {
     text: 'Tagging: the yellow line is the "1". Click or drag on the waveform to move it; it snaps to the nearest beat.',

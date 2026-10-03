@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { HintIcon } from '@/app/components/controls'
 import { useSettings } from '@/app/hooks/useSettings'
 import { useStore } from '@/app/state/store'
 import * as ctl from '@/controls'
@@ -103,8 +104,8 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
             </>
           )}
         </div>
-        {/* the overview above has a hint icon (w-4) beside it; this keeps the two lanes the same width */}
-        <span className="w-4 shrink-0" aria-hidden />
+        {/* the overview above has a hint icon beside it; this one takes the same place, so the two lanes stay the same width */}
+        <HintIcon id="deck.vocalStrip" />
       </div>
       {vocalMarking && contentHash && durationSec > 0 && (
         <div className="flex flex-wrap items-center gap-1 text-xs" data-vocal-marking={deckId}>
