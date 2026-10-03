@@ -3869,7 +3869,8 @@ export function sortedFilteredTracks(): Track[] {
 export function setTrackGenre(trackId: string, genre: string) {
   const { library, setLibrary, setNotice } = useStore.getState()
   setLibrary({
-    tracks: library.tracks.map((t) => (t.id === trackId ? { ...t, genre } : t)),
+    // The strip depends on the genre (the model's genre column, the Trance rule): it is marked for recomputing, with the reason on screen.
+    tracks: library.tracks.map((t) => (t.id === trackId ? { ...t, genre, vocal: t.vocal ? { state: 'queued' as const, timeline: null, note: 'הז׳אנר השתנה — יחושב מחדש בטעינה הבאה' } : t.vocal } : t)),
   })
   void persistGenreOverride(trackId, genre).catch((err) => {
     setNotice({

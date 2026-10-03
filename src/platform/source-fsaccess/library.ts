@@ -623,7 +623,8 @@ export async function queueVocalStripBackfill(
   onUpdate: (patch: Map<string, Partial<Track>>, progress: AnalysisQueueProgress) => void,
   opts: { signal?: { cancelled: boolean }; isUrgent?: (id: string) => boolean } = {},
 ): Promise<void> {
-  const pending = tracks.filter((t) => t.analysisState === 'analyzed' && !t.vocal)
+  // `queued`/`analysing` are picked up too: a pass cancelled mid-track (a rescan, files added) leaves its track in `analysing`, and skipping it would count it as waiting forever.
+  const pending = tracks.filter((t) => t.analysisState === 'analyzed' && (!t.vocal || t.vocal.state === 'queued' || t.vocal.state === 'analysing'))
   const total = pending.length
   let done = 0
   let failed = 0

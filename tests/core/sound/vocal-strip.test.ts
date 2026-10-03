@@ -1,8 +1,10 @@
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { NONE_AT, NO_STRIP_GENRES, SMOOTH_RADIUS_CELLS, VOCAL_AT, cellsFromProbabilities, detectVocalStrip } from '@/core/sound/vocal-strip.ts'
 import { parseVocalModel } from '@/core/sound/vocal-model.ts'
-import { CELL_NONE, CELL_UNSURE, CELL_VOCAL, VOCAL_CELL_SEC } from '@/core/sound/vocal-timeline.ts'
+import { VOCAL_STRIP_VERSION } from '@/platform/vocal-strip-idb/store.ts'
+import { vocalStateText, CELL_NONE, CELL_UNSURE, CELL_VOCAL, VOCAL_CELL_SEC } from '@/core/sound/vocal-timeline.ts'
 import type { PcmData } from '@/core/ports/analyzer'
 
 const model = parseVocalModel(JSON.parse(readFileSync('src/core/sound/vocal-model.json', 'utf8')))
@@ -83,5 +85,31 @@ describe('detectVocalStrip', () => {
   })
   it('mono is reported as mono, not hidden', () => {
     expect(detectVocalStrip(pcm(40, tone, false), 'House', model).state).toBe('mono')
+  })
+})
+
+describe('what the deck says when there is a note', () => {
+  it('the Trance rule is never worded as a measured "no vocals"', () => {
+    const r = detectVocalStrip(pcm(40, () => 0.1), 'Trance', model)
+    const text = vocalStateText(r.state, r.note)!
+    expect(text).toContain('לא נמדד')
+    expect(text).not.toBe('שירה: אין שירה')
+  })
+  it('a measured all-quiet track still reads "no vocals"', () => {
+    expect(vocalStateText('no-vocals')).toBe('שירה: אין שירה')
+  })
+  it('every state with a note shows the note', () => {
+    for (const s of ['ready', 'queued', 'mono', 'too-short', 'silent', 'failed'] as const) expect(vocalStateText(s, 'NOTE')).toContain('NOTE')
+  })
+})
+
+describe('the cache version is tied to what the answer depends on', () => {
+  // A change to any of these needs VOCAL_STRIP_VERSION bumped (platform/vocal-strip-idb/store.ts), or strips computed before it are served as current.
+  it('pins the thresholds, the smoothing, the rule and the frozen model against the version', () => {
+    const fingerprint = createHash('sha256')
+      .update(JSON.stringify({ VOCAL_AT, NONE_AT, SMOOTH_RADIUS_CELLS, NO_STRIP_GENRES }))
+      .update(readFileSync('src/core/sound/vocal-model.json'))
+      .digest('hex')
+    expect({ version: VOCAL_STRIP_VERSION, fingerprint }).toEqual({ version: 1, fingerprint: 'ec9eee2f4a46db4ab819a00b0699be0c58f125abcc4f360e71712fb936cbd819' })
   })
 })

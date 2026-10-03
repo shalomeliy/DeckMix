@@ -188,7 +188,9 @@ export function Library() {
     let ready = 0
     let failed = 0
     const none = new Map<string, number>()
+    let noBpm = 0
     for (const t of library.tracks) {
+      if (t.analysisState === 'failed') noBpm++
       if (t.analysisState !== 'analyzed') continue
       const st = t.vocal?.state
       if (!st || st === 'queued' || st === 'analysing') waiting++
@@ -196,7 +198,7 @@ export function Library() {
       else if (t.vocal?.timeline) ready++
       else none.set(st, (none.get(st) ?? 0) + 1)
     }
-    return { waiting, ready, failed, none }
+    return { waiting, ready, failed, none, noBpm }
   }, [library.tracks])
   // lets a new scan abandon the tag pass of the one it replaced
   const tagScan = useRef({ cancelled: false })
@@ -1228,12 +1230,12 @@ export function Library() {
               {vocalCounts.failed} שירים: ניתוח שירה נכשל
             </span>
           )}
-          {!library.scanning && vocalCounts.waiting === 0 && vocalCounts.none.size > 0 && (
+          {!library.scanning && vocalCounts.waiting === 0 && (vocalCounts.none.size > 0 || vocalCounts.noBpm > 0) && (
             <span
               className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-grid-muted"
               title="שירים בלי פס שירה, לפי הסיבה. טראנס: כלל ז'אנר, לא נמדד. קצר: מתחת ל-30 שניות. שקט: אין אודיו."
             >
-              בלי פס שירה: {[...vocalCounts.none].map(([k, n]) => `${n} ${({ 'no-vocals': 'לפי כלל ז׳אנר', 'too-short': 'קצרים', silent: 'שקטים' } as Record<string, string>)[k] ?? k}`).join(' · ')}
+              בלי פס שירה: {[...(vocalCounts.noBpm > 0 ? [['noBpm', vocalCounts.noBpm] as [string, number]] : []), ...vocalCounts.none].map(([k, n]) => `${n} ${({ 'no-vocals': 'לפי כלל ז׳אנר', 'too-short': 'קצרים', silent: 'שקטים', noBpm: 'שניתוח הבסיס שלהם נכשל' } as Record<string, string>)[k] ?? k}`).join(' · ')}
             </span>
           )}
         </span>

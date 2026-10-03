@@ -62,21 +62,24 @@ export function stateOfTimeline(t: VocalTimeline): VocalState {
 
 /** Text next to the track title when the lane alone does not say enough — Hebrew first, as everywhere in the UI. */
 export function vocalStateText(state: VocalState, note?: string): string | null {
+  // A note is shown whenever there is one: it carries the reason the strip is missing or weaker (a genre rule, an unknown genre), and a state
+  // name alone ("no vocals") would read as a measurement for the Trance rule, which measured nothing.
+  const withNote = (base: string) => (note ? `${base} — ${note}` : base)
   switch (state) {
     case 'ready':
       return note ? `שירה: ${note}` : null
     case 'queued':
-      return 'שירה: לא נותח עדיין'
+      return withNote('שירה: לא נותח עדיין')
     case 'analysing':
       return 'שירה: מנתח…'
     case 'mono':
-      return 'שירה: מונו — פחות בטוח'
+      return withNote('שירה: מונו — פחות בטוח')
     case 'no-vocals':
-      return 'שירה: אין שירה'
+      return note ? `שירה: ${note}` : 'שירה: אין שירה'
     case 'too-short':
-      return 'שירה: השיר קצר מדי לניתוח'
+      return withNote('שירה: השיר קצר מדי לניתוח')
     case 'silent':
-      return 'שירה: השיר שקט'
+      return withNote('שירה: השיר שקט')
     case 'failed':
       return `שירה: הניתוח נכשל${note ? ` — ${note}` : ''}`
   }
