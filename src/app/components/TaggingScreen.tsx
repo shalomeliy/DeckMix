@@ -94,6 +94,11 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
   /** The vocal picture's view (v0.9.11): without drums by default — on a busy clip the plain picture is mostly kick columns. */
   const [specView, setSpecView] = useState<SpectrogramView>('voices')
   const [clipPlayhead, setClipPlayhead] = useState<number | null>(null)
+  /** Clips answered in this round on this screen, newest last — what "back" walks through (v0.9.11, the owner: a slip needs a way to fix it). */
+  const history = useRef<{ mode: Mode; songIndex: number; clip: number; answer: VocalAnswer }[]>([])
+  const [canBack, setCanBack] = useState(false)
+  /** What was saved for the clip the owner just went back to, said on screen so a correction is a decision and not a guess. */
+  const [backNote, setBackNote] = useState<VocalAnswer | null>(null)
   /** Regions drawn on each clip's picture, by `contentHash:clipIndex` — read back from storage after every save, so it is what was kept. */
   const [marksMap, setMarksMap] = useState<ReadonlyMap<string, SpectrogramMark[]>>(new Map())
   const vocalTags = useRef<readonly { contentHash: string; clipIndex?: number }[]>([])
@@ -170,6 +175,8 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
   const sampleKey = sample.map((e) => e.trackId).join('|')
   useEffect(() => {
     openSeq.current++
+    history.current = []
+    setCanBack(false)
     setCurrent(null)
     setBusy(false)
     setIndex(0)
@@ -211,12 +218,13 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
   }, [clip])
 
   const open = useCallback(
-    async (from: number) => {
+    async (from: number, opts?: { force?: boolean; clip?: number }) => {
       stopSound()
       setSpot(0)
       setCurrent(null)
       const seq = ++openSeq.current
-      let i = nextOpen(from)
+      // `force`: going BACK to a clip that is already answered, which `nextOpen` would skip as done.
+      let i = opts?.force ? from : nextOpen(from)
       setBusy(true)
       while (i < sample.length) {
         const entry: SampleEntry = sample[i]
@@ -226,10 +234,11 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
           reviewClips: mode === 'review' ? reviewPlan.clipsByTrack.get(entry.trackId) : undefined,
         })
         if (seq !== openSeq.current) return
-        if (view && !tagged?.has(view.contentHash)) {
+        if (view && (opts?.force || !tagged?.has(view.contentHash))) {
           setIndex(i)
           setCurrent(view)
-          if (mode === 'review') {
+          if (opts?.clip != null) setClip(opts.clip)
+          else if (mode === 'review') {
             const asked = reviewPlan.clipsByTrack.get(entry.trackId) ?? []
             const have = new Set(reviewTags.filter((t) => t.contentHash === view.contentHash).map((t) => t.clipIndex))
             setClip(Math.max(0, asked.findIndex((c) => !have.has(c.clipIndex))))
@@ -289,10 +298,24 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
     const saved = asked ? await ctl.tagSaveVocalReview(current.contentHash, a, asked[clip]) : await ctl.tagSaveVocal(current.contentHash, a, clip)
     setSaving(false)
     if (!saved) return
+    history.current.push({ mode, songIndex: index, clip, answer: a })
+    setCanBack(true)
+    setBackNote(null)
     await refreshTagged()
     // The next clip of the same song, without decoding it again; after the last one, the next song.
     if (clip + 1 < (asked ? asked.length : VOCAL_CLIPS_PER_SONG)) setClip(clip + 1)
     else void open(index + 1)
+  }
+
+  /** Back to the previous answered clip of this round; answering it again overwrites the saved answer. */
+  const goBack = async () => {
+    const last = history.current.pop()
+    setCanBack(history.current.length > 0)
+    if (!last || saving) return
+    stopSound()
+    setBackNote(last.answer)
+    if (current && last.songIndex === index) setClip(last.clip)
+    else await open(last.songIndex, { force: true, clip: last.clip })
   }
 
   // Within this sample, by the row each tag was sampled as — a count of every
@@ -302,6 +325,9 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
   const notice = useStore((s) => (s.notice?.source === 'tagging' ? s.notice : null))
 
   const switchMode = (m: Mode) => {
+    history.current = []
+    setCanBack(false)
+    setBackNote(null)
     openSeq.current++
     stopSound()
     setCurrent(null)
@@ -562,6 +588,13 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
             {index >= sample.length && doneCount != null ? (
               <>
                 <He className="font-bold">סיימת את כל השירים בחלק הזה. אפשר לייצא לקובץ.</He>
+                {isVocal && (
+                  <div dir="rtl" className="text-right">
+                    <Button variant="ghost" disabled={!canBack || saving} onClick={() => void goBack()}>
+                      → חזור לקטע האחרון, לתיקון
+                    </Button>
+                  </div>
+                )}
                 {mode === 'review' && <ReviewSummary tags={reviewTags} />}
               </>
             ) : (
@@ -686,6 +719,11 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
               קטע {clip + 1} מתוך {mode === 'review' ? (reviewPlan.clipsByTrack.get(sample[index]?.trackId ?? '')?.length ?? 0) : VOCAL_CLIPS_PER_SONG} של השיר הזה{mode === 'review' ? ' (בדיקה חוזרת)' : ''}.
               {mode === 'vocal2' && (current.clipPicks[clip] === 'suspect' ? ' (נבחר כי המחשב חושב ששרים שם)' : ' (נבחר אקראית)')}
             </He>
+            {backNote && (
+              <He className="text-xs font-bold text-warn">
+                חזרת לקטע הקודם. התשובה ששמרת: {backNote === 'yes' ? 'יש שירה' : backNote === 'no' ? 'אין שירה' : 'לא בטוח'}. תשובה חדשה תחליף אותה.
+              </He>
+            )}
             {mode === 'vocal2' && !current.clipPicks.includes('suspect') && (
               <He className="text-2xs text-warn">
                 המחשב לא מצא בשיר הזה מקום שנשמע לו כמו שירה, אז כל הקטעים אקראיים.
@@ -727,6 +765,9 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
               "בלי תופים" מחליש את הבעיטות והתופים. שירה נראית כפסים מקבילים שנוטים ומתנדנדים בזמן; אקורד או בס — קווים ישרים. התמונה רק עוזרת, ההחלטה לפי מה ששומעים.
             </He>
             <div className="flex justify-center">
+              <Button variant="ghost" disabled={!canBack || saving} onClick={() => void goBack()}>
+                → חזור לקטע הקודם
+              </Button>
               <Button variant="ghost" onClick={() => playVocalClip()}>
                 ▶ נגן 5 שניות (רווח)
               </Button>
