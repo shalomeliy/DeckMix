@@ -3967,11 +3967,24 @@ export async function undoVocalMark(deckId: DeckId): Promise<void> {
   if (undone.reopenStartPressSec != null) s.setVocalMarkOpen(deckId, { contentHash: tag.contentHash, startSec: undone.reopenStartPressSec, kind: undone.reopenKind })
 }
 
-/** "I finished marking this song": from now on everything he did not mark is "no voice". */
+/**
+ * "I finished marking this song": from now on everything he did not mark is "no voice".
+ * A song with no voice at all is a valid answer, not a missing one (the owner, 04/10: a quiet song could not be finished because the button
+ * wanted at least one mark) — finishing with no purple marks makes the whole song "no voice", and the notice says so, so a stray click shows.
+ * A mark still open is closed first at the play position, as if he had pressed its "ended" — finishing must not drop it.
+ */
 export async function finishVocalMarks(deckId: DeckId): Promise<void> {
+  const open = useStore.getState().vocalMarkOpen[deckId]
+  if (open) {
+    const before = manualTagFor(deckId)?.regions.length ?? 0
+    await toggleVocalMark(deckId, open.kind ?? 'voice')
+    // refused (too short, another song's mark): its notice says why, and finishing now would replace that notice — he presses again
+    if ((manualTagFor(deckId)?.regions.length ?? 0) === before) return
+  }
   const tag = manualTagFor(deckId)
   if (!tag) return
   await saveVocalManual({ ...tag, finished: true, updatedAt: Date.now() })
+  if (!tag.regions.some((r) => r.kind !== 'none')) vocalNotice('השיר סומן כשיר בלי שירה בכלל: כולו שחור. טעות? "מחק סימונים וחזור לניחוש" מבטל.', 'info')
 }
 
 /**

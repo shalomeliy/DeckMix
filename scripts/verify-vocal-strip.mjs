@@ -193,6 +193,30 @@ if (ov) {
   await btn('ביטול התחלה').click(); await page.waitForTimeout(300)
 }
 
+// A song with no voice at all (the owner, 04/10: "if the song is quiet I have no way to say I finished"): "finished" is offered with no marks,
+// finishing makes the whole song "no voice" and says so, and a black mark still open when he presses it is closed and kept, not dropped.
+if (ov) {
+  const at = async (fr) => { await page.mouse.click(ov.x + ov.width * fr, ov.y + ov.height / 2); await page.waitForTimeout(500) }
+  const row = () => page.locator('[data-vocal-marking="A"]').innerText()
+  const clear = async () => { await btn('מחק סימונים וחזור לניחוש').click(); await btn('בטוח? לחץ שוב').click(); await page.waitForTimeout(400) }
+  ok('"finished" can be pressed on a song with no marks at all', !(await btn('סיימתי לסמן את השיר').isDisabled()))
+  await btn('סיימתי לסמן את השיר').click(); await page.waitForTimeout(400)
+  const stored = await page.evaluate(async () => (await (await window.mod('/src/platform/vocal-manual-idb/store.ts')).getAllVocalManual()).filter((t) => t.finished).map((t) => ({ name: t.name, n: t.regions.length })))
+  ok('a quiet song finished with no marks is saved as finished with 0 marks (the export takes it as all "no voice")', stored.length === 1 && stored[0].n === 0, JSON.stringify(stored))
+  ok('the row says finished, 0 marks, and the notice says the whole song is "no voice"', (await row()).includes('סימונים: 0 · גמור') && (await page.locator('text=/בלי שירה בכלל/').count()) >= 1)
+  // the notice bar pushes the decks down; dismissed so the overview is back where `ov` measured it
+  await page.getByRole('button', { name: 'Dismiss' }).click(); await page.waitForTimeout(200)
+  await clear()
+  await at(0.7); await btn('התחיל שקט (אין שירה)').click(); await at(0.9)
+  ok('"finished" can be pressed while a black mark is open', !(await btn('סיימתי לסמן את השיר').isDisabled()))
+  await btn('סיימתי לסמן את השיר').click(); await page.waitForTimeout(400)
+  ok('finishing closes the open black mark and keeps it', (await row()).includes('סימונים: 1 · גמור') && (await page.locator('[data-vocal-strip="A"] [data-vocal-manual-kind="none"]').count()) === 1)
+  await clear()
+  await btn('התחיל שקט (אין שירה)').click(); await btn('סיימתי לסמן את השיר').click(); await page.waitForTimeout(400)
+  ok('a mark too short to keep stops the finish and its notice stays on screen', !(await row()).includes('גמור') && (await page.locator('text=/קצר מחצי שנייה/').count()) >= 1)
+  await page.getByRole('button', { name: 'Dismiss' }).click(); await page.waitForTimeout(200)
+}
+
 // Teaching: after "finished", the button offers to teach the computer from this song; it then reads as taught and the library counts it.
 if (ov) {
   const at = async (fr) => { await page.mouse.click(ov.x + ov.width * fr, ov.y + ov.height / 2); await page.waitForTimeout(500) }

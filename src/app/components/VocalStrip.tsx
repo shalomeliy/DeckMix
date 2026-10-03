@@ -205,9 +205,8 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
           {!tag?.finished ? (
             <button
               type="button"
-              disabled={!tag || tag.regions.length === 0}
               onClick={() => void ctl.finishVocalMarks(deckId)}
-              title="אחרי הלחיצה, כל מה שלא סימנת בשיר הזה יהיה ריק (במקום הניחוש של המחשב)."
+              title="אחרי הלחיצה, כל מה שלא סימנת בשיר הזה יהיה ריק (במקום הניחוש של המחשב). שיר בלי שירה בכלל? לחץ בלי לסמן כלום."
               className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted disabled:opacity-40"
             >
               סיימתי לסמן את השיר
