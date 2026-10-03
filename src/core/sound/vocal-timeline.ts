@@ -64,7 +64,7 @@ export function stateOfTimeline(t: VocalTimeline): VocalState {
 export function vocalStateText(state: VocalState, note?: string): string | null {
   switch (state) {
     case 'ready':
-      return null
+      return note ? `שירה: ${note}` : null
     case 'queued':
       return 'שירה: לא נותח עדיין'
     case 'analysing':

@@ -23,6 +23,7 @@ describe('stateOfTimeline', () => {
 describe('vocalStateText', () => {
   it('says every non-ready state in words, and nothing when ready', () => {
     expect(vocalStateText('ready')).toBeNull()
+    expect(vocalStateText('ready', "ז'אנר לא מוכר")).toContain('לא מוכר') // a ready strip with a caveat says the caveat
     for (const s of ['queued', 'analysing', 'mono', 'no-vocals', 'too-short', 'silent', 'failed'] as const) {
       expect(vocalStateText(s, 'x')).toBeTruthy()
     }
