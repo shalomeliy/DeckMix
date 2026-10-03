@@ -17,6 +17,11 @@ import {
   pickBarSample,
   pickVocalSample,
   pickVocalRound2Sample,
+  pickVocalReview,
+  reviewSongsDone,
+  reviewSummary,
+  REVIEW_CONSISTENCY_CLIPS,
+  type VocalTag,
   suspectClipSpots,
   vocalRound2Clips,
   pickFreshSample,
@@ -347,5 +352,76 @@ describe('second vocal round (v0.12.15)', () => {
     const r = vocalRound2Clips('Techno/x.mp3', 240, null)
     expect(r.pick).toEqual(['random', 'random', 'random'])
     expect(r.atSec).toEqual(vocalSpotsSec('Techno/x.mp3', 240))
+  })
+})
+
+describe('v0.9.11 blind re-check', () => {
+  const tag = (genre: string, song: number, clip: number, answer: 'yes' | 'no' | 'unsure' = 'yes', holdout = false): VocalTag => ({
+    schema: 3, contentHash: `h-${genre}-${song}`, trackId: `${genre}/s${song}.mp3`, name: `s${song}`, genre, holdout, clipIndex: clip, atSec: 30 + clip * 40, answer, taggedAt: 1,
+  })
+  const songs = (genre: string, n: number, holdoutFrom = 99) =>
+    Array.from({ length: n }, (_, i) => [0, 1, 2].map((c) => tag(genre, i, c, c % 2 ? 'no' : 'yes', i >= holdoutFrom))).flat()
+  const everyone = (tags: VocalTag[]) => new Set(tags.map((t) => t.trackId))
+
+  it('asks every House and Techno clip again, and never a sealed one', () => {
+    const tags = [...songs('House', 6, 5), ...songs('Techno', 4), ...songs('Hip Hop', 30)]
+    const plan = pickVocalReview(tags, everyone(tags))
+    const dance = [...plan.clipsByTrack.values()].flat().filter((c) => c.group === 'dance')
+    expect(dance).toHaveLength(5 * 3 + 4 * 3) // House song 5 is sealed
+    expect(dance.every((c) => c.genre === 'House' || c.genre === 'Techno')).toBe(true)
+    expect(plan.entries.every((e) => e.holdout === false)).toBe(true)
+    expect([...plan.clipsByTrack.keys()]).not.toContain('House/s5.mp3')
+  })
+
+  it('takes a fixed, repeatable few from the other genres for self-consistency, and leaves Trance out', () => {
+    const tags = [...songs('Hip Hop', 30), ...songs('Mizrahi', 30), ...songs('Trance', 10)]
+    const a = pickVocalReview(tags, everyone(tags))
+    const b = pickVocalReview([...tags].reverse(), everyone(tags))
+    const rest = (p: ReturnType<typeof pickVocalReview>) => [...p.clipsByTrack.values()].flat().map((c) => `${c.contentHash}:${c.clipIndex}`).sort()
+    expect(rest(a)).toHaveLength(REVIEW_CONSISTENCY_CLIPS)
+    expect(rest(a)).toEqual(rest(b))
+    expect(rest(a).some((k) => k.includes('Trance'))).toBe(false)
+  })
+
+  it('puts the dance songs first and groups a song’s clips together', () => {
+    const tags = [...songs('Hip Hop', 30), ...songs('House', 3)]
+    const plan = pickVocalReview(tags, everyone(tags))
+    expect(plan.entries.slice(0, 3).every((e) => e.genre === 'House')).toBe(true)
+    expect(new Set(plan.entries.map((e) => e.trackId)).size).toBe(plan.entries.length)
+    for (const clips of plan.clipsByTrack.values()) expect(clips.map((c) => c.clipIndex)).toEqual([...clips.map((c) => c.clipIndex)].sort())
+  })
+
+  it('counts clips whose song left the library instead of dropping them silently', () => {
+    const tags = songs('Techno', 4)
+    const gone = new Set(tags.map((t) => t.trackId).filter((id) => id !== 'Techno/s2.mp3'))
+    const plan = pickVocalReview(tags, gone)
+    expect(plan.missing).toBe(3)
+    expect(plan.clipsByTrack.has('Techno/s2.mp3')).toBe(false)
+  })
+
+  it('a song is done only when all its planned clips have a re-check answer', () => {
+    const tags = songs('House', 2)
+    const plan = pickVocalReview(tags, everyone(tags))
+    const done = reviewSongsDone(plan, [
+      { contentHash: 'h-House-0', clipIndex: 0 }, { contentHash: 'h-House-0', clipIndex: 1 }, { contentHash: 'h-House-0', clipIndex: 2 },
+      { contentHash: 'h-House-1', clipIndex: 0 },
+    ])
+    expect(done.has('House/s0.mp3')).toBe(true)
+    expect(done.has('House/s1.mp3')).toBe(false)
+  })
+
+  it('summarises how many answers changed, per group', () => {
+    const t = (group: 'dance' | 'consistency', prev: 'yes' | 'no', now: 'yes' | 'no' | 'unsure') =>
+      ({ schema: 1, contentHash: 'h', trackId: 't', name: 'n', genre: 'House', clipIndex: 0, atSec: 1, group, previousAnswer: prev, answer: now, taggedAt: 1 })
+    expect(reviewSummary([t('dance', 'yes', 'yes'), t('dance', 'yes', 'no'), t('dance', 'no', 'unsure'), t('consistency', 'no', 'no')])).toEqual({
+      dance: { answered: 3, differ: 2, unsure: 1 },
+      consistency: { answered: 1, differ: 0, unsure: 0 },
+    })
+  })
+
+  it('exports the re-check beside, not inside, the first pass', () => {
+    const out = JSON.parse(tagsExportText([], [], [], 1, [], [], [{ schema: 1, contentHash: 'h', trackId: 't', name: 'n', genre: 'House', clipIndex: 0, atSec: 1, group: 'dance', previousAnswer: 'yes', answer: 'no', taggedAt: 1 }]))
+    expect(out.vocalReview).toHaveLength(1)
+    expect(out.vocal).toEqual([])
   })
 })

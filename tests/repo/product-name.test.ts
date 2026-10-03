@@ -50,6 +50,8 @@ const STORAGE_KEYS = [
   // v0.9.5: the round on songs the detector was never tuned on.
   'deckmix:tag:fresh:',
   'deckmix:tag:vocal:',
+  // v0.9.11: the blind re-check of already-answered vocal clips; new in this version, so nothing old to migrate.
+  'deckmix:tag:vocalreview:',
   'deckmix:tempo2:',
   'deckmix:trackMeta',
 ]

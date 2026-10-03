@@ -79,6 +79,7 @@ import {
   PLAY_BARS,
   PLAY_LEAD_BARS,
   VOCAL_CLIP_SEC,
+  VOCAL_REVIEW_SCHEMA,
   VOCAL_SCHEMA,
   dropSpots,
   startGrid,
@@ -87,12 +88,13 @@ import {
   vocalSpotsSec,
   type MarkAnswer,
   type MarkTag,
+  type ReviewClip,
   type SampleEntry,
   type VocalAnswer,
   type VocalPick,
   vocalRound2Clips,
 } from '@/core/tagging'
-import { getAllTags, putDecideTag, putFreshTag, putMarkTag, putVocalTag, type AllTags } from '@/platform/tagging-idb/store'
+import { getAllTags, putDecideTag, putFreshTag, putMarkTag, putVocalReviewTag, putVocalTag, type AllTags } from '@/platform/tagging-idb/store'
 import { TagPlayer } from '@/platform/audio-webaudio/tag-player'
 import {
   hasMixEntryNear,
@@ -4487,7 +4489,10 @@ function tagFail(text: string): null {
 }
 
 /** Read, hash and decode one sample track, and find where to play it. `null` means it could not be prepared, with the reason on screen. */
-export async function tagPrepare(entry: SampleEntry, opts: { needGrid: boolean; suspectClips?: boolean }): Promise<TagTrackView | null> {
+export async function tagPrepare(
+  entry: SampleEntry,
+  opts: { needGrid: boolean; suspectClips?: boolean; reviewClips?: readonly ReviewClip[] },
+): Promise<TagTrackView | null> {
   tagStop()
   tagCurrent = null
   const seq = ++tagSeq
@@ -4561,6 +4566,14 @@ export async function tagPrepare(entry: SampleEntry, opts: { needGrid: boolean; 
       vocalClips = vocalRound2Clips(entry.trackId, buffer.duration, null)
       tagFail(`"${name}": גלאי השירה לא החזיר תוצאה (${r.state}), לכן כל הקטעים בשיר הזה אקראיים.`)
     }
+  }
+  if (opts.reviewClips) {
+    // The re-check asks the very clips of the first pass, so the spots are the stored ones, not picked again. A clip that is not
+    // inside this decoded file (the file changed, or it is shorter than when it was tagged) is refused out loud: judging
+    // different audio under the old clip's name would put a wrong pair into the comparison.
+    const bad = opts.reviewClips.find((c) => c.contentHash !== contentHash || c.atSec < 0 || c.atSec + VOCAL_CLIP_SEC > buffer.duration + 0.05)
+    if (bad) return tagFail(`"${name}": הקובץ השתנה מאז התיוג הראשון (או שהקטע כבר לא בתוכו), לכן אי אפשר לשאול עליו שוב. השיר דולג.`)
+    vocalClips = { atSec: opts.reviewClips.map((c) => c.atSec), pick: opts.reviewClips.map(() => 'random' as const) }
   }
   tagCurrent = { entry, name, contentHash, buffer, detectorGrid, shownGrid, replaced, vocalClips }
   return {
@@ -4750,6 +4763,31 @@ export async function tagSaveVocal(shownHash: string, answer: VocalAnswer, clip:
   }
 }
 
+/** The re-check answer for one clip of the song on screen — beside the first pass, never over it. */
+export async function tagSaveVocalReview(shownHash: string, answer: VocalAnswer, rc: ReviewClip): Promise<boolean> {
+  const c = tagTarget(shownHash)
+  if (!c) return false
+  try {
+    await putVocalReviewTag({
+      schema: VOCAL_REVIEW_SCHEMA,
+      contentHash: c.contentHash,
+      trackId: c.entry.trackId,
+      name: c.name,
+      genre: c.entry.genre,
+      clipIndex: rc.clipIndex,
+      atSec: rc.atSec,
+      group: rc.group,
+      previousAnswer: rc.previousAnswer,
+      answer,
+      taggedAt: Date.now(),
+    })
+    return true
+  } catch (err) {
+    useStore.getState().setNotice({ text: `Re-check answer for "${c.name}" was not saved: ${err instanceof Error ? err.message : String(err)}`, tone: 'warn', source: 'tagging' })
+    return false
+  }
+}
+
 /** Every tag so far, or `null` with the reason on screen — never an empty list standing in for "could not read". */
 export async function tagLoadAll(): Promise<AllTags | null> {
   try {
@@ -4765,7 +4803,7 @@ export async function tagExport(): Promise<void> {
   const { setNotice } = useStore.getState()
   const day = new Date().toISOString().slice(0, 10)
   try {
-    const r = await saveTagsJson(tagsExportText(all.bar, all.mark, all.vocal, Date.now(), all.decide, all.fresh), `deckmix-tags-${day}.json`)
+    const r = await saveTagsJson(tagsExportText(all.bar, all.mark, all.vocal, Date.now(), all.decide, all.fresh, all.vocalReview), `deckmix-tags-${day}.json`)
     if (r === 'ok')
       setNotice({
         text: `Exported ${all.mark.length} waveform "1" tags, ${all.bar.length} earlier 4-button "1" tags, ${all.decide.length} tie-break answers, ${all.fresh.length} new-round answers and ${all.vocal.length} vocal tags.`,

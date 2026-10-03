@@ -393,6 +393,117 @@ export interface VocalTag {
   taggedAt: number
 }
 
+/**
+ * The blind re-check (v0.9.11): clips the owner already answered, asked again with nothing shown, to find labels that were
+ * hard calls. Its own record kind and storage prefix — the new answer sits beside the old one, never over it; the two are
+ * compared, and the sealed final test is never re-asked (an answer changed there would be tuning on the test).
+ */
+export const VOCAL_REVIEW_SCHEMA = 1
+/** The genres the classifier is weakest on (66–76% against a 63–64% guess, n=38/55 — 03/10): all their clips are re-asked first. */
+export const REVIEW_DANCE_GENRES = ['House', 'Techno'] as const
+/** A few clips from the rest, for the owner's own consistency — the ceiling no classifier can beat. Trance is left out: "no vocals" is a rule there, not a judgement. */
+export const REVIEW_CONSISTENCY_CLIPS = 20
+
+export type ReviewGroup = 'dance' | 'consistency'
+
+export interface ReviewClip {
+  trackId: string
+  genre: string
+  contentHash: string
+  /** The clip's number in the first pass — the key of the stored answer, so the two passes line up. */
+  clipIndex: number
+  atSec: number
+  previousAnswer: VocalAnswer
+  group: ReviewGroup
+}
+
+export interface VocalReviewTag {
+  schema: number
+  contentHash: string
+  trackId: string
+  name: string
+  genre: string
+  clipIndex: number
+  atSec: number
+  group: ReviewGroup
+  /** What the owner said the first time. Recorded here so the comparison survives even if the first record is later edited. */
+  previousAnswer: VocalAnswer
+  answer: VocalAnswer
+  taggedAt: number
+}
+
+export interface ReviewPlan {
+  /** One entry per song, the dance genres first, so a song is decoded once for all its clips. Never `holdout`: sealed songs are not in here. */
+  entries: SampleEntry[]
+  clipsByTrack: Map<string, ReviewClip[]>
+  /** Clips left out because their song is no longer in the library — named on screen, not dropped. */
+  missing: number
+}
+
+export function pickVocalReview(tags: readonly VocalTag[], libraryIds: ReadonlySet<string>): ReviewPlan {
+  const dance: ReviewClip[] = []
+  const rest: ReviewClip[] = []
+  let missing = 0
+  for (const t of tags) {
+    if (t.holdout) continue // sealed: never asked again
+    const isDance = (REVIEW_DANCE_GENRES as readonly string[]).includes(t.genre)
+    if (!isDance && t.genre === 'Trance') continue
+    const clip: ReviewClip = {
+      trackId: t.trackId,
+      genre: t.genre,
+      contentHash: t.contentHash,
+      clipIndex: t.clipIndex ?? 0,
+      atSec: t.atSec,
+      previousAnswer: t.answer,
+      group: isDance ? 'dance' : 'consistency',
+    }
+    ;(isDance ? dance : rest).push(clip)
+  }
+  const byKey = (a: ReviewClip, b: ReviewClip) =>
+    stableKey(`${a.contentHash}:${a.clipIndex}`) - stableKey(`${b.contentHash}:${b.clipIndex}`) || `${a.trackId}${a.clipIndex}`.localeCompare(`${b.trackId}${b.clipIndex}`)
+  const chosen = [...dance.sort(byKey), ...rest.sort(byKey).slice(0, REVIEW_CONSISTENCY_CLIPS)]
+  const clipsByTrack = new Map<string, ReviewClip[]>()
+  const order: string[] = []
+  for (const c of chosen) {
+    if (!libraryIds.has(c.trackId)) {
+      missing++
+      continue
+    }
+    if (!clipsByTrack.has(c.trackId)) {
+      clipsByTrack.set(c.trackId, [])
+      order.push(c.trackId)
+    }
+    clipsByTrack.get(c.trackId)!.push(c)
+  }
+  for (const list of clipsByTrack.values()) list.sort((a, b) => a.clipIndex - b.clipIndex)
+  const entries = order.map((trackId) => ({ trackId, genre: clipsByTrack.get(trackId)![0].genre, holdout: false }))
+  return { entries, clipsByTrack, missing }
+}
+
+/** Keys (content hash and library path) of the songs whose every planned clip has a re-check answer. */
+export function reviewSongsDone(plan: ReviewPlan, answered: readonly { contentHash: string; clipIndex: number }[]): Set<string> {
+  const have = new Set(answered.map((t) => `${t.contentHash}:${t.clipIndex}`))
+  const done = new Set<string>()
+  for (const [trackId, clips] of plan.clipsByTrack) {
+    if (clips.every((c) => have.has(`${c.contentHash}:${c.clipIndex}`))) {
+      done.add(trackId)
+      done.add(clips[0].contentHash)
+    }
+  }
+  return done
+}
+
+/** How many re-check answers differ from the first pass, per group — shown only after the list is finished, so no single clip is read against its old answer. */
+export function reviewSummary(tags: readonly VocalReviewTag[]): Record<ReviewGroup, { answered: number; differ: number; unsure: number }> {
+  const out = { dance: { answered: 0, differ: 0, unsure: 0 }, consistency: { answered: 0, differ: 0, unsure: 0 } }
+  for (const t of tags) {
+    out[t.group].answered++
+    if (t.answer !== t.previousAnswer) out[t.group].differ++
+    if (t.answer === 'unsure') out[t.group].unsure++
+  }
+  return out
+}
+
 /** Clips already answered for a song, by content hash — a record with no `clipIndex` counts as clip 0. */
 export function vocalClipsAnswered(tags: readonly { contentHash: string; clipIndex?: number }[], contentHash: string): Set<number> {
   const out = new Set<number>()
@@ -479,7 +590,8 @@ export function tagsExportText(
   exportedAt: number,
   decide: readonly MarkTag[] = [],
   fresh: readonly MarkTag[] = [],
+  vocalReview: readonly VocalReviewTag[] = [],
 ): string {
   // `bar` keeps its name and shape, so a v0.9.0 script finds its list — as long as it does not insist on schema 1.
-  return JSON.stringify({ app: 'DeckMix', kind: 'tags', schema: MARK_SCHEMA, exportedAt, mark, bar, decide, fresh, vocal }, null, 2)
+  return JSON.stringify({ app: 'DeckMix', kind: 'tags', schema: MARK_SCHEMA, exportedAt, mark, bar, decide, fresh, vocal, vocalReview }, null, 2)
 }
