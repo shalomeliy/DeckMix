@@ -4779,7 +4779,6 @@ export async function tagSaveVocalMarks(
   clipIndex: number,
   clip: number,
   marks: VocalMarksTag['marks'],
-  hearsButNoPicture: boolean,
   view: 'voices' | 'all',
 ): Promise<boolean> {
   const c = tagTarget(shownHash)
@@ -4795,7 +4794,7 @@ export async function tagSaveVocalMarks(
       clipIndex,
       atSec: at,
       marks: [...marks],
-      hearsButNoPicture,
+      hearsButNoPicture: false, // the button was removed (the owner: he cannot tell, so it answers nothing); the field stays for files already exported
       view,
       taggedAt: Date.now(),
     })

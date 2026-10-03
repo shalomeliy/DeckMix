@@ -95,7 +95,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
   const [specView, setSpecView] = useState<SpectrogramView>('voices')
   const [clipPlayhead, setClipPlayhead] = useState<number | null>(null)
   /** Regions drawn on each clip's picture, by `contentHash:clipIndex` — read back from storage after every save, so it is what was kept. */
-  const [marksMap, setMarksMap] = useState<ReadonlyMap<string, { marks: SpectrogramMark[]; noPic: boolean }>>(new Map())
+  const [marksMap, setMarksMap] = useState<ReadonlyMap<string, SpectrogramMark[]>>(new Map())
   const vocalTags = useRef<readonly { contentHash: string; clipIndex?: number }[]>([])
   /** Every first-pass vocal answer and every re-check answer — the re-check list is computed from the first, and done-ness from the second. */
   const [allVocal, setAllVocal] = useState<readonly VocalTag[]>([])
@@ -141,7 +141,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
     vocalTags.current = all.vocal
     setAllVocal(all.vocal)
     setReviewTags(all.vocalReview)
-    setMarksMap(new Map(all.vocalMarks.map((t) => [`${t.contentHash}:${t.clipIndex}`, { marks: t.marks, noPic: t.hearsButNoPicture }])))
+    setMarksMap(new Map(all.vocalMarks.map((t) => [`${t.contentHash}:${t.clipIndex}`, t.marks])))
     // A song is done only when all its clips are: a half-answered one reopens on the first missing clip.
     setTaggedVocal(vocalSongsDone(all.vocal))
     setTaggedDecide(new Set(all.decide.flatMap((t) => [t.contentHash, t.trackId])))
@@ -430,11 +430,11 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
   /** The clip's number in the FIRST pass, so a mark made in either round lands on the same clip. */
   const markClipIndex = mode === 'review' ? (reviewPlan.clipsByTrack.get(sample[index]?.trackId ?? '')?.[clip]?.clipIndex ?? clip) : clip
   const markKey = current ? `${current.contentHash}:${markClipIndex}` : ''
-  const curMarks = marksMap.get(markKey) ?? { marks: [], noPic: false }
-  const saveMarks = async (marks: SpectrogramMark[], noPic: boolean) => {
+  const curMarks = marksMap.get(markKey) ?? []
+  const saveMarks = async (marks: SpectrogramMark[]) => {
     if (!current) return
-    const ok = await ctl.tagSaveVocalMarks(current.contentHash, markClipIndex, clip, marks, noPic, specView)
-    if (ok) setMarksMap((prev) => new Map(prev).set(markKey, { marks, noPic }))
+    const ok = await ctl.tagSaveVocalMarks(current.contentHash, markClipIndex, clip, marks, specView)
+    if (ok) setMarksMap((prev) => new Map(prev).set(markKey, marks))
   }
   const vocalSpec = useMemo(() => (isVocal && current ? ctl.tagClipSpectrogram(clip) : null), [isVocal, current, clip])
 
@@ -701,21 +701,18 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
               view={specView}
               playheadSec={clipPlayhead}
               clipSec={VOCAL_CLIP_SEC}
-              marks={curMarks.marks}
-              onAddMark={(m) => void saveMarks([...curMarks.marks, m], curMarks.noPic)}
+              marks={curMarks}
+              onAddMark={(m) => void saveMarks([...curMarks, m])}
             />
             <He className="text-2xs text-grid-muted">
               כדי שאבין מה אתה שומע: גרור מלבן על התמונה סביב המקום שבו אתה שומע קול (אפשר כמה מלבנים). זה לא משנה את התשובה שלך.
             </He>
             <div className="flex flex-wrap justify-center gap-2" dir="rtl">
-              <Button variant="ghost" size="sm" disabled={curMarks.marks.length === 0} onClick={() => void saveMarks(curMarks.marks.slice(0, -1), curMarks.noPic)}>
+              <Button variant="ghost" size="sm" disabled={curMarks.length === 0} onClick={() => void saveMarks(curMarks.slice(0, -1))}>
                 מחק מלבן אחרון
               </Button>
-              <Button variant="ghost" size="sm" disabled={curMarks.marks.length === 0} onClick={() => void saveMarks([], curMarks.noPic)}>
+              <Button variant="ghost" size="sm" disabled={curMarks.length === 0} onClick={() => void saveMarks([])}>
                 נקה הכול
-              </Button>
-              <Button variant="toggle" size="sm" active={curMarks.noPic} onClick={() => void saveMarks(curMarks.marks, !curMarks.noPic)}>
-                שומע קול, אבל לא רואה אותו בתמונה
               </Button>
             </div>
             <div className="flex justify-center gap-2" dir="rtl">
