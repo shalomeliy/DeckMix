@@ -126,3 +126,47 @@ export function dashedFraction(t: VocalTimeline): number {
   for (let i = 0; i < t.cells.length; i++) if (t.cells[i] === CELL_UNSURE) u++
   return u / t.cells.length
 }
+
+/**
+ * A voice-free gap shorter than this does not count as one for the countdown: a breath between two lines is not a place to mix, and a timer that
+ * said "vocal ends in 0:01" and then "starts in 0:01" would be noise. The strip itself still draws every gap.
+ */
+export const COUNTDOWN_MERGE_GAP_SEC = 3
+
+export interface VocalCountdown {
+  /** `in` = a voice is playing now; `before` = one comes later; `after` = none is left; `none` = none anywhere in the track. */
+  phase: 'in' | 'before' | 'after' | 'none'
+  /** Seconds until the next voice starts (0 while one is playing); null when there is none to come. */
+  startsInSec: number | null
+  /** Seconds until the voice that is playing — or the next one — ends; null when there is none. */
+  endsInSec: number | null
+}
+
+/**
+ * The two timers the owner asked for (03/10): when the voice starts and when it ends, counted from the play position.
+ * "Voice" here is the careful guard's: a cell that is `vocal` OR `unsure` counts, so a timer never promises a quiet stretch the strip
+ * only drew dashed. Pure.
+ */
+export function vocalCountdown(t: VocalTimeline, positionSec: number, durationSec: number): VocalCountdown {
+  const n = t.cells.length
+  const runs: { from: number; to: number }[] = []
+  let start = -1
+  for (let i = 0; i <= n; i++) {
+    const voice = i < n && t.cells[i] !== CELL_NONE
+    if (voice && start < 0) start = i
+    if (!voice && start >= 0) {
+      const from = start * VOCAL_CELL_SEC
+      const to = Math.min(durationSec > 0 ? durationSec : Infinity, i * VOCAL_CELL_SEC)
+      const last = runs[runs.length - 1]
+      if (last && from - last.to < COUNTDOWN_MERGE_GAP_SEC) last.to = to
+      else runs.push({ from, to })
+      start = -1
+    }
+  }
+  if (runs.length === 0) return { phase: 'none', startsInSec: null, endsInSec: null }
+  const current = runs.find((r) => positionSec >= r.from && positionSec < r.to)
+  if (current) return { phase: 'in', startsInSec: 0, endsInSec: current.to - positionSec }
+  const next = runs.find((r) => r.from > positionSec)
+  if (next) return { phase: 'before', startsInSec: next.from - positionSec, endsInSec: next.to - positionSec }
+  return { phase: 'after', startsInSec: null, endsInSec: null }
+}

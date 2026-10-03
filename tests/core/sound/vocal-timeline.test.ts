@@ -3,8 +3,10 @@ import {
   CELL_NONE,
   CELL_UNSURE,
   CELL_VOCAL,
+  COUNTDOWN_MERGE_GAP_SEC,
   dashedFraction,
   stateOfTimeline,
+  vocalCountdown,
   vocalStateText,
   vocalStripSegments,
   type VocalTimeline,
@@ -64,5 +66,38 @@ describe('dashedFraction', () => {
   it('is the share of unsure cells', () => {
     expect(dashedFraction(tl([2, 0, 2, 1]))).toBeCloseTo(0.5)
     expect(dashedFraction(tl([]))).toBe(0)
+  })
+})
+
+describe('vocalCountdown', () => {
+  // one cell = 0.5 s. 0 none, 1 vocal, 2 unsure
+  const tl = (s: string): VocalTimeline => ({ cells: Uint8Array.from([...s].map(Number)), stereo: true })
+  const dur = 60
+  it('before the voice: both timers count from the play position', () => {
+    // 10 s of none (20 cells), 10 s of voice, 10 s of none
+    const t = tl('0'.repeat(20) + '1'.repeat(20) + '0'.repeat(20))
+    expect(vocalCountdown(t, 4, dur)).toEqual({ phase: 'before', startsInSec: 6, endsInSec: 16 })
+  })
+  it('inside the voice: it started "now" and the end counts down', () => {
+    const t = tl('0'.repeat(20) + '1'.repeat(20) + '0'.repeat(20))
+    expect(vocalCountdown(t, 15, dur)).toEqual({ phase: 'in', startsInSec: 0, endsInSec: 5 })
+  })
+  it('after the last voice there is nothing to count', () => {
+    const t = tl('1'.repeat(10) + '0'.repeat(50))
+    expect(vocalCountdown(t, 30, dur).phase).toBe('after')
+  })
+  it('a track with no voice anywhere says so', () => {
+    expect(vocalCountdown(tl('0'.repeat(60)), 3, dur).phase).toBe('none')
+  })
+  it('unsure counts as voice: the timer never promises quiet over a dashed stretch', () => {
+    const t = tl('0'.repeat(10) + '2'.repeat(10) + '0'.repeat(40))
+    expect(vocalCountdown(t, 0, dur)).toEqual({ phase: 'before', startsInSec: 5, endsInSec: 10 })
+  })
+  it('a gap shorter than the merge threshold does not split the voice; a longer one does', () => {
+    expect(COUNTDOWN_MERGE_GAP_SEC).toBe(3)
+    const short = tl('1'.repeat(10) + '0'.repeat(4) + '1'.repeat(10) + '0'.repeat(36)) // 2 s gap
+    expect(vocalCountdown(short, 2, dur)).toEqual({ phase: 'in', startsInSec: 0, endsInSec: 10 })
+    const long = tl('1'.repeat(10) + '0'.repeat(8) + '1'.repeat(10) + '0'.repeat(32)) // 4 s gap
+    expect(vocalCountdown(long, 2, dur)).toEqual({ phase: 'in', startsInSec: 0, endsInSec: 3 })
   })
 })
