@@ -12,6 +12,9 @@ import {
   vocalClipsAnswered,
   vocalSongsDone,
   pickVocalReview,
+  pickVocalExtraSample,
+  extraSongsDone,
+  VOCAL_EXTRA_OFFSET,
   reviewSongsDone,
   reviewSummary,
   pickFreshSample,
@@ -54,7 +57,7 @@ import type { SpectrogramMark } from '@/core/sound/spectrogram'
  * 'fresh' (v0.9.5) is the same blind marking, on House/Techno/Trance songs no
  * "1" was ever given for — the fair test of a detector tuned on the 105 others.
  */
-type Mode = 'bar' | 'decide' | 'fresh' | 'vocal' | 'vocal2' | 'review'
+type Mode = 'bar' | 'decide' | 'fresh' | 'vocal' | 'vocal2' | 'review' | 'extra'
 type Loaded = Awaited<ReturnType<typeof ctl.tagPrepare>>
 
 function He({ children, className = '' }: { children: React.ReactNode; className?: string }) {
@@ -161,11 +164,13 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
 
   const reviewPlan = useMemo(() => pickVocalReview(allVocal, new Set(tracks.map((t) => t.id))), [allVocal, tracks])
   const taggedReview = useMemo(() => (taggedVocal ? reviewSongsDone(reviewPlan, reviewTags) : null), [taggedVocal, reviewPlan, reviewTags])
+  const extraSample = useMemo(() => pickVocalExtraSample(tracks, allVocal), [tracks, allVocal])
+  const taggedExtra = useMemo(() => (taggedVocal ? extraSongsDone(allVocal) : null), [taggedVocal, allVocal])
   const reviewClipTotal = [...reviewPlan.clipsByTrack.values()].reduce((n, c) => n + c.length, 0)
   const reviewDanceClips = [...reviewPlan.clipsByTrack.values()].flat().filter((c) => c.group === 'dance').length
   const freshSample = useMemo(() => (answeredEver ? pickFreshSample(tracks, answeredEver) : []), [tracks, answeredEver])
-  const sample = mode === 'bar' ? barSample : mode === 'decide' ? decideSample : mode === 'fresh' ? freshSample : mode === 'vocal2' ? vocal2Sample : mode === 'review' ? reviewPlan.entries : vocalSample
-  const isVocal = mode === 'vocal' || mode === 'vocal2' || mode === 'review'
+  const sample = mode === 'bar' ? barSample : mode === 'decide' ? decideSample : mode === 'fresh' ? freshSample : mode === 'vocal2' ? vocal2Sample : mode === 'review' ? reviewPlan.entries : mode === 'extra' ? extraSample : vocalSample
+  const isVocal = mode === 'vocal' || mode === 'vocal2' || mode === 'review' || mode === 'extra'
   const isBar = !isVocal
   const blind = mode === 'decide' || mode === 'fresh'
   // A rescan mid-session gives a new sample; the old position would point
@@ -182,7 +187,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
     setIndex(0)
   }, [sampleKey])
   // Both vocal rounds share one set: a song is done once all its clips are answered.
-  const tagged = mode === 'bar' ? taggedBar : mode === 'decide' ? taggedDecide : mode === 'fresh' ? taggedFresh : mode === 'review' ? taggedReview : taggedVocal
+  const tagged = mode === 'bar' ? taggedBar : mode === 'decide' ? taggedDecide : mode === 'fresh' ? taggedFresh : mode === 'review' ? taggedReview : mode === 'extra' ? taggedExtra : taggedVocal
 
   /** Next sample entry not yet answered, from `from` on. A track the library already hashed is checked without opening it. */
   const nextOpen = useCallback(
@@ -232,6 +237,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
           needGrid: !isVocal,
           suspectClips: mode === 'vocal2',
           reviewClips: mode === 'review' ? reviewPlan.clipsByTrack.get(entry.trackId) : undefined,
+          extraAvoid: mode === 'extra' ? allVocal.filter((t) => t.trackId === entry.trackId).map((t) => t.atSec) : undefined,
         })
         if (seq !== openSeq.current) return
         if (view && (opts?.force || !tagged?.has(view.contentHash))) {
@@ -242,6 +248,9 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
             const asked = reviewPlan.clipsByTrack.get(entry.trackId) ?? []
             const have = new Set(reviewTags.filter((t) => t.contentHash === view.contentHash).map((t) => t.clipIndex))
             setClip(Math.max(0, asked.findIndex((c) => !have.has(c.clipIndex))))
+          } else if (mode === 'extra') {
+            const have = new Set([...vocalClipsAnswered(vocalTags.current, view.contentHash)].filter((i) => i >= VOCAL_EXTRA_OFFSET).map((i) => i - VOCAL_EXTRA_OFFSET))
+            setClip(Math.min(VOCAL_CLIPS_PER_SONG - 1, firstUnansweredClip(have)))
           } else setClip(Math.min(VOCAL_CLIPS_PER_SONG - 1, firstUnansweredClip(vocalClipsAnswered(vocalTags.current, view.contentHash))))
           const first = view.marks[0] ?? null
           const start = blind ? null : first
@@ -260,7 +269,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
       setIndex(sample.length)
       setBusy(false)
     },
-    [nextOpen, sample, mode, isVocal, blind, tagged, stopSound, reviewPlan, reviewTags],
+    [nextOpen, sample, mode, isVocal, blind, tagged, stopSound, reviewPlan, reviewTags, allVocal],
   )
 
   // One answer at a time: a double-click would save twice and open twice.
@@ -295,7 +304,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
       setSaving(false)
       return
     }
-    const saved = asked ? await ctl.tagSaveVocalReview(current.contentHash, a, asked[clip]) : await ctl.tagSaveVocal(current.contentHash, a, clip)
+    const saved = asked ? await ctl.tagSaveVocalReview(current.contentHash, a, asked[clip]) : await ctl.tagSaveVocal(current.contentHash, a, clip, mode === 'extra' ? VOCAL_EXTRA_OFFSET : 0)
     setSaving(false)
     if (!saved) return
     history.current.push({ mode, songIndex: index, clip, answer: a })
@@ -454,7 +463,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
 
   // The picture is for the clip on screen; `current` changes with every song and `clip` with every clip.
   /** The clip's number in the FIRST pass, so a mark made in either round lands on the same clip. */
-  const markClipIndex = mode === 'review' ? (reviewPlan.clipsByTrack.get(sample[index]?.trackId ?? '')?.[clip]?.clipIndex ?? clip) : clip
+  const markClipIndex = mode === 'review' ? (reviewPlan.clipsByTrack.get(sample[index]?.trackId ?? '')?.[clip]?.clipIndex ?? clip) : mode === 'extra' ? clip + VOCAL_EXTRA_OFFSET : clip
   const markKey = current ? `${current.contentHash}:${markClipIndex}` : ''
   const curMarks = marksMap.get(markKey) ?? []
   const saveMarks = async (marks: SpectrogramMark[]) => {
@@ -488,6 +497,11 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
           <Button variant="toggle" active={mode === 'vocal2'} size="sm" onClick={() => switchMode('vocal2')}>
             שירה – סבב שני ({vocal2Sample.length})
           </Button>
+          {(extraSample.length > 0 || mode === 'extra') && (
+            <Button variant="toggle" active={mode === 'extra'} size="sm" onClick={() => switchMode('extra')}>
+              House – עוד קטעים ({extraSample.length})
+            </Button>
+          )}
           {(reviewClipTotal > 0 || mode === 'review') && (
             <Button variant="toggle" active={mode === 'review'} size="sm" onClick={() => switchMode('review')}>
               בדיקה חוזרת ({reviewClipTotal})
@@ -553,6 +567,16 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
                     {oldBarCount} התשובות מהשיטה הקודמת (4 הכפתורים) שמורות בצד ונכנסות לקובץ הייצוא, כדי להשוות. כאן מתחילים מחדש.
                   </He>
                 )}
+              </>
+            ) : mode === 'extra' ? (
+              <>
+                <He>
+                  עוד קטעים של House: {extraSample.length} שירים, 3 קטעים חדשים בכל אחד (5 שניות, במקומות אחרים בשיר מהקטעים שכבר ענית עליהם). אין עוד שירי House לא מתויגים בספרייה, אז זו הדרך
+                  היחידה להוסיף לו נתונים. המחשב חלש בהם הכי הרבה.
+                </He>
+                <He className="text-grid-muted">
+                  "יש שירה" = קול מוביל ששר או מראפר. מילה בודדת, שתי מילים או קול רקע חלש = "לא בטוח" (בעירוב אלה בסדר, ונדע כמה כאלה יש). "אין שירה" = ממש אין קול אנושי.
+                </He>
               </>
             ) : mode === 'review' ? (
               <>
@@ -730,7 +754,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
               </He>
             )}
             <He className="text-2xs text-grid-muted">
-              {mode === 'review'
+              {mode === 'review' || mode === 'extra'
                 ? '"יש שירה" = קול אנושי שרים או ראפ, שנשמע כקול מוביל או בולט. מילה בודדת, שתי מילים או קול רקע חלש = "לא בטוח". "אין שירה" = ממש אין קול אנושי.'
                 : '"יש שירה" = קול אנושי שרים או ראפ, שנשמע כקול מוביל או בולט. קול רקע ("אוווו"), קטעי קול חתוכים וקריאות קצרות של פחות משנייה = "אין שירה". אם לא ברור — "לא בטוח".'}
             </He>

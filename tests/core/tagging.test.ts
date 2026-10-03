@@ -22,16 +22,20 @@ import {
   reviewSummary,
   REVIEW_CONSISTENCY_CLIPS,
   REVIEW_DANCE_YES_CLIPS,
+  vocalExtraSpotsSec,
+  pickVocalExtraSample,
+  extraSongsDone,
+  vocalSongsDone,
+  VOCAL_EXTRA_OFFSET,
+  VOCAL_CLIP_SEC,
   type VocalTag,
   suspectClipSpots,
   vocalRound2Clips,
   pickFreshSample,
   vocalSpotsSec,
-  vocalSongsDone,
   vocalClipsAnswered,
   firstUnansweredClip,
   VOCAL_CLIPS_PER_SONG,
-  VOCAL_CLIP_SEC,
 } from '@/core/tagging'
 
 const lib = (counts: Record<string, number>) =>
@@ -437,3 +441,49 @@ describe('v0.9.11 blind re-check', () => {
     expect(out.vocal).toEqual([])
   })
 })
+
+describe('v0.9.11 extra House clips', () => {
+  const tag = (genre: string, song: number, clip: number, holdout = false): VocalTag => ({
+    schema: 3, contentHash: `h-${genre}-${song}`, trackId: `${genre}/s${song}.mp3`, name: `s${song}`, genre, holdout, clipIndex: clip, atSec: 30 + clip * 40, answer: 'yes', taggedAt: 1,
+  })
+  it('places three new clips away from the answered ones and from each other, inside the middle of the song', () => {
+    const existing = vocalSpotsSec('House/s1.mp3', 240)
+    const extra = vocalExtraSpotsSec('House/s1.mp3', 240, existing)
+    expect(extra).toHaveLength(3)
+    for (const t of extra) {
+      expect(t).toBeGreaterThanOrEqual(240 * 0.15)
+      expect(t + VOCAL_CLIP_SEC).toBeLessThanOrEqual(240 * 0.85 + 1e-6)
+      for (const a of existing) expect(Math.abs(a - t)).toBeGreaterThanOrEqual(VOCAL_CLIP_SEC)
+    }
+    for (let i = 1; i < 3; i++) expect(Math.abs(extra[i] - extra[i - 1])).toBeGreaterThanOrEqual(VOCAL_CLIP_SEC)
+    expect(vocalExtraSpotsSec('House/s1.mp3', 240, existing)).toEqual(extra) // fixed, not random per session
+  })
+  it('keeps clear of spots the first rounds picked elsewhere (round 2 puts clips where the detector heard voice)', () => {
+    const avoid = [60, 120, 180]
+    const extra = vocalExtraSpotsSec('House/s2.mp3', 300, avoid)
+    for (const t of extra) for (const a of avoid) expect(Math.abs(a - t)).toBeGreaterThanOrEqual(VOCAL_CLIP_SEC)
+  })
+  it('offers only House songs that have first-pass answers and no sealed clip', () => {
+    const tracks = [
+      { id: 'House/s0.mp3', genre: 'House' }, { id: 'House/s1.mp3', genre: 'House' }, { id: 'House/new.mp3', genre: 'House' },
+      { id: 'Techno/s0.mp3', genre: 'Techno' }, { id: 'House/gone.mp3' },
+    ]
+    const tags = [tag('House', 0, 0), tag('House', 1, 0, true), tag('Techno', 0, 0)]
+    expect(pickVocalExtraSample(tracks, tags).map((e) => e.trackId)).toEqual(['House/s0.mp3'])
+    expect(pickVocalExtraSample(tracks, tags).every((e) => e.holdout === false)).toBe(true)
+  })
+  it('a song is done in the extra round only when all three extra clips are answered; the first round and the re-check ignore them', () => {
+    const first = [0, 1, 2].map((c) => tag('House', 0, c))
+    const extra = (n: number) => Array.from({ length: n }, (_, k) => tag('House', 0, VOCAL_EXTRA_OFFSET + k))
+    expect(extraSongsDone([...first, ...extra(2)]).has('House/s0.mp3')).toBe(false)
+    expect(extraSongsDone([...first, ...extra(3)]).has('House/s0.mp3')).toBe(true)
+    expect(extraSongsDone(first).size).toBe(0)
+    // three extra answers alone must not make the FIRST round think the song is done
+    expect(vocalSongsDone(extra(3)).size).toBe(0)
+    // and the re-check does not ask a fresh extra clip again
+    const all = [...first, ...extra(3)]
+    const plan = pickVocalReview(all, new Set(all.map((t) => t.trackId)))
+    expect([...plan.clipsByTrack.values()].flat().some((c) => c.clipIndex >= VOCAL_EXTRA_OFFSET)).toBe(false)
+  })
+})
+

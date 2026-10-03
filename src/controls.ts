@@ -95,6 +95,7 @@ import {
   type VocalAnswer,
   type VocalPick,
   vocalRound2Clips,
+  vocalExtraSpotsSec,
 } from '@/core/tagging'
 import { getAllTags, putDecideTag, putFreshTag, putMarkTag, putVocalMarksTag, putVocalReviewTag, putVocalTag, type AllTags } from '@/platform/tagging-idb/store'
 import { TagPlayer } from '@/platform/audio-webaudio/tag-player'
@@ -4493,7 +4494,7 @@ function tagFail(text: string): null {
 /** Read, hash and decode one sample track, and find where to play it. `null` means it could not be prepared, with the reason on screen. */
 export async function tagPrepare(
   entry: SampleEntry,
-  opts: { needGrid: boolean; suspectClips?: boolean; reviewClips?: readonly ReviewClip[] },
+  opts: { needGrid: boolean; suspectClips?: boolean; reviewClips?: readonly ReviewClip[]; extraAvoid?: readonly number[] },
 ): Promise<TagTrackView | null> {
   tagStop()
   tagCurrent = null
@@ -4568,6 +4569,9 @@ export async function tagPrepare(
       vocalClips = vocalRound2Clips(entry.trackId, buffer.duration, null)
       tagFail(`"${name}": גלאי השירה לא החזיר תוצאה (${r.state}), לכן כל הקטעים בשיר הזה אקראיים.`)
     }
+  }
+  if (opts.extraAvoid) {
+    vocalClips = { atSec: vocalExtraSpotsSec(entry.trackId, buffer.duration, opts.extraAvoid), pick: vocalClips.atSec.map(() => 'random' as const) }
   }
   if (opts.reviewClips) {
     // The re-check asks the very clips of the first pass, so the spots are the stored ones, not picked again. A clip that is not
@@ -4747,7 +4751,7 @@ export async function tagSaveMark(shownHash: string, input: MarkInput): Promise<
   }
 }
 
-export async function tagSaveVocal(shownHash: string, answer: VocalAnswer, clip: number): Promise<boolean> {
+export async function tagSaveVocal(shownHash: string, answer: VocalAnswer, clip: number, clipIndexOffset = 0): Promise<boolean> {
   const c = tagTarget(shownHash)
   if (!c) return false
   const at = c.vocalClips.atSec[clip]
@@ -4760,7 +4764,7 @@ export async function tagSaveVocal(shownHash: string, answer: VocalAnswer, clip:
       name: c.name,
       genre: c.entry.genre,
       holdout: c.entry.holdout,
-      clipIndex: clip,
+      clipIndex: clip + clipIndexOffset,
       atSec: at,
       pick: c.vocalClips.pick[clip],
       answer,

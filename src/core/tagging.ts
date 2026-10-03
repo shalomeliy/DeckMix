@@ -324,6 +324,56 @@ export function vocalSpotsSec(trackId: string, durationSec: number): number[] {
   return Array.from({ length: VOCAL_CLIPS_PER_SONG }, (_, i) => lo + i * seg + ((stableKey(`${trackId}:${i}`) % 1000) / 1000) * room)
 }
 
+/**
+ * More clips for the genre the frozen vocal model is weakest on (v0.9.11, the owner's choice 03/10 after the sealed measurement:
+ * House 3/6, and only 24 unsealed House songs exist in his library). The library has no untagged House song left, so the only
+ * way to more data is more clips of the same songs: three new ones each, placed away from the ones already answered. Stored as
+ * ordinary first-pass vocal tags with clip numbers from `VOCAL_EXTRA_OFFSET` up, so they export and train like the rest.
+ */
+export const VOCAL_EXTRA_OFFSET = VOCAL_CLIPS_PER_SONG
+export const EXTRA_GENRES = ['House'] as const
+
+/** New spots for a song's extra clips: the same thirds of the middle 70% as `vocalSpotsSec`, at a place at least a clip's length from every clip already answered. */
+export function vocalExtraSpotsSec(trackId: string, durationSec: number, avoidSec: readonly number[]): number[] {
+  const lo = durationSec * 0.15
+  const seg = (durationSec * 0.7) / VOCAL_CLIPS_PER_SONG
+  const room = Math.max(0, seg - VOCAL_CLIP_SEC)
+  const chosen: number[] = []
+  for (let i = 0; i < VOCAL_CLIPS_PER_SONG; i++) {
+    const base = (stableKey(`${trackId}:${i}`) % 1000) / 1000
+    // The opposite end of the third first, then other places in it; a song too short for any is given the last candidate, not skipped.
+    const candidates = [0.5, 0.25, 0.75, 0.1, 0.9].map((d) => lo + i * seg + ((base + d) % 1) * room)
+    const clear = (t: number) => [...avoidSec, ...chosen].every((a) => Math.abs(a - t) >= VOCAL_CLIP_SEC + 1)
+    chosen.push(candidates.find(clear) ?? candidates[candidates.length - 1])
+  }
+  return chosen
+}
+
+/** Songs of the extra genres that have first-pass answers and no sealed clip, in a stable order. */
+export function pickVocalExtraSample(tracks: readonly { id: string; genre?: string }[], tags: readonly VocalTag[]): SampleEntry[] {
+  const sealed = new Set(tags.filter((t) => t.holdout).map((t) => t.trackId))
+  const tagged = new Set(tags.map((t) => t.trackId))
+  return tracks
+    .filter((t) => t.genre && (EXTRA_GENRES as readonly string[]).includes(t.genre) && tagged.has(t.id) && !sealed.has(t.id))
+    .map((t) => ({ trackId: t.id, genre: t.genre as string, holdout: false }))
+    .sort((a, b) => stableKey(a.trackId) - stableKey(b.trackId) || a.trackId.localeCompare(b.trackId))
+}
+
+/** Keys (content hash and library path) of the songs whose three extra clips are all answered. */
+export function extraSongsDone(tags: readonly { contentHash: string; trackId: string; clipIndex?: number }[]): Set<string> {
+  const by = new Map<string, { trackId: string; have: Set<number> }>()
+  for (const t of tags) {
+    const i = t.clipIndex ?? 0
+    if (i < VOCAL_EXTRA_OFFSET || i >= VOCAL_EXTRA_OFFSET + VOCAL_CLIPS_PER_SONG) continue
+    const e = by.get(t.contentHash) ?? { trackId: t.trackId, have: new Set<number>() }
+    e.have.add(i)
+    by.set(t.contentHash, e)
+  }
+  const done = new Set<string>()
+  for (const [hash, e] of by) if (e.have.size === VOCAL_CLIPS_PER_SONG) done.add(hash).add(e.trackId)
+  return done
+}
+
 export type BarAnswer = 0 | 1 | 2 | 3 | 'skip' | 'wrongTempo'
 export type VocalAnswer = 'yes' | 'no' | 'unsure'
 
@@ -471,6 +521,7 @@ export function pickVocalReview(tags: readonly VocalTag[], libraryIds: ReadonlyS
   let missing = 0
   for (const t of tags) {
     if (t.holdout) continue // sealed: never asked again
+    if ((t.clipIndex ?? 0) >= VOCAL_EXTRA_OFFSET) continue // an extra clip was just answered fresh; nothing to re-check
     const isDance = (REVIEW_DANCE_GENRES as readonly string[]).includes(t.genre)
     if (!isDance && t.genre === 'Trance') continue
     const clip: ReviewClip = {
@@ -553,6 +604,7 @@ export function firstUnansweredClip(answered: ReadonlySet<number>): number {
 export function vocalSongsDone(tags: readonly { contentHash: string; trackId: string; clipIndex?: number }[]): Set<string> {
   const byHash = new Map<string, { trackId: string; clips: Set<number> }>()
   for (const t of tags) {
+    if ((t.clipIndex ?? 0) >= VOCAL_EXTRA_OFFSET) continue // the extra clips are their own round
     const e = byHash.get(t.contentHash) ?? { trackId: t.trackId, clips: new Set<number>() }
     e.clips.add(t.clipIndex ?? 0)
     byHash.set(t.contentHash, e)
