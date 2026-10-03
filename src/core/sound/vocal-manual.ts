@@ -43,6 +43,18 @@ export function removeLastRegion(regions: readonly VocalRegion[]): VocalRegion[]
   return regions.slice(0, -1)
 }
 
+/**
+ * Undo of the last "ended" press: the mark goes back to being OPEN, at the press that started it, so a wrong "ended" is fixed by pressing "ended"
+ * again at the right moment — not by marking the whole stretch from scratch. (Cancelling the open mark is the second step, for a wrong "started".)
+ * The start press is recovered from the stored mark by taking the lead back off; a mark that was clamped at the start of the song gives a press
+ * a little later than the real one, which only matters to the draft until he presses "ended".
+ */
+export function undoLastEnd(regions: readonly VocalRegion[]): { regions: VocalRegion[]; reopenStartPressSec: number | null } {
+  const last = regions[regions.length - 1]
+  if (!last) return { regions: [], reopenStartPressSec: null }
+  return { regions: regions.slice(0, -1), reopenStartPressSec: last.fromSec + MARK_LEAD_SEC }
+}
+
 /** One 0/1 per half second: 1 where any region touches the cell. A region's edge is rounded OUT to the cell, so a mark never shrinks. */
 export function regionMask(regions: readonly VocalRegion[], durationSec: number): Uint8Array {
   const n = Math.max(0, Math.floor(durationSec / VOCAL_CELL_SEC))

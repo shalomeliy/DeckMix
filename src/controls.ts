@@ -46,7 +46,7 @@ import {
 import { crossfadeProgress, exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
 import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
 import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
-import { addMarkedRegion, removeLastRegion, type VocalManualTag } from '@/core/sound/vocal-manual'
+import { addMarkedRegion, undoLastEnd, type VocalManualTag } from '@/core/sound/vocal-manual'
 import { deleteVocalManual, getAllVocalManual, getVocalManual, putVocalManual } from '@/platform/vocal-manual-idb/store'
 import { parseVocalMarksFile, vocalMarksExportText } from '@/core/sound/vocal-manual-file'
 import { pickJsonFileText } from '@/platform/vocal-marks-file-fsaccess/reader'
@@ -3946,7 +3946,10 @@ export async function undoVocalMark(deckId: DeckId): Promise<void> {
     vocalNotice('אין סימון לבטל בשיר הזה.', 'info')
     return
   }
-  await saveVocalManual({ ...tag, regions: removeLastRegion(tag.regions), updatedAt: Date.now() })
+  const undone = undoLastEnd(tag.regions)
+  await saveVocalManual({ ...tag, regions: undone.regions, updatedAt: Date.now() })
+  // back to "started, not yet ended": a wrong "ended" is fixed by pressing it again where it belongs
+  if (undone.reopenStartPressSec != null) s.setVocalMarkOpen(deckId, { contentHash: tag.contentHash, startSec: undone.reopenStartPressSec })
 }
 
 /** "I finished marking this song": from now on everything he did not mark is "no voice". */

@@ -116,8 +116,8 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
           >
             {open ? 'נגמרה שירה' : 'התחילה שירה'}
           </button>
-          <button type="button" onClick={() => void ctl.undoVocalMark(deckId)} className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted">
-            {open ? 'בטל סימון פתוח' : 'בטל אחרון'}
+          <button type="button" disabled={!open && !(tag && tag.regions.length > 0)} onClick={() => void ctl.undoVocalMark(deckId)} title="לחצת בטעות? 'ביטול התחלה' מבטל סימון פתוח. 'ביטול סיום' מחזיר את הסימון האחרון למצב פתוח כדי ללחוץ 'נגמרה שירה' שוב במקום הנכון." className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted disabled:opacity-40">
+            {open ? 'ביטול התחלה' : 'ביטול סיום'}
           </button>
           {!tag?.finished ? (
             <button

@@ -19,6 +19,13 @@ const byHash = new Map()
 for (const v of tags.vocal) {
   if (!byHash.has(v.contentHash)) byHash.set(v.contentHash, { trackId: v.trackId, genre: v.genre, holdout: v.holdout, hash: v.contentHash })
 }
+// MARKS=<deckmix-vocal-marks file> (v0.9.10b): dump the songs the owner marked by hand instead — every one, whatever tags file exists. The result goes
+// to vocal-features-manual.json so the dump of the tagging round is not overwritten. Sealed songs are dumped like the others; the split happens later.
+if (process.env.MARKS) {
+  byHash.clear()
+  const marks = JSON.parse(fs.readFileSync(process.env.MARKS, 'utf8'))
+  for (const m of marks.marks ?? []) byHash.set(m.contentHash, { trackId: m.trackId, genre: m.genre, holdout: false, hash: m.contentHash })
+}
 const songs = [...byHash.values()]
 console.log(`${songs.length} songs`)
 
@@ -82,7 +89,7 @@ for (let i = 0; i < songs.length; i++) {
 }
 await browser.close()
 server.close()
-fs.writeFileSync(path.join(process.env.TEMP ?? '.', 'vocal-features.json'), JSON.stringify(rows))
+fs.writeFileSync(path.join(process.env.TEMP ?? '.', process.env.MARKS ? 'vocal-features-manual.json' : 'vocal-features.json'), JSON.stringify(rows))
 const ok = rows.filter((x) => x.r.ms)
 const per300 = ok.map((x) => (x.r.ms / x.r.dur) * 300).sort((a, b) => a - b)
 console.log(`cost per 5-minute track: median ${per300[per300.length >> 1].toFixed(0)} ms, max ${per300.at(-1).toFixed(0)} ms; errors ${rows.length - ok.length}`)

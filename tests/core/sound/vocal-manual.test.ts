@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MARK_LEAD_SEC, MARK_TAIL_SEC, MIN_REGION_SEC, addMarkedRegion, addRegion, effectiveTimeline, regionMask, removeLastRegion } from '@/core/sound/vocal-manual.ts'
+import { MARK_LEAD_SEC, MARK_TAIL_SEC, MIN_REGION_SEC, addMarkedRegion, addRegion, effectiveTimeline, regionMask, removeLastRegion, undoLastEnd } from '@/core/sound/vocal-manual.ts'
 import { CELL_NONE, CELL_UNSURE, CELL_VOCAL, type VocalTimeline } from '@/core/sound/vocal-timeline.ts'
 
 const base = (s: string): VocalTimeline => ({ cells: Uint8Array.from([...s].map(Number)), stereo: true })
@@ -89,5 +89,22 @@ describe('reaction-time lead and tail', () => {
   it('two accidental presses are still refused — the widening does not rescue a mis-click', () => {
     expect(addMarkedRegion([], 5, 5.2, 20)).toEqual({ ok: false, reason: 'too-short' })
     expect(addMarkedRegion([], NaN, 5, 20)).toEqual({ ok: false, reason: 'bad-time' })
+  })
+})
+
+describe('undoLastEnd (a wrong "ended" press)', () => {
+  it('takes the mark back to open at the press that started it, so pressing "ended" again fixes it', () => {
+    const made = addMarkedRegion([], 10, 15, 60)
+    expect(made.ok).toBe(true)
+    const regions = made.ok ? made.regions : []
+    const u = undoLastEnd(regions)
+    expect(u.regions).toEqual([])
+    expect(u.reopenStartPressSec).toBe(10) // the start press, lead taken back off
+    const again = addMarkedRegion(u.regions, u.reopenStartPressSec ?? 0, 20, 60)
+    expect(again.ok && again.regions).toEqual([{ fromSec: 9, toSec: 21 }])
+  })
+  it('only the last mark is undone, and nothing to undo is nothing', () => {
+    expect(undoLastEnd([{ fromSec: 1, toSec: 3 }, { fromSec: 8, toSec: 12 }]).regions).toEqual([{ fromSec: 1, toSec: 3 }])
+    expect(undoLastEnd([])).toEqual({ regions: [], reopenStartPressSec: null })
   })
 })
