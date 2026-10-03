@@ -28,8 +28,8 @@ function oneMark(x: unknown): { tag: VocalManualTag } | { name: string; reason: 
   if (typeof m.finished !== 'boolean') return { name, reason: 'finished is not true/false' }
   if (!Array.isArray(m.regions)) return { name, reason: 'regions is not a list' }
   for (const r of m.regions) {
-    const ok = r && typeof r.fromSec === 'number' && typeof r.toSec === 'number' && Number.isFinite(r.fromSec) && Number.isFinite(r.toSec) && r.fromSec >= 0 && r.toSec > r.fromSec
-    if (!ok) return { name, reason: 'a region has bad times' }
+    const ok = r && (r.kind === undefined || r.kind === 'voice' || r.kind === 'none') && typeof r.fromSec === 'number' && typeof r.toSec === 'number' && Number.isFinite(r.fromSec) && Number.isFinite(r.toSec) && r.fromSec >= 0 && r.toSec > r.fromSec
+    if (!ok) return { name, reason: 'a region has bad times or an unknown kind' }
   }
   return {
     tag: {
@@ -38,7 +38,7 @@ function oneMark(x: unknown): { tag: VocalManualTag } | { name: string; reason: 
       trackId: typeof m.trackId === 'string' ? m.trackId : '',
       name,
       genre: typeof m.genre === 'string' ? m.genre : undefined,
-      regions: m.regions.map((r) => ({ fromSec: r.fromSec, toSec: r.toSec })),
+      regions: m.regions.map((r) => (r.kind === 'none' ? { fromSec: r.fromSec, toSec: r.toSec, kind: 'none' as const } : { fromSec: r.fromSec, toSec: r.toSec })),
       finished: m.finished,
       ...(m.taught === true && m.finished ? { taught: true, taughtAt: typeof m.taughtAt === 'number' && Number.isFinite(m.taughtAt) ? m.taughtAt : 0 } : {}),
       updatedAt: typeof m.updatedAt === 'number' && Number.isFinite(m.updatedAt) ? m.updatedAt : 0,

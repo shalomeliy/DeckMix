@@ -18,7 +18,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { cellFeatureRows, FEATURE_NAMES } from '../../src/core/sound/cell-features.ts'
-import { regionMask } from '../../src/core/sound/vocal-manual.ts'
+import { manualLabels } from '../../src/core/sound/vocal-manual.ts'
 
 const IGNORE_CELLS = 2
 const SEALED_BELOW = 51 // of 256
@@ -37,8 +37,7 @@ for (const m of marks.marks) {
   if (!f || !f.harmonic) { count.noFeatures.push(m.name); continue }
   const dur = f.harmonic.length * f.frameSec
   const rows = cellFeatureRows(f, dur)
-  const mask = regionMask(m.regions, rows.length * 0.5)
-  const labels = Array.from(mask)
+  const labels = Array.from(manualLabels(m.regions, rows.length * 0.5)) // his black marks count: later marks paint over earlier ones
   const edge = new Array(labels.length).fill(false)
   for (let i = 1; i < labels.length; i++) if (labels[i] !== labels[i - 1]) for (let k = i - IGNORE_CELLS; k < i + IGNORE_CELLS; k++) if (k >= 0 && k < labels.length) edge[k] = true
   for (let i = 0; i < labels.length; i++) if (edge[i]) labels[i] = 2

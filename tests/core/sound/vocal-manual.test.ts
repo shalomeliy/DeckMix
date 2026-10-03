@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MARK_LEAD_SEC, MARK_TAIL_SEC, MIN_REGION_SEC, addMarkedRegion, addRegion, effectiveTimeline, regionMask, moveRegionEdge, removeLastRegion, undoLastEnd } from '@/core/sound/vocal-manual.ts'
+import { MARK_LEAD_SEC, MARK_TAIL_SEC, MIN_REGION_SEC, addMarkedRegion, addRegion, effectiveTimeline, manualLabels, moveRegionEdge, removeLastRegion, undoLastEnd } from '@/core/sound/vocal-manual.ts'
 import { CELL_NONE, CELL_UNSURE, CELL_VOCAL, type VocalTimeline } from '@/core/sound/vocal-timeline.ts'
 
 const base = (s: string): VocalTimeline => ({ cells: Uint8Array.from([...s].map(Number)), stereo: true })
@@ -32,11 +32,15 @@ describe('removeLastRegion', () => {
   })
 })
 
-describe('regionMask', () => {
+describe('manualLabels', () => {
   it('rounds a mark OUT to whole half seconds and merges overlaps', () => {
-    const m = regionMask([{ fromSec: 1.2, toSec: 2.1 }, { fromSec: 2, toSec: 3 }], DUR)
+    const m = manualLabels([{ fromSec: 1.2, toSec: 2.1 }, { fromSec: 2, toSec: 3 }], DUR)
     expect([...m].map(String).join('')).toBe('00111100' + '0'.repeat(12))
     expect(m.length).toBe(20)
+  })
+  it('a black mark paints over an earlier purple one, and a later purple one over a black one: the last mark wins', () => {
+    const m = manualLabels([{ fromSec: 0, toSec: 5 }, { fromSec: 2, toSec: 3, kind: 'none' }, { fromSec: 2.5, toSec: 3.5 }], DUR)
+    expect([...m].map(String).join('')).toBe('1111' + '0' + '11111' + '0'.repeat(10)) // 0-2 s voice, 2-2.5 s none, 2.5-5 s voice again
   })
 })
 
@@ -105,7 +109,7 @@ describe('undoLastEnd (a wrong "ended" press)', () => {
   })
   it('only the last mark is undone, and nothing to undo is nothing', () => {
     expect(undoLastEnd([{ fromSec: 1, toSec: 3 }, { fromSec: 8, toSec: 12 }]).regions).toEqual([{ fromSec: 1, toSec: 3 }])
-    expect(undoLastEnd([])).toEqual({ regions: [], reopenStartPressSec: null })
+    expect(undoLastEnd([])).toEqual({ regions: [], reopenStartPressSec: null, reopenKind: 'voice' })
   })
 })
 
@@ -125,5 +129,29 @@ describe('moveRegionEdge (dragging a purple bar\'s edge)', () => {
     expect(moveRegionEdge(r, 5, 'from', 1, 60)).toBeNull()
     expect(moveRegionEdge(r, 0, 'from', NaN, 60)).toBeNull()
     expect(moveRegionEdge(r, 0, 'from', 1, 0)).toBeNull()
+  })
+})
+
+describe('black marks ("no voice")', () => {
+  it('in a draft, a black mark paints over the model\'s voice guess; the rest of the guess stays', () => {
+    const b = base('1'.repeat(20))
+    const t = effectiveTimeline(b, { regions: [{ fromSec: 2, toSec: 4, kind: 'none' }], finished: false }, DUR)!
+    expect([...t.cells].map(String).join('')).toBe('1111' + '0000' + '1'.repeat(12))
+  })
+  it('a mark still open as black is drawn black up to the play position', () => {
+    const t = effectiveTimeline(base('1'.repeat(20)), undefined, DUR, { fromSec: 4, toSec: 6, kind: 'none' })!
+    expect([...t.cells].map(String).join('')).toBe('1'.repeat(8) + '0000' + '1'.repeat(8))
+  })
+  it('the kind survives adding, dragging an edge and undoing the end', () => {
+    const made = addMarkedRegion([], 10, 15, 60, 'none')
+    const regions = made.ok ? made.regions : []
+    expect(regions[0].kind).toBe('none')
+    expect(moveRegionEdge(regions, 0, 'to', 30, 60)?.[0].kind).toBe('none')
+    expect(undoLastEnd(regions).reopenKind).toBe('none')
+    expect(undoLastEnd([{ fromSec: 1, toSec: 3 }]).reopenKind).toBe('voice')
+  })
+  it('a purple mark is stored exactly as before (no kind), so older files and exports are unchanged', () => {
+    const made = addMarkedRegion([], 10, 15, 60)
+    expect(made.ok && 'kind' in made.regions[0]).toBe(false)
   })
 })

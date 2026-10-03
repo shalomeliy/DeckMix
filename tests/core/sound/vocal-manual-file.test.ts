@@ -46,3 +46,14 @@ describe('taught songs in the file', () => {
     expect(r.tags.find((t) => t.name === 'plain')?.taught).toBeUndefined()
   })
 })
+
+describe('black marks in the file', () => {
+  it('a "none" mark round-trips and an unknown kind is refused by name', () => {
+    const ok = tag({ name: 'with-black', regions: [{ fromSec: 1, toSec: 4 }, { fromSec: 2, toSec: 3, kind: 'none' }] })
+    const r = parseVocalMarksFile(vocalMarksExportText([ok], 1))
+    expect(r.tags[0].regions).toEqual(ok.regions)
+    const bad = { ...tag({ name: 'bad-kind' }), regions: [{ fromSec: 1, toSec: 2, kind: 'loud' }] }
+    const r2 = parseVocalMarksFile(JSON.stringify({ app: 'DeckMix', kind: 'vocal-marks', schema: 1, marks: [bad] }))
+    expect(r2.rejected.map((x) => x.name)).toEqual(['bad-kind'])
+  })
+})

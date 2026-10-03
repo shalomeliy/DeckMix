@@ -379,7 +379,7 @@ export interface AppState {
   notice: { text: string; tone: 'warn' | 'info'; source: NoticeSource } | null
   /** v0.9.10b: the owner's hand-made vocal marks by content hash (loaded when a track reaches a deck), and the mark each deck has open — pressed "started", not yet "ended". */
   vocalManual: Record<string, VocalManualTag>
-  vocalMarkOpen: Record<DeckId, { contentHash: string; startSec: number } | null>
+  vocalMarkOpen: Record<DeckId, { contentHash: string; startSec: number; kind?: 'voice' | 'none' } | null>
   /**
    * v0.8.20: the result of moving data saved before the rename to `deckmix:` keys.
    * It gets its own slot instead of `notice`, because `notice` holds one

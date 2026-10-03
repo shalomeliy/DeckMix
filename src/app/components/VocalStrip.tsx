@@ -65,7 +65,7 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
   const secBucket = Math.floor(positionSec)
   // The timers read the half-second cells of everything together: his marks over the guess, or only his marks once the song is finished.
   const timeline = useMemo(
-    () => effectiveTimeline(vocal?.timeline ?? null, tag, durationSec, open ? { fromSec: open.startSec - MARK_LEAD_SEC, toSec: secBucket + MARK_TAIL_SEC } : null),
+    () => effectiveTimeline(vocal?.timeline ?? null, tag, durationSec, open ? { fromSec: open.startSec - MARK_LEAD_SEC, toSec: secBucket + MARK_TAIL_SEC, kind: open.kind } : null),
     [vocal?.timeline, tag, durationSec, open, secBucket],
   )
   // What is drawn: the model's guess (unless the song is finished — then it has no say), and over it his marks at their EXACT times, not rounded
@@ -77,7 +77,7 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
   const segs = useMemo(() => (displayTimeline && durationSec > 0 ? vocalStripSegments(displayTimeline, durationSec, 600, 2) : []), [displayTimeline, durationSec])
   const bars = [
     ...(tag?.regions ?? []).map((r, i) => ({ ...r, index: i as number | null })),
-    ...(open ? [{ fromSec: Math.min(open.startSec, secBucket) - MARK_LEAD_SEC, toSec: Math.max(open.startSec, secBucket) + MARK_TAIL_SEC, index: null as number | null }] : []),
+    ...(open ? [{ fromSec: Math.min(open.startSec, secBucket) - MARK_LEAD_SEC, toSec: Math.max(open.startSec, secBucket) + MARK_TAIL_SEC, kind: open.kind, index: null as number | null }] : []),
   ]
   // Dragging an edge (the owner, 03/10: resize the purple bars with the mouse). Only when marking is on and no mark is open.
   const laneRef = useRef<HTMLDivElement>(null)
@@ -137,8 +137,9 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
                 <div
                   key={`m${i}`}
                   data-vocal-manual
-                  className="absolute inset-y-0 border-t-2 border-white"
-                  style={{ left: `${(m.fromSec / durationSec) * 100}%`, width: `${((m.toSec - m.fromSec) / durationSec) * 100}%`, background: VOICE }}
+                  data-vocal-manual-kind={m.kind === 'none' ? 'none' : 'voice'}
+                  className={`absolute inset-y-0 border-t-2 ${m.kind === 'none' ? 'border-white/50' : 'border-white'}`}
+                  style={{ left: `${(m.fromSec / durationSec) * 100}%`, width: `${((m.toSec - m.fromSec) / durationSec) * 100}%`, background: m.kind === 'none' ? '#000' : VOICE }}
                 />
               ))}
             {(timeline || bars.length > 0) && durationSec > 0 && (
@@ -181,11 +182,22 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
         <div className="flex flex-wrap items-center gap-1 text-xs" data-vocal-marking={deckId}>
           <button
             type="button"
-            onClick={() => void ctl.toggleVocalMark(deckId)}
-            className={`rounded-[var(--radius-sm)] px-2 py-1 font-semibold ${open ? 'bg-white text-black' : 'bg-surface-2 text-white'}`}
+            disabled={open?.kind === 'none'}
+            onClick={() => void ctl.toggleVocalMark(deckId, 'voice')}
+            className={`rounded-[var(--radius-sm)] px-2 py-1 font-semibold disabled:opacity-30 ${open?.kind !== 'none' && open ? 'bg-white text-black' : 'bg-surface-2 text-white'}`}
             style={open ? undefined : { boxShadow: `inset 0 0 0 1px ${VOICE}` }}
           >
-            {open ? 'נגמרה שירה' : 'התחילה שירה'}
+            {open && open.kind !== 'none' ? 'נגמרה שירה' : 'התחילה שירה'}
+          </button>
+          <button
+            type="button"
+            disabled={!!open && open.kind !== 'none'}
+            onClick={() => void ctl.toggleVocalMark(deckId, 'none')}
+            title="צובע בשחור: אין שירה בקטע הזה, גם אם המחשב חושב שיש. הסימון האחרון שעשית קובע."
+            className={`rounded-[var(--radius-sm)] px-2 py-1 font-semibold disabled:opacity-30 ${open?.kind === 'none' ? 'bg-white text-black' : 'bg-black text-white'}`}
+            style={open ? undefined : { boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.4)' }}
+          >
+            {open?.kind === 'none' ? 'נגמר השקט' : 'התחיל שקט (אין שירה)'}
           </button>
           <button type="button" disabled={!open && !(tag && tag.regions.length > 0)} onClick={() => void ctl.undoVocalMark(deckId)} title="לחצת בטעות? 'ביטול התחלה' מבטל סימון פתוח. 'ביטול סיום' מחזיר את הסימון האחרון למצב פתוח כדי ללחוץ 'נגמרה שירה' שוב במקום הנכון." className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted disabled:opacity-40">
             {open ? 'ביטול התחלה' : 'ביטול סיום'}

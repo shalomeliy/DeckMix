@@ -181,6 +181,18 @@ if (ov) {
   await btn('ביטול סיום').click(); await btn('ביטול התחלה').click(); await page.waitForTimeout(300)
 }
 
+// Black marks: the computer's purple guess can be painted over with "no voice" while teaching (the owner could only add purple before).
+if (ov) {
+  const at = async (fr) => { await page.mouse.click(ov.x + ov.width * fr, ov.y + ov.height / 2); await page.waitForTimeout(500) }
+  await at(0.7); await btn('התחיל שקט (אין שירה)').click()
+  ok('while a black mark is open the purple button is off (one open mark at a time)', await btn('התחילה שירה').isDisabled())
+  await at(0.9); await btn('נגמר השקט').click(); await page.waitForTimeout(400)
+  ok('a black mark is drawn as a black bar', (await page.locator('[data-vocal-strip="A"] [data-vocal-manual-kind="none"]').count()) === 1)
+  await btn('ביטול סיום').click(); await page.waitForTimeout(300)
+  ok('undoing the end of a black mark reopens it as black', await btn('נגמר השקט').count() === 1)
+  await btn('ביטול התחלה').click(); await page.waitForTimeout(300)
+}
+
 // Teaching: after "finished", the button offers to teach the computer from this song; it then reads as taught and the library counts it.
 if (ov) {
   const at = async (fr) => { await page.mouse.click(ov.x + ov.width * fr, ov.y + ov.height / 2); await page.waitForTimeout(500) }

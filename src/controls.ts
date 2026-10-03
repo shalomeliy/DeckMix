@@ -3922,7 +3922,7 @@ export function setVocalRegionEdge(deckId: DeckId, index: number, edge: 'from' |
 }
 
 /** Pressed "vocal started" → opens a mark at the play position; pressed again "vocal ended" → closes it. */
-export async function toggleVocalMark(deckId: DeckId): Promise<void> {
+export async function toggleVocalMark(deckId: DeckId, kind: 'voice' | 'none' = 'voice'): Promise<void> {
   const s = useStore.getState()
   const deck = s.decks[deckId]
   const tag = manualTagFor(deckId)
@@ -3932,7 +3932,7 @@ export async function toggleVocalMark(deckId: DeckId): Promise<void> {
   }
   const open = s.vocalMarkOpen[deckId]
   if (!open) {
-    s.setVocalMarkOpen(deckId, { contentHash: tag.contentHash, startSec: deck.positionSec })
+    s.setVocalMarkOpen(deckId, { contentHash: tag.contentHash, startSec: deck.positionSec, kind })
     return
   }
   s.setVocalMarkOpen(deckId, null)
@@ -3940,7 +3940,7 @@ export async function toggleVocalMark(deckId: DeckId): Promise<void> {
     vocalNotice('סימון השירה שהיה פתוח היה של שיר אחר ולא נשמר.')
     return
   }
-  const added = addMarkedRegion(tag.regions, open.startSec, deck.positionSec, deck.durationSec)
+  const added = addMarkedRegion(tag.regions, open.startSec, deck.positionSec, deck.durationSec, open.kind ?? 'voice')
   if (!added.ok) {
     vocalNotice(added.reason === 'too-short' ? 'הסימון קצר מחצי שנייה ולא נשמר.' : 'הסימון לא נשמר: זמן לא תקין.')
     return
@@ -3964,7 +3964,7 @@ export async function undoVocalMark(deckId: DeckId): Promise<void> {
   const undone = undoLastEnd(tag.regions)
   await saveVocalManual({ ...tag, regions: undone.regions, updatedAt: Date.now() })
   // back to "started, not yet ended": a wrong "ended" is fixed by pressing it again where it belongs
-  if (undone.reopenStartPressSec != null) s.setVocalMarkOpen(deckId, { contentHash: tag.contentHash, startSec: undone.reopenStartPressSec })
+  if (undone.reopenStartPressSec != null) s.setVocalMarkOpen(deckId, { contentHash: tag.contentHash, startSec: undone.reopenStartPressSec, kind: undone.reopenKind })
 }
 
 /** "I finished marking this song": from now on everything he did not mark is "no voice". */

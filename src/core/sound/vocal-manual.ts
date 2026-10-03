@@ -11,6 +11,12 @@ import { CELL_NONE, CELL_UNSURE, CELL_VOCAL, VOCAL_CELL_SEC, type VocalTimeline 
 export interface VocalRegion {
   fromSec: number
   toSec: number
+  /**
+   * `voice` (the default, and what every mark saved before 03/10 is) paints the stretch as "there is a voice"; `none` paints it as "there is NO voice" —
+   * the owner's black (03/10: "it paints purple but cannot paint black"), for the places where the computer's guess says voice and he knows it is not.
+   * Marks are applied in the order he made them, the later one on top.
+   */
+  kind?: 'voice' | 'none'
 }
 
 export interface VocalManualTag {
@@ -37,12 +43,12 @@ export const MIN_REGION_SEC = 0.5
 export type AddRegionResult = { ok: true; regions: VocalRegion[] } | { ok: false; reason: 'too-short' | 'bad-time' }
 
 /** Appends a mark. The two times can come in either order (he may have seeked back before pressing "ended"); they are clamped to the song. */
-export function addRegion(regions: readonly VocalRegion[], aSec: number, bSec: number, durationSec: number): AddRegionResult {
+export function addRegion(regions: readonly VocalRegion[], aSec: number, bSec: number, durationSec: number, kind: 'voice' | 'none' = 'voice'): AddRegionResult {
   if (![aSec, bSec, durationSec].every(Number.isFinite) || durationSec <= 0) return { ok: false, reason: 'bad-time' }
   const from = Math.max(0, Math.min(aSec, bSec))
   const to = Math.min(durationSec, Math.max(aSec, bSec))
   if (to - from < MIN_REGION_SEC) return { ok: false, reason: 'too-short' }
-  return { ok: true, regions: [...regions, { fromSec: from, toSec: to }] }
+  return { ok: true, regions: [...regions, kind === 'voice' ? { fromSec: from, toSec: to } : { fromSec: from, toSec: to, kind }] }
 }
 
 export function removeLastRegion(regions: readonly VocalRegion[]): VocalRegion[] {
@@ -55,22 +61,10 @@ export function removeLastRegion(regions: readonly VocalRegion[]): VocalRegion[]
  * The start press is recovered from the stored mark by taking the lead back off; a mark that was clamped at the start of the song gives a press
  * a little later than the real one, which only matters to the draft until he presses "ended".
  */
-export function undoLastEnd(regions: readonly VocalRegion[]): { regions: VocalRegion[]; reopenStartPressSec: number | null } {
+export function undoLastEnd(regions: readonly VocalRegion[]): { regions: VocalRegion[]; reopenStartPressSec: number | null; reopenKind: 'voice' | 'none' } {
   const last = regions[regions.length - 1]
-  if (!last) return { regions: [], reopenStartPressSec: null }
-  return { regions: regions.slice(0, -1), reopenStartPressSec: last.fromSec + MARK_LEAD_SEC }
-}
-
-/** One 0/1 per half second: 1 where any region touches the cell. A region's edge is rounded OUT to the cell, so a mark never shrinks. */
-export function regionMask(regions: readonly VocalRegion[], durationSec: number): Uint8Array {
-  const n = Math.max(0, Math.floor(durationSec / VOCAL_CELL_SEC))
-  const mask = new Uint8Array(n)
-  for (const r of regions) {
-    const a = Math.max(0, Math.floor(r.fromSec / VOCAL_CELL_SEC))
-    const b = Math.min(n, Math.ceil(r.toSec / VOCAL_CELL_SEC))
-    for (let i = a; i < b; i++) mask[i] = 1
-  }
-  return mask
+  if (!last) return { regions: [], reopenStartPressSec: null, reopenKind: 'voice' }
+  return { regions: regions.slice(0, -1), reopenStartPressSec: last.fromSec + MARK_LEAD_SEC, reopenKind: last.kind === 'none' ? 'none' : 'voice' }
 }
 
 /**
@@ -83,17 +77,31 @@ export function effectiveTimeline(
   base: VocalTimeline | null,
   tag: Pick<VocalManualTag, 'regions' | 'finished'> | undefined,
   durationSec: number,
-  open?: { fromSec: number; toSec: number } | null,
+  open?: { fromSec: number; toSec: number; kind?: 'voice' | 'none' } | null,
 ): VocalTimeline | null {
-  const regions = [...(tag?.regions ?? []), ...(open ? [{ fromSec: Math.min(open.fromSec, open.toSec), toSec: Math.max(open.fromSec, open.toSec) }] : [])]
   if (!tag && !open) return base
-  const mask = regionMask(regions, durationSec)
-  if (tag?.finished) {
-    return { cells: mask.map((m) => (m ? CELL_VOCAL : CELL_NONE)), stereo: base?.stereo ?? true }
-  }
-  const cells = base ? Uint8Array.from(base.cells) : new Uint8Array(mask.length).fill(CELL_UNSURE)
-  for (let i = 0; i < Math.min(cells.length, mask.length); i++) if (mask[i]) cells[i] = CELL_VOCAL
+  const n = Math.max(0, Math.floor(durationSec / VOCAL_CELL_SEC))
+  const cells = tag?.finished ? new Uint8Array(n).fill(CELL_NONE) : base ? Uint8Array.from(base.cells) : new Uint8Array(n).fill(CELL_UNSURE)
+  const openRegion = open ? { fromSec: Math.min(open.fromSec, open.toSec), toSec: Math.max(open.fromSec, open.toSec), kind: open.kind } : null
+  paintRegions(cells, [...(tag?.regions ?? []), ...(openRegion ? [openRegion] : [])])
   return { cells, stereo: base?.stereo ?? true }
+}
+
+/** Paints his marks onto `cells` in the order he made them — voice as VOCAL, none as NONE, the later one on top. A mark's edge is rounded OUT to the cell. */
+export function paintRegions(cells: Uint8Array, regions: readonly VocalRegion[]): void {
+  for (const r of regions) {
+    const a = Math.max(0, Math.floor(r.fromSec / VOCAL_CELL_SEC))
+    const b = Math.min(cells.length, Math.ceil(r.toSec / VOCAL_CELL_SEC))
+    const v = r.kind === 'none' ? CELL_NONE : CELL_VOCAL
+    for (let i = a; i < b; i++) cells[i] = v
+  }
+}
+
+/** The labels a FINISHED song gives the trainer: 1 = voice, 0 = everything else, his black marks included. */
+export function manualLabels(regions: readonly VocalRegion[], durationSec: number): Uint8Array {
+  const cells = new Uint8Array(Math.max(0, Math.floor(durationSec / VOCAL_CELL_SEC)))
+  paintRegions(cells, regions)
+  return cells
 }
 
 /**
@@ -108,12 +116,12 @@ export const MARK_TAIL_SEC = 0.5
  * The mark that two presses make. The too-short check is on the PRESSES, before the widening: two accidental presses a moment apart must still be
  * refused, not turned into a two-second vocal by the lead and tail.
  */
-export function addMarkedRegion(regions: readonly VocalRegion[], startPressSec: number, endPressSec: number, durationSec: number): AddRegionResult {
+export function addMarkedRegion(regions: readonly VocalRegion[], startPressSec: number, endPressSec: number, durationSec: number, kind: 'voice' | 'none' = 'voice'): AddRegionResult {
   if (![startPressSec, endPressSec].every(Number.isFinite)) return { ok: false, reason: 'bad-time' }
   const lo = Math.min(startPressSec, endPressSec)
   const hi = Math.max(startPressSec, endPressSec)
   if (hi - lo < MIN_REGION_SEC) return { ok: false, reason: 'too-short' }
-  return addRegion(regions, lo - MARK_LEAD_SEC, hi + MARK_TAIL_SEC, durationSec)
+  return addRegion(regions, lo - MARK_LEAD_SEC, hi + MARK_TAIL_SEC, durationSec, kind)
 }
 
 /**
@@ -124,6 +132,6 @@ export function moveRegionEdge(regions: readonly VocalRegion[], index: number, e
   const r = regions[index]
   if (!r || !Number.isFinite(sec) || !(durationSec > 0)) return null
   const hundredth = (x: number) => Math.round(x * 100) / 100
-  const next = edge === 'from' ? { fromSec: hundredth(Math.max(0, Math.min(sec, r.toSec - MIN_REGION_SEC))), toSec: r.toSec } : { fromSec: r.fromSec, toSec: hundredth(Math.min(durationSec, Math.max(sec, r.fromSec + MIN_REGION_SEC))) }
+  const next: VocalRegion = edge === 'from' ? { ...r, fromSec: hundredth(Math.max(0, Math.min(sec, r.toSec - MIN_REGION_SEC))) } : { ...r, toSec: hundredth(Math.min(durationSec, Math.max(sec, r.fromSec + MIN_REGION_SEC))) }
   return regions.map((x, i) => (i === index ? next : x))
 }
