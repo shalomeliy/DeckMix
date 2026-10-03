@@ -189,16 +189,18 @@ export function Library() {
     let failed = 0
     const none = new Map<string, number>()
     let noBpm = 0
+    let taught = 0
     for (const t of library.tracks) {
       if (t.analysisState === 'failed') noBpm++
       if (t.analysisState !== 'analyzed') continue
       const st = t.vocal?.state
       if (!st || st === 'queued' || st === 'analysing') waiting++
       else if (st === 'failed') failed++
+      else if (st === 'manual') taught++
       else if (t.vocal?.timeline) ready++
       else none.set(st, (none.get(st) ?? 0) + 1)
     }
-    return { waiting, ready, failed, none, noBpm }
+    return { waiting, ready, failed, none, noBpm, taught }
   }, [library.tracks])
   // lets a new scan abandon the tag pass of the one it replaced
   const tagScan = useRef({ cancelled: false })
@@ -1220,6 +1222,14 @@ export function Library() {
               title="פס השירה מחושב ברקע, שיר אחרי שיר. שיר שנמצא על דק מקבל עדיפות. האפליקציה עובדת כרגיל בינתיים."
             >
               שירה: {vocalCounts.ready} מתוך {vocalCounts.ready + vocalCounts.waiting} נותחו
+            </span>
+          )}
+          {vocalCounts.taught > 0 && (
+            <span
+              className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-grid-muted"
+              title="שירים שסימנת ידנית ולחצת עליהם 'למד את המחשב'. רק מהם האימון לומד."
+            >
+              נלמדו מסימון ידני: {vocalCounts.taught}
             </span>
           )}
           {!library.scanning && vocalCounts.failed > 0 && (

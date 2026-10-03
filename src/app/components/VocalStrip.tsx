@@ -130,22 +130,40 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
             >
               סיימתי לסמן את השיר
             </button>
+          ) : tag.taught ? (
+            <>
+              <span className="font-semibold" style={{ color: VOICE }}>✓ המחשב למד מהשיר הזה</span>
+              <button type="button" onClick={() => void ctl.unteachSong(deckId)} className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted">
+                הסר מהלימוד
+              </button>
+            </>
           ) : (
-            <button
-              type="button"
-              onClick={() => {
-                if (!confirmClear) {
-                  setConfirmClear(true)
-                  return
-                }
-                setConfirmClear(false)
-                void ctl.clearVocalMarks(deckId)
-              }}
-              onBlur={() => setConfirmClear(false)}
-              className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-warn"
-            >
-              {confirmClear ? 'בטוח? לחץ שוב — כל הסימונים נמחקים' : 'חזרה לניחוש המחשב'}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => void ctl.teachFromSong(deckId)}
+                title="הסימונים שלך הם התשובה לשיר הזה. הניחוש הישן של המחשב נמחק, והשיר נכנס לרשימת השיעורים שהמחשב לומד מהם."
+                className="rounded-[var(--radius-sm)] px-2 py-1 font-semibold text-black"
+                style={{ background: VOICE }}
+              >
+                למד את המחשב מהשיר הזה
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!confirmClear) {
+                    setConfirmClear(true)
+                    return
+                  }
+                  setConfirmClear(false)
+                  void ctl.clearVocalMarks(deckId)
+                }}
+                onBlur={() => setConfirmClear(false)}
+                className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-warn"
+              >
+                {confirmClear ? 'בטוח? לחץ שוב — כל הסימונים נמחקים' : 'מחק סימונים וחזור לניחוש'}
+              </button>
+            </>
           )}
           <button type="button" onClick={() => void ctl.exportVocalMarks()} title="שומר את הסימונים של כל השירים לקובץ חדש (גיבוי, ואחר כך אימון)." className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted">
             ייצא סימונים

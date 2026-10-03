@@ -34,3 +34,15 @@ describe('vocal marks file', () => {
     expect(r.rejected.every((x) => x.reason.length > 0)).toBe(true)
   })
 })
+
+describe('taught songs in the file', () => {
+  it('a taught flag survives the round trip, and only on a finished song', () => {
+    const taught = tag({ taught: true, taughtAt: 7 })
+    const draft = { ...tag({ name: 'draft', finished: false }), taught: true, taughtAt: 9 } as VocalManualTag
+    const r = parseVocalMarksFile(vocalMarksExportText([taught, draft, tag({ name: 'plain' })], 1))
+    expect(r.tags.find((t) => t.name === 'x')?.taught).toBe(true)
+    expect(r.tags.find((t) => t.name === 'x')?.taughtAt).toBe(7)
+    expect(r.tags.find((t) => t.name === 'draft')?.taught).toBeUndefined() // an unfinished song cannot be a lesson, whatever the file says
+    expect(r.tags.find((t) => t.name === 'plain')?.taught).toBeUndefined()
+  })
+})

@@ -36,6 +36,8 @@ export type VocalState =
   | 'too-short'
   | 'silent'
   | 'failed'
+  /** The owner taught the computer from this song: his marks are the answer, so no computer guess exists or is wanted. */
+  | 'manual'
 
 export interface VocalResult {
   state: VocalState
@@ -80,6 +82,8 @@ export function vocalStateText(state: VocalState, note?: string): string | null 
       return withNote('שירה: השיר קצר מדי לניתוח')
     case 'silent':
       return withNote('שירה: השיר שקט')
+    case 'manual':
+      return 'שירה: סומן ידנית — המחשב למד מהשיר הזה'
     case 'failed':
       return `שירה: הניתוח נכשל${note ? ` — ${note}` : ''}`
   }

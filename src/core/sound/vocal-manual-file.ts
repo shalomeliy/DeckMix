@@ -40,6 +40,7 @@ function oneMark(x: unknown): { tag: VocalManualTag } | { name: string; reason: 
       genre: typeof m.genre === 'string' ? m.genre : undefined,
       regions: m.regions.map((r) => ({ fromSec: r.fromSec, toSec: r.toSec })),
       finished: m.finished,
+      ...(m.taught === true && m.finished ? { taught: true, taughtAt: typeof m.taughtAt === 'number' && Number.isFinite(m.taughtAt) ? m.taughtAt : 0 } : {}),
       updatedAt: typeof m.updatedAt === 'number' && Number.isFinite(m.updatedAt) ? m.updatedAt : 0,
     },
   }

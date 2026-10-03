@@ -113,3 +113,11 @@ describe('the cache version is tied to what the answer depends on', () => {
     expect({ version: VOCAL_STRIP_VERSION, fingerprint }).toEqual({ version: 1, fingerprint: 'ec9eee2f4a46db4ab819a00b0699be0c58f125abcc4f360e71712fb936cbd819' })
   })
 })
+
+describe('the "manual" state', () => {
+  it('says the computer learned from the song, and never reads as a measurement', () => {
+    const t = vocalStateText('manual')!
+    expect(t).toContain('סומן ידנית')
+    expect(t).not.toBe('שירה: אין שירה')
+  })
+})

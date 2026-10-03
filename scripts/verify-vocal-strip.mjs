@@ -147,6 +147,19 @@ if (ov) {
   ok('cancelling the start leaves no mark', (await page.locator('[data-vocal-strip="A"] [data-vocal-manual]').count()) === 0)
 }
 
+// Teaching: after "finished", the button offers to teach the computer from this song; it then reads as taught and the library counts it.
+if (ov) {
+  const at = async (fr) => { await page.mouse.click(ov.x + ov.width * fr, ov.y + ov.height / 2); await page.waitForTimeout(500) }
+  await at(0.3); await btn('התחילה שירה').click(); await at(0.5); await btn('נגמרה שירה').click()
+  await btn('סיימתי לסמן את השיר').click(); await page.waitForTimeout(400)
+  ok('a finished song offers "teach the computer from this song"', (await btn('למד את המחשב מהשיר הזה').count()) === 1)
+  await btn('למד את המחשב מהשיר הזה').click(); await page.waitForTimeout(800)
+  ok('after teaching, the song reads as taught and offers to take it back out', (await page.locator('[data-vocal-marking="A"]').innerText()).includes('המחשב למד מהשיר הזה') && (await btn('הסר מהלימוד').count()) === 1)
+  ok('the library counts the taught song', (await page.locator('text=/נלמדו מסימון ידני: 1/').count()) >= 1)
+  await btn('הסר מהלימוד').click(); await page.waitForTimeout(400)
+  ok('taking it out of the lessons brings the teach button back', (await btn('למד את המחשב מהשיר הזה').count()) === 1)
+}
+
 ok('no page errors or console errors', errors.length === 0, errors.slice(0, 3).join(' | '))
 await browser.close()
 const failed = results.filter((r) => !r.pass)

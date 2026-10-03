@@ -48,6 +48,7 @@ import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
 import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
 import { addMarkedRegion, undoLastEnd, type VocalManualTag } from '@/core/sound/vocal-manual'
 import { deleteVocalManual, getAllVocalManual, getVocalManual, putVocalManual } from '@/platform/vocal-manual-idb/store'
+import { deleteVocalStrip } from '@/platform/vocal-strip-idb/store'
 import { parseVocalMarksFile, vocalMarksExportText } from '@/core/sound/vocal-manual-file'
 import { pickJsonFileText } from '@/platform/vocal-marks-file-fsaccess/reader'
 import {
@@ -3957,6 +3958,43 @@ export async function finishVocalMarks(deckId: DeckId): Promise<void> {
   const tag = manualTagFor(deckId)
   if (!tag) return
   await saveVocalManual({ ...tag, finished: true, updatedAt: Date.now() })
+}
+
+/**
+ * "Teach the computer from this song" (the owner's choice 03/10: the button that used to say "back to the computer's guess"): the song becomes a
+ * lesson. His marks are the truth for it, the computer's own guess is forgotten (it was wrong, that is why he marked), and the training scripts take
+ * only taught songs. Only a finished song can be taught — an unfinished one has marks for the stretch he looked at and nothing about the rest.
+ */
+export async function teachFromSong(deckId: DeckId): Promise<void> {
+  const tag = manualTagFor(deckId)
+  const track = useStore.getState().decks[deckId].track
+  if (!tag || !track) return
+  if (!tag.finished) {
+    vocalNotice('קודם לחץ "סיימתי לסמן את השיר": רק שיר גמור אפשר ללמד ממנו.')
+    return
+  }
+  await saveVocalManual({ ...tag, taught: true, taughtAt: Date.now(), updatedAt: Date.now() })
+  try {
+    await deleteVocalStrip(tag.contentHash, track.genre ?? '')
+  } catch (err) {
+    vocalNotice(`הניחוש הישן של המחשב לא נמחק מהזיכרון (לא משפיע על מה שמוצג): ${err instanceof Error ? err.message : String(err)}`)
+  }
+  const { library, setLibrary } = useStore.getState()
+  setLibrary({ tracks: library.tracks.map((t) => (t.id === track.id ? { ...t, vocal: { state: 'manual', timeline: null } } : t)) })
+  vocalNotice('השיר נכנס ללימוד. הניחוש הישן של המחשב לשיר הזה נמחק.', 'info')
+}
+
+/** Takes a song back out of the lessons: its marks stay, the computer's guess for it is recomputed in the background on the next library load. */
+export async function unteachSong(deckId: DeckId): Promise<void> {
+  const tag = manualTagFor(deckId)
+  const track = useStore.getState().decks[deckId].track
+  if (!tag || !track) return
+  const { taught: _t, taughtAt: _a, ...rest } = tag
+  await saveVocalManual({ ...rest, updatedAt: Date.now() })
+  const { library, setLibrary } = useStore.getState()
+  setLibrary({
+    tracks: library.tracks.map((t) => (t.id === track.id ? { ...t, vocal: { state: 'queued', timeline: null, note: 'הוסר מהלימוד — הניחוש יחושב מחדש בטעינה הבאה של הספרייה' } } : t)),
+  })
 }
 
 /** Throws his marks away and goes back to the computer's guess. The UI asks twice before calling this. */

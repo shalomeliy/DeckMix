@@ -4,7 +4,7 @@
  * thresholds in core/sound/vocal-strip.ts. Bump it with either, and every strip is recomputed in the background — never served stale.
  * `failed` is never stored: a failure is not an answer about the song and the next run should try again.
  */
-import { get, set } from 'idb-keyval'
+import { del, get, set } from 'idb-keyval'
 import type { VocalResult } from '@/core/sound/vocal-timeline'
 
 export const VOCAL_STRIP_VERSION = 1
@@ -36,4 +36,9 @@ export async function putVocalStrip(contentHash: string, genre: string, r: Vocal
   if (r.state === 'failed') return
   const s: Stored = { version: VOCAL_STRIP_VERSION, state: r.state, note: r.note, cells: r.timeline?.cells ?? null, stereo: r.timeline?.stereo ?? false }
   await set(keyFor(contentHash, genre), s)
+}
+
+/** Forgets the computer's own strip for one song (the owner taught the computer from it: his marks replace it). Throws; the caller says so. */
+export async function deleteVocalStrip(contentHash: string, genre: string): Promise<void> {
+  await del(keyFor(contentHash, genre))
 }

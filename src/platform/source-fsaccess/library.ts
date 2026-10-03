@@ -15,6 +15,7 @@ import { analysisCache } from '@/platform/analyze-cache-idb/store'
 import { classicalEmbedder } from '@/platform/embed-classical'
 import { embeddingCache } from '@/platform/embed-cache-idb/store'
 import { getVocalStrip, putVocalStrip } from '@/platform/vocal-strip-idb/store'
+import { getAllVocalManual } from '@/platform/vocal-manual-idb/store'
 import { analyseVocalStrip } from '@/platform/vocal-strip-worker'
 
 const HANDLE_KEY = 'deckmix:libraryDir'
@@ -628,6 +629,14 @@ export async function queueVocalStripBackfill(
   const total = pending.length
   let done = 0
   let failed = 0
+  // Songs the owner taught the computer from have his marks as the answer: no guess is computed for them. If the list cannot be read the pass
+  // just computes them like any other — wasted work, never a wrong strip, because his marks win on screen either way.
+  const taught = new Set<string>()
+  try {
+    for (const t of await getAllVocalManual()) if (t.taught) taught.add(t.contentHash)
+  } catch {
+    // see above
+  }
   while (pending.length > 0) {
     if (opts.signal?.cancelled) return
     // A song on a deck is the one the owner is about to look at: it goes first.
@@ -638,6 +647,12 @@ export async function queueVocalStripBackfill(
     try {
       const contentHash = track.contentHash as string
       const genre = track.genre ?? ''
+      if (taught.has(contentHash)) {
+        done++
+        if (opts.signal?.cancelled) return
+        onUpdate(new Map([[track.id, { vocal: { state: 'manual', timeline: null } }]]), { done, total, failed })
+        continue
+      }
       const cached = await getVocalStrip(contentHash, genre)
       if (cached) result = cached
       else {

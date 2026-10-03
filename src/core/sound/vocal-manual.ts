@@ -22,6 +22,12 @@ export interface VocalManualTag {
   regions: VocalRegion[]
   /** True once he said "I finished marking this song": from then on, everything outside the regions is "no voice". */
   finished: boolean
+  /**
+   * "Teach the computer from this song" (the owner's button, 03/10): the song is a lesson — his marks are the truth here, the computer's own guess for it
+   * is forgotten, and the training scripts take ONLY taught songs. Only a finished song can be taught.
+   */
+  taught?: boolean
+  taughtAt?: number
   updatedAt: number
 }
 

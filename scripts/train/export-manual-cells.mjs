@@ -6,7 +6,7 @@
  *   writes: %TEMP%/manual-cells.json (training pool) and %TEMP%/manual-cells-sealed.json (the sealed songs)
  *
  * What counts as a label (every rule is counted and printed — nothing is dropped silently):
- *  - only songs he marked "finished": from then on EVERYTHING he did not colour is "no voice", so every cell has a label. A draft song labels
+ *  - only songs he marked "finished" AND taught ("למד את המחשב מהשיר הזה" — his explicit "this one is a correct lesson"): from then on EVERYTHING he did not colour is "no voice", so every cell has a label. A draft song labels
  *    only the cells he coloured, which would teach "voice everywhere you looked"; drafts are left out and counted;
  *  - cells within IGNORE_CELLS of the edge of a mark are label 2 = "ignore": his reaction time puts the edge a fraction of a second off, and
  *    the app widens it by half a second on purpose (MARK_LEAD_SEC / MARK_TAIL_SEC), so the cells beside an edge are not an answer;
@@ -26,11 +26,12 @@ const marks = JSON.parse(fs.readFileSync(process.env.MARKS, 'utf8'))
 if (marks.kind !== 'vocal-marks' || marks.schema !== 1) throw new Error('MARKS is not a DeckMix vocal-marks file (kind/schema)')
 const feats = new Map(JSON.parse(fs.readFileSync(path.join(process.env.TEMP, 'vocal-features-manual.json'), 'utf8')).map((x) => [x.s.hash, x.r]))
 
-const count = { drafts: 0, trance: 0, noFeatures: [], songs: 0, sealed: 0 }
+const count = { drafts: 0, notTaught: 0, trance: 0, noFeatures: [], songs: 0, sealed: 0 }
 const train = []
 const sealed = []
 for (const m of marks.marks) {
   if (!m.finished) { count.drafts++; continue }
+  if (!m.taught) { count.notTaught++; continue }
   if (m.genre === 'Trance') { count.trance++; continue }
   const f = feats.get(m.contentHash)
   if (!f || !f.harmonic) { count.noFeatures.push(m.name); continue }
@@ -54,6 +55,6 @@ const cells = (ss) => ss.reduce((a, s) => a + s.labels.length, 0)
 const voice = train.reduce((a, s) => a + s.labels.filter((l) => l === 1).length, 0)
 const ign = train.reduce((a, s) => a + s.labels.filter((l) => l === 2).length, 0)
 console.log(`marked songs in the file: ${marks.marks.length}`)
-console.log(`  left out: ${count.drafts} not finished, ${count.trance} Trance (rule), ${count.noFeatures.length} without features${count.noFeatures.length ? ': ' + count.noFeatures.join(', ') : ''}`)
+console.log(`  left out: ${count.drafts} not finished, ${count.notTaught} finished but not taught (press "למד את המחשב מהשיר הזה" on them), ${count.trance} Trance (rule), ${count.noFeatures.length} without features${count.noFeatures.length ? ': ' + count.noFeatures.join(', ') : ''}`)
 console.log(`  training pool: ${train.length} songs, ${cells(train)} cells (voice ${voice}, ignored near edges ${ign}) -> manual-cells.json`)
 console.log(`  sealed (not read by any fit): ${sealed.length} songs -> manual-cells-sealed.json`)
