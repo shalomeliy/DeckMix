@@ -3970,7 +3970,8 @@ export async function undoVocalMark(deckId: DeckId): Promise<void> {
 /**
  * "I finished marking this song": from now on everything he did not mark is "no voice".
  * A song with no voice at all is a valid answer, not a missing one (the owner, 04/10: a quiet song could not be finished because the button
- * wanted at least one mark) — finishing with no purple marks makes the whole song "no voice", and the notice says so, so a stray click shows.
+ * wanted at least one mark; his fix: a "no voice in this song" tick beside it turns it on) — finishing with no purple marks makes the whole song
+ * "no voice", and the notice says so.
  * A mark still open is closed first at the play position, as if he had pressed its "ended" — finishing must not drop it.
  */
 export async function finishVocalMarks(deckId: DeckId): Promise<void> {

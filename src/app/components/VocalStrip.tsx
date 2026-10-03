@@ -61,6 +61,10 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
   const openMark = useStore((s) => s.vocalMarkOpen[deckId])
   const open = openMark && openMark.contentHash === contentHash ? openMark : null
   const [confirmClear, setConfirmClear] = useState(false)
+  // "This song has no voice" (the owner's choice, 04/10): the explicit way to finish a song with no marks. Kept per song by its hash, so loading
+  // another song never carries a tick over to it.
+  const [noVoiceFor, setNoVoiceFor] = useState<string | null>(null)
+  const noVoice = !!contentHash && noVoiceFor === contentHash
   // His marks win over the model's guess (core: `effectiveTimeline`). The open one is drawn up to the play position, in whole seconds like the timers.
   const secBucket = Math.floor(positionSec)
   // The timers read the half-second cells of everything together: his marks over the guess, or only his marks once the song is finished.
@@ -203,14 +207,23 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
             {open ? 'ביטול התחלה' : 'ביטול סיום'}
           </button>
           {!tag?.finished ? (
-            <button
-              type="button"
-              onClick={() => void ctl.finishVocalMarks(deckId)}
-              title="אחרי הלחיצה, כל מה שלא סימנת בשיר הזה יהיה ריק (במקום הניחוש של המחשב). שיר בלי שירה בכלל? לחץ בלי לסמן כלום."
-              className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted disabled:opacity-40"
-            >
-              סיימתי לסמן את השיר
-            </button>
+            <>
+              {!(tag && tag.regions.length > 0) && !open && (
+                <label className="flex cursor-pointer items-center gap-1 px-1 text-grid-muted" title="סמן אם אין בשיר הזה שירה בכלל: אז אפשר לסיים בלי לסמן כלום, וכל השיר יהיה שחור.">
+                  <input type="checkbox" checked={noVoice} onChange={(e) => setNoVoiceFor(e.target.checked ? contentHash : null)} />
+                  אין שירה בשיר
+                </label>
+              )}
+              <button
+                type="button"
+                disabled={!noVoice && !open && !(tag && tag.regions.length > 0)}
+                onClick={() => void ctl.finishVocalMarks(deckId)}
+                title="אחרי הלחיצה, כל מה שלא סימנת בשיר הזה יהיה ריק (במקום הניחוש של המחשב). שיר בלי שירה בכלל? סמן 'אין שירה בשיר'."
+                className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted disabled:opacity-40"
+              >
+                סיימתי לסמן את השיר
+              </button>
+            </>
           ) : tag.taught ? (
             <>
               <span className="font-semibold" style={{ color: VOICE }}>✓ המחשב למד מהשיר הזה</span>

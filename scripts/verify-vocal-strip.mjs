@@ -193,13 +193,17 @@ if (ov) {
   await btn('ביטול התחלה').click(); await page.waitForTimeout(300)
 }
 
-// A song with no voice at all (the owner, 04/10: "if the song is quiet I have no way to say I finished"): "finished" is offered with no marks,
+// A song with no voice at all (the owner, 04/10: "if the song is quiet I have no way to say I finished"): ticking "no voice in this song" turns
+// "finished" on with no marks (his choice of how),
 // finishing makes the whole song "no voice" and says so, and a black mark still open when he presses it is closed and kept, not dropped.
 if (ov) {
   const at = async (fr) => { await page.mouse.click(ov.x + ov.width * fr, ov.y + ov.height / 2); await page.waitForTimeout(500) }
   const row = () => page.locator('[data-vocal-marking="A"]').innerText()
   const clear = async () => { await btn('מחק סימונים וחזור לניחוש').click(); await btn('בטוח? לחץ שוב').click(); await page.waitForTimeout(400) }
-  ok('"finished" can be pressed on a song with no marks at all', !(await btn('סיימתי לסמן את השיר').isDisabled()))
+  const noVoiceBox = page.locator('[data-vocal-marking="A"]').getByRole('checkbox', { name: 'אין שירה בשיר' })
+  ok('with no marks, "finished" is off until "no voice in this song" is ticked', await btn('סיימתי לסמן את השיר').isDisabled())
+  await noVoiceBox.check()
+  ok('ticking "no voice in this song" turns "finished" on', !(await btn('סיימתי לסמן את השיר').isDisabled()))
   await btn('סיימתי לסמן את השיר').click(); await page.waitForTimeout(400)
   const stored = await page.evaluate(async () => (await (await window.mod('/src/platform/vocal-manual-idb/store.ts')).getAllVocalManual()).filter((t) => t.finished).map((t) => ({ name: t.name, n: t.regions.length })))
   ok('a quiet song finished with no marks is saved as finished with 0 marks (the export takes it as all "no voice")', stored.length === 1 && stored[0].n === 0, JSON.stringify(stored))
