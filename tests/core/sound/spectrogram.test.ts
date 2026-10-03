@@ -56,4 +56,31 @@ describe('clipSpectrogram', () => {
     expect(s.cols).toBeLessThan(210)
     expect(s.data.length).toBe(s.cols * s.rows)
   })
+
+  it('the "without drums" view keeps a lasting tone and drops kick smears, more than the plain view does', () => {
+    const x = sine(880, 0.15)
+    for (let b = 0; b < 10; b++) {
+      const at = Math.floor(SR * (0.2 + b * 0.5))
+      for (let i = 0; i < 2500; i++) x[at + i] += 0.6 * Math.sin(2 * Math.PI * (55 + 120 * Math.exp(-i / 250)) * (i / SR)) * Math.exp(-i / 800) + 0.3 * (((i * 7919) % 101) / 50 - 1) * Math.exp(-i / 200)
+    }
+    const s = clipSpectrogram(x, SR)
+    const tone = rowOf(880)
+    const contrast = (data: Uint8Array) => {
+      let t = 0
+      let o = 0
+      let n = 0
+      for (let c = 0; c < s.cols; c++)
+        for (let r = 0; r < s.rows; r++) {
+          if (Math.abs(r - tone) <= 1) t += data[c * s.rows + r]
+          else if (r < tone - 6 || r > tone + 6) {
+            o += data[c * s.rows + r]
+            n++
+          }
+        }
+      return t / (3 * s.cols) - o / n // how much brighter the tone's rows are than the rest
+    }
+    expect(s.voices.length).toBe(s.data.length)
+    expect(contrast(s.voices)).toBeGreaterThan(contrast(s.data) + 25)
+  })
 })
+

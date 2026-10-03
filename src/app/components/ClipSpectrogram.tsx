@@ -25,7 +25,20 @@ const TICKS_HZ = [200, 1000, 4000]
 const H = 150
 
 /** `spec === null` is "no picture could be made" (named above it by the caller's notice); the clip itself still plays and can be answered. */
-export function ClipSpectrogram({ spec }: { spec: Spectrogram | null }) {
+export type SpectrogramView = 'voices' | 'all'
+
+export function ClipSpectrogram({
+  spec,
+  view,
+  playheadSec,
+  clipSec,
+}: {
+  spec: Spectrogram | null
+  view: SpectrogramView
+  /** Seconds into the clip while it plays, else `null`. */
+  playheadSec: number | null
+  clipSec: number
+}) {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     const cv = ref.current
@@ -35,9 +48,10 @@ export function ClipSpectrogram({ spec }: { spec: Spectrogram | null }) {
     const g = cv.getContext('2d')
     if (!g) return
     const img = g.createImageData(spec.cols, spec.rows)
+    const src = view === 'voices' ? spec.voices : spec.data
     for (let c = 0; c < spec.cols; c++) {
       for (let r = 0; r < spec.rows; r++) {
-        const [R, G, B] = ramp(spec.data[c * spec.rows + r])
+        const [R, G, B] = ramp(src[c * spec.rows + r])
         // Lowest pitch at the bottom: a canvas row 0 is the top.
         const o = ((spec.rows - 1 - r) * spec.cols + c) * 4
         img.data[o] = R
@@ -47,7 +61,7 @@ export function ClipSpectrogram({ spec }: { spec: Spectrogram | null }) {
       }
     }
     g.putImageData(img, 0, 0)
-  }, [spec])
+  }, [spec, view])
 
   const note =
     spec == null
@@ -75,6 +89,13 @@ export function ClipSpectrogram({ spec }: { spec: Spectrogram | null }) {
               className="absolute inset-0 h-full w-full"
               style={{ imageRendering: 'auto' }}
             />
+            {playheadSec != null && (
+              <div
+                data-testid="clip-playhead"
+                className="pointer-events-none absolute inset-y-0 w-0.5 bg-white"
+                style={{ left: `${Math.min(100, (playheadSec / clipSec) * 100)}%` }}
+              />
+            )}
             {TICKS_HZ.map((hz) => (
               <div key={hz} className="pointer-events-none absolute left-0 right-0 border-t border-white/15" style={{ top: `${rowTop(hz)}%` }}>
                 <span className="absolute left-1 -translate-y-full text-2xs text-white/70">{hz >= 1000 ? `${hz / 1000}k` : hz} Hz</span>

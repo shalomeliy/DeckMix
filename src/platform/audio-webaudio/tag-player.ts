@@ -4,6 +4,7 @@
  * vocal clip. Goes to the preview bus, never a deck.
  */
 import { BEATS_PER_BAR } from '@/core/beatgrid'
+import { clipWindow, windowPosition, type PlaybackWindow } from '@/core/playback-window'
 
 const CLICK_SEC = 0.03
 const SOFT = 0.18
@@ -13,7 +14,7 @@ export class TagPlayer {
   private ctx: BaseAudioContext
   private out: AudioNode
   private nodes: AudioBufferSourceNode[] = []
-  private playing: { when: number; startSec: number; len: number } | null = null
+  private playing: PlaybackWindow | null = null
 
   constructor(ctx: BaseAudioContext, out: AudioNode) {
     this.ctx = ctx
@@ -50,11 +51,7 @@ export class TagPlayer {
 
   /** Where in the track the sound is right now, or `null` when nothing plays — the moving line on the tagging waveform. */
   positionSec(): number | null {
-    const p = this.playing
-    if (!p) return null
-    const t = this.ctx.currentTime - p.when
-    if (t > p.len) return null
-    return p.startSec + Math.max(0, t)
+    return windowPosition(this.playing, this.ctx.currentTime)
   }
 
   /** A clip played once, no clicks — the vocal question. */
@@ -63,8 +60,14 @@ export class TagPlayer {
     const music = this.ctx.createBufferSource()
     music.buffer = buffer
     music.connect(this.out)
-    music.start(this.ctx.currentTime + 0.02, startSec, lenSec)
+    const w = clipWindow(this.ctx.currentTime, 0.02, startSec, lenSec, buffer.duration)
+    music.start(w.when, startSec, lenSec)
+    // Recorded so `positionSec` can drive the moving line on the vocal picture; it was `null` for clips until v0.9.11.
+    music.onended = () => {
+      if (this.nodes[0] === music) this.stop()
+    }
     this.nodes = [music]
+    this.playing = w
   }
 
   stop() {

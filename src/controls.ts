@@ -4647,6 +4647,14 @@ export function tagClipSpectrogram(clip: number): Spectrogram | null {
   }
 }
 
+/** Seconds into the vocal clip now playing (0–5), or `null` when it is not playing — the moving line on the picture. */
+export function tagClipPlayhead(clip: number): number | null {
+  const at = tagCurrent?.vocalClips.atSec[clip]
+  const p = tagPlayer?.positionSec()
+  if (at == null || p == null) return null
+  return Math.max(0, p - at)
+}
+
 export function tagStop() {
   tagPlayer?.stop()
 }

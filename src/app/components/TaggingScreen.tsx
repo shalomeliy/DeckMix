@@ -5,6 +5,7 @@ import {
   VIEW_BARS,
   pickBarSample,
   VOCAL_CLIPS_PER_SONG,
+  VOCAL_CLIP_SEC,
   firstUnansweredClip,
   pickVocalSample,
   pickVocalRound2Sample,
@@ -27,7 +28,7 @@ import { BEATS_PER_BAR } from '@/core/beatgrid'
 import { useStore } from '@/app/state/store'
 import { Button } from '@/app/components/controls'
 import { TagWaveform } from '@/app/components/TagWaveform'
-import { ClipSpectrogram } from '@/app/components/ClipSpectrogram'
+import { ClipSpectrogram, type SpectrogramView } from '@/app/components/ClipSpectrogram'
 
 /**
  * Tagging (v0.9.0): Shalom marks where the "1" is, and whether a short clip
@@ -89,6 +90,9 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
   const [spot, setSpot] = useState(0)
   /** Which of the song's three vocal clips is up (v0.9.10). */
   const [clip, setClip] = useState(0)
+  /** The vocal picture's view (v0.9.11): without drums by default — on a busy clip the plain picture is mostly kick columns. */
+  const [specView, setSpecView] = useState<SpectrogramView>('voices')
+  const [clipPlayhead, setClipPlayhead] = useState<number | null>(null)
   const vocalTags = useRef<readonly { contentHash: string; clipIndex?: number }[]>([])
   /** Every first-pass vocal answer and every re-check answer — the re-check list is computed from the first, and done-ness from the second. */
   const [allVocal, setAllVocal] = useState<readonly VocalTag[]>([])
@@ -187,7 +191,20 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
     cancelAnimationFrame(raf.current)
     playheadRef.current = null
     setPlayhead(null)
+    setClipPlayhead(null)
   }, [])
+
+  /** Plays the clip and follows it: the line on the picture moves while it sounds and disappears when it ends. */
+  const playVocalClip = useCallback(() => {
+    ctl.tagPlayVocal(clip)
+    cancelAnimationFrame(raf.current)
+    const tick = () => {
+      const p = ctl.tagClipPlayhead(clip)
+      setClipPlayhead(p)
+      if (p != null) raf.current = requestAnimationFrame(tick)
+    }
+    raf.current = requestAnimationFrame(tick)
+  }, [clip])
 
   const open = useCallback(
     async (from: number) => {
@@ -388,7 +405,7 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return
       if (e.code === 'Space') {
         e.preventDefault()
-        ctl.tagPlayVocal(clip)
+        playVocalClip()
       } else if (e.code === 'Digit1' || e.code === 'Numpad1') void answerVocal('yes')
       else if (e.code === 'Digit2' || e.code === 'Numpad2') void answerVocal('no')
       else if (e.code === 'Digit3' || e.code === 'Numpad3') void answerVocal('unsure')
@@ -666,12 +683,20 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
                 ? '"יש שירה" = קול אנושי שרים או ראפ, שנשמע כקול מוביל או בולט. מילה בודדת, שתי מילים או קול רקע חלש = "לא בטוח". "אין שירה" = ממש אין קול אנושי.'
                 : '"יש שירה" = קול אנושי שרים או ראפ, שנשמע כקול מוביל או בולט. קול רקע ("אוווו"), קטעי קול חתוכים וקריאות קצרות של פחות משנייה = "אין שירה". אם לא ברור — "לא בטוח".'}
             </He>
-            <ClipSpectrogram spec={vocalSpec} />
+            <ClipSpectrogram spec={vocalSpec} view={specView} playheadSec={clipPlayhead} clipSec={VOCAL_CLIP_SEC} />
+            <div className="flex justify-center gap-2" dir="rtl">
+              <Button variant="toggle" size="sm" active={specView === 'voices'} onClick={() => setSpecView('voices')}>
+                בלי תופים
+              </Button>
+              <Button variant="toggle" size="sm" active={specView === 'all'} onClick={() => setSpecView('all')}>
+                הכול
+              </Button>
+            </div>
             <He className="text-2xs text-grid-muted">
-              שירה נראית כפסים אופקיים שמתנדנדים; תופים נראים כקו אנכי קצר. התמונה רק עוזרת — ההחלטה לפי מה ששומעים.
+              "בלי תופים" מחליש את הבעיטות והתופים. שירה נראית כפסים מקבילים שנוטים ומתנדנדים בזמן; אקורד או בס — קווים ישרים. התמונה רק עוזרת, ההחלטה לפי מה ששומעים.
             </He>
             <div className="flex justify-center">
-              <Button variant="ghost" onClick={() => ctl.tagPlayVocal(clip)}>
+              <Button variant="ghost" onClick={() => playVocalClip()}>
                 ▶ נגן 5 שניות (רווח)
               </Button>
             </div>
