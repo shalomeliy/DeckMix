@@ -11,6 +11,7 @@ import { Platter } from '@/app/components/Platter'
 import { TransitionPointsPanel } from '@/app/components/TransitionPointsPanel'
 import { Waveform } from '@/app/components/Waveform'
 import { WaveformOverview } from '@/app/components/WaveformOverview'
+import { VocalStrip } from '@/app/components/VocalStrip'
 
 const DECK_COLOR: Record<DeckId, string> = { A: 'var(--color-deck-a)', B: 'var(--color-deck-b)' }
 
@@ -39,6 +40,8 @@ export function Deck({ deckId }: { deckId: DeckId }) {
   const otherAnalysisFailed = useStore((s) => s.decks[otherDeckId].track?.analysisState === 'failed')
   const color = DECK_COLOR[deckId]
   const loaded = !!deck.track
+  // read from the library by id, not from the deck's snapshot of the track: the strip lands after the track was loaded
+  const trackVocal = useStore((s) => (deck.track ? s.library.tracks.find((t) => t.id === deck.track?.id)?.vocal : undefined))
   // Mix Assist (v0.4.6): relevant exactly when this deck is the one about to
   // be brought in — loaded, not already playing, while the other deck is the
   // reference it would join against. Neither deck playing, or this one
@@ -353,6 +356,7 @@ export function Deck({ deckId }: { deckId: DeckId }) {
         loopRange={deck.loopRange}
         color={color}
       />
+      {loaded && <VocalStrip vocal={trackVocal} durationSec={deck.durationSec} deckId={deckId} />}
 
       <Waveform
         deckId={deckId}

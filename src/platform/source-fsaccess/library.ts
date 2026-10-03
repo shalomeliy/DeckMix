@@ -3,6 +3,7 @@ import { genreFolderFor, matchGenre, parentFolderName } from '@/core/genres'
 import { detectedKeyFields } from '@/core/key-detect'
 import type { SavedPermission } from '@/core/library-boot'
 import type { Track } from '@/core/types'
+import type { VocalResult } from '@/core/sound/vocal-timeline'
 import { readTags } from '@/platform/source-fsaccess/tags'
 import { analysisCacheKey } from '@/core/analysis-cache'
 import { takeNextForAnalysis } from '@/core/analysis-order'
@@ -13,6 +14,8 @@ import { analyzerWorker } from '@/platform/analyzer-worker'
 import { analysisCache } from '@/platform/analyze-cache-idb/store'
 import { classicalEmbedder } from '@/platform/embed-classical'
 import { embeddingCache } from '@/platform/embed-cache-idb/store'
+import { getVocalStrip, putVocalStrip } from '@/platform/vocal-strip-idb/store'
+import { analyseVocalStrip } from '@/platform/vocal-strip-worker'
 
 const HANDLE_KEY = 'deckmix:libraryDir'
 
@@ -605,4 +608,53 @@ export async function queueEmbeddingBackfill(
   }
 
   await Promise.all(Array.from({ length: Math.min(concurrency, total) }, worker))
+}
+
+/**
+ * Fifth pass (v0.9.10b): the vocal strip, one track after another, after everything else has landed (the owner's choice 03/10: "in the
+ * background, song after song"). Same shape as `queueEmbeddingBackfill`, and for the same reasons: only tracks whose BPM analysis is done
+ * (so a `contentHash` exists), concurrency 1, nothing in the UI waits on it.
+ *
+ * Every outcome is written to the track — a finished strip, a named state (too short, silent, mono, Trance rule) or `failed` with the
+ * reason — so the library can count how many are done and how many failed instead of leaving a silent gap.
+ */
+export async function queueVocalStripBackfill(
+  tracks: Track[],
+  onUpdate: (patch: Map<string, Partial<Track>>, progress: AnalysisQueueProgress) => void,
+  opts: { signal?: { cancelled: boolean }; isUrgent?: (id: string) => boolean } = {},
+): Promise<void> {
+  const pending = tracks.filter((t) => t.analysisState === 'analyzed' && !t.vocal)
+  const total = pending.length
+  let done = 0
+  let failed = 0
+  while (pending.length > 0) {
+    if (opts.signal?.cancelled) return
+    // A song on a deck is the one the owner is about to look at: it goes first.
+    const urgent = opts.isUrgent ? pending.findIndex((t) => opts.isUrgent!(t.id)) : -1
+    const track = pending.splice(urgent >= 0 ? urgent : 0, 1)[0]
+    onUpdate(new Map([[track.id, { vocal: { state: 'analysing', timeline: null } }]]), { done, total, failed })
+    let result: VocalResult
+    try {
+      const contentHash = track.contentHash as string
+      const genre = track.genre ?? ''
+      const cached = await getVocalStrip(contentHash, genre)
+      if (cached) result = cached
+      else {
+        const data = await (await track.handle.getFile()).arrayBuffer()
+        const buffer = await engine.decode(data)
+        result = await analyseVocalStrip(pcmFromAudioBuffer(buffer), genre)
+        try {
+          await putVocalStrip(contentHash, genre, result)
+        } catch {
+          // Not stored: this session still shows the strip; the next one recomputes it.
+        }
+      }
+    } catch (err) {
+      result = { state: 'failed', timeline: null, note: err instanceof Error ? err.message : String(err) }
+    }
+    done++
+    if (result.state === 'failed') failed++
+    if (opts.signal?.cancelled) return
+    onUpdate(new Map([[track.id, { vocal: result }]]), { done, total, failed })
+  }
 }

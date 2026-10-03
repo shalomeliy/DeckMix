@@ -10,6 +10,7 @@ import {
   pickLibraryFolder,
   pickTrackFiles,
   queueEmbeddingBackfill,
+  queueVocalStripBackfill,
   queueLibraryAnalysis,
   readLibraryTags,
   restoreLibraryFolder,
@@ -180,6 +181,23 @@ export function Library() {
   const embeddingBackfillTotal = library.tracks.filter(
     (t) => t.analysisState === 'analyzed' && !t.embedding && t.embeddingState !== 'failed',
   ).length
+  // v0.9.10b: the vocal strip's own pass. Every analysed track ends in exactly one bucket — a strip, a named reason there is none, or a failure —
+  // and the badges below say how many are in each, so nothing is skipped without a count.
+  const vocalCounts = useMemo(() => {
+    let waiting = 0
+    let ready = 0
+    let failed = 0
+    const none = new Map<string, number>()
+    for (const t of library.tracks) {
+      if (t.analysisState !== 'analyzed') continue
+      const st = t.vocal?.state
+      if (!st || st === 'queued' || st === 'analysing') waiting++
+      else if (st === 'failed') failed++
+      else if (t.vocal?.timeline) ready++
+      else none.set(st, (none.get(st) ?? 0) + 1)
+    }
+    return { waiting, ready, failed, none }
+  }, [library.tracks])
   // lets a new scan abandon the tag pass of the one it replaced
   const tagScan = useRef({ cancelled: false })
 
@@ -681,6 +699,27 @@ export function Library() {
       },
       { signal: scan },
     )
+    // Then the vocal strip (v0.9.10b): last on purpose, it is the longest pass and nothing waits for it.
+    await queueVocalStripBackfill(
+      useStore.getState().library.tracks,
+      (patch) => {
+        if (scan.cancelled || patch.size === 0) return
+        const store = useStore.getState()
+        store.setLibrary({
+          tracks: store.library.tracks.map((t) => {
+            const p = patch.get(t.id)
+            return p ? { ...t, ...p } : t
+          }),
+        })
+      },
+      {
+        signal: scan,
+        isUrgent: (id) => {
+          const { decks } = useStore.getState()
+          return decks.A.track?.id === id || decks.B.track?.id === id
+        },
+      },
+    )
   }
 
   // "More like this" (M3): a seed track id in `similarTo` re-sorts/filters
@@ -1171,6 +1210,30 @@ export function Library() {
               title="Filling in similarity data for tracks analyzed before this feature existed — the rest of the app already works while this runs."
             >
               {embeddingBackfillTotal} analyzing for similarity
+            </span>
+          )}
+          {!library.scanning && vocalCounts.waiting > 0 && (
+            <span
+              className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-grid-muted"
+              title="פס השירה מחושב ברקע, שיר אחרי שיר. שיר שנמצא על דק מקבל עדיפות. האפליקציה עובדת כרגיל בינתיים."
+            >
+              שירה: {vocalCounts.ready} מתוך {vocalCounts.ready + vocalCounts.waiting} נותחו
+            </span>
+          )}
+          {!library.scanning && vocalCounts.failed > 0 && (
+            <span
+              className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-warn"
+              title="שירים שניתוח השירה שלהם נכשל. הם ממשיכים לנגן; הניתוח ינסה שוב בטעינה הבאה של הספרייה."
+            >
+              {vocalCounts.failed} שירים: ניתוח שירה נכשל
+            </span>
+          )}
+          {!library.scanning && vocalCounts.waiting === 0 && vocalCounts.none.size > 0 && (
+            <span
+              className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-grid-muted"
+              title="שירים בלי פס שירה, לפי הסיבה. טראנס: כלל ז'אנר, לא נמדד. קצר: מתחת ל-30 שניות. שקט: אין אודיו."
+            >
+              בלי פס שירה: {[...vocalCounts.none].map(([k, n]) => `${n} ${({ 'no-vocals': 'לפי כלל ז׳אנר', 'too-short': 'קצרים', silent: 'שקטים' } as Record<string, string>)[k] ?? k}`).join(' · ')}
             </span>
           )}
         </span>

@@ -1,3 +1,5 @@
+import type { VocalResult } from '@/core/sound/vocal-timeline'
+
 export type DeckId = 'A' | 'B'
 
 export interface Track {
@@ -70,6 +72,11 @@ export interface Track {
   embeddingState?: 'queued' | 'embedding' | 'embedded' | 'failed'
   /** Set only when `embeddingState` is `'failed'`. */
   embeddingError?: string
+  /**
+   * Where the track's vocal strip is (v0.9.10b): `queued`/`analysing` while the background pass works, then the finished timeline or the
+   * named reason there is none. Undefined = the pass has not looked at this track yet; never "no vocals".
+   */
+  vocal?: VocalResult
   /**
    * Free-text note the owner typed on this row (v0.8.0) — same shape as
    * `genre`: not written by the scan itself, filled in at merge time from
