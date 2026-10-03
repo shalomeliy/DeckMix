@@ -1,4 +1,5 @@
 import { pcmFromAudioBuffer } from '@/platform/analyzer-js/analyze'
+import { clipSpectrogram, type Spectrogram } from '@/core/sound/spectrogram'
 import { detectVocalTimeline } from '@/core/sound/vocal-presence'
 import { kickEnvelope } from '@/platform/analyzer-js/beat'
 import { barOneApplies, chooseBarGrid, detectBarOne } from '@/core/downbeat'
@@ -4607,6 +4608,30 @@ export function tagPlayVocal(clip: number) {
   const at = c.vocalClips.atSec[clip]
   if (at == null) return
   getTagPlayer().playClip(c.buffer, at, VOCAL_CLIP_SEC)
+}
+
+/**
+ * The picture of one vocal clip (v0.9.11), from the song already decoded for it — no second decode. `null` means there is no
+ * clip to draw (nothing open, or a clip number the song does not have); a failure inside the maths is named on screen
+ * and also returns `null`, and the screen says the picture is missing instead of leaving an empty box.
+ */
+export function tagClipSpectrogram(clip: number): Spectrogram | null {
+  const c = tagCurrent
+  const at = c?.vocalClips.atSec[clip]
+  if (!c || at == null) return null
+  try {
+    const b = c.buffer
+    const from = Math.max(0, Math.floor(at * b.sampleRate))
+    const to = Math.min(b.length, Math.floor((at + VOCAL_CLIP_SEC) * b.sampleRate))
+    const mono = new Float32Array(Math.max(0, to - from))
+    for (let ch = 0; ch < b.numberOfChannels; ch++) {
+      const d = b.getChannelData(ch)
+      for (let i = 0; i < mono.length; i++) mono[i] += d[from + i] / b.numberOfChannels
+    }
+    return clipSpectrogram(mono, b.sampleRate)
+  } catch (e) {
+    return tagFail(`התמונה של הקטע לא נוצרה (${e instanceof Error ? e.message : String(e)}). אפשר להחליט לפי השמיעה.`)
+  }
 }
 
 export function tagStop() {

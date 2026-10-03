@@ -22,6 +22,7 @@ import { BEATS_PER_BAR } from '@/core/beatgrid'
 import { useStore } from '@/app/state/store'
 import { Button } from '@/app/components/controls'
 import { TagWaveform } from '@/app/components/TagWaveform'
+import { ClipSpectrogram } from '@/app/components/ClipSpectrogram'
 
 /**
  * Tagging (v0.9.0): Shalom marks where the "1" is, and whether a short clip
@@ -377,6 +378,9 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
     }
   })
 
+  // The picture is for the clip on screen; `current` changes with every song and `clip` with every clip.
+  const vocalSpec = useMemo(() => (isVocal && current ? ctl.tagClipSpectrogram(clip) : null), [isVocal, current, clip])
+
   return (
     <div role="dialog" aria-modal="true" aria-label="Tagging" className="absolute inset-0 z-40 flex flex-col bg-surface-0/97 backdrop-blur-sm">
       <header className="flex shrink-0 items-center gap-3 border-b border-hairline px-4 py-2.5">
@@ -610,6 +614,10 @@ export function TaggingScreen({ onClose }: { onClose: () => void }) {
             <He className="text-2xs text-grid-muted">
               "יש שירה" = קול אנושי שרים או ראפ, שנשמע כקול מוביל או בולט. קול רקע ("אוווו"), קטעי קול חתוכים
               וקריאות קצרות של פחות משנייה = "אין שירה". אם לא ברור — "לא בטוח".
+            </He>
+            <ClipSpectrogram spec={vocalSpec} />
+            <He className="text-2xs text-grid-muted">
+              שירה נראית כפסים אופקיים שמתנדנדים; תופים נראים כקו אנכי קצר. התמונה רק עוזרת — ההחלטה לפי מה ששומעים.
             </He>
             <div className="flex justify-center">
               <Button variant="ghost" onClick={() => ctl.tagPlayVocal(clip)}>
