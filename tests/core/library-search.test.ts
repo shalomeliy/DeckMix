@@ -118,6 +118,17 @@ describe('matchesColumnQuery (v0.8.25)', () => {
     expect(matchesColumnQuery(am, 'key', '8B')).toBe(false)
   })
 
+  it('genre: the start of a word of the genre the column shows; no genre never matches', () => {
+    const house = track({ genre: 'House' })
+    const hop = track({ genre: 'Hip Hop' })
+    const none = track({})
+    expect(matchesColumnQuery(house, 'genre', 'hou')).toBe(true)
+    expect(matchesColumnQuery(house, 'genre', 'ous')).toBe(false) // the start of a word, not any substring
+    expect(matchesColumnQuery(hop, 'genre', 'hop')).toBe(true)
+    expect(matchesColumnQuery(none, 'genre', 'h')).toBe(false)
+    expect(matchesColumnQuery(track({ genre: 'House', title: 'Hou Se', artist: 'hou' }), 'genre', 'se')).toBe(false) // title/artist do not leak in
+  })
+
   it('an empty query matches everything, like the plain search', () => {
     expect(matchesColumnQuery(t({}), 'bpm', '  ')).toBe(true)
   })

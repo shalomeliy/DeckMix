@@ -1387,7 +1387,10 @@ export function Library() {
                     BPM, Key and Load are load-bearing and stay untouched.
                     v0.8.0 reclaimed 5% more (Title/Artist/BPM/Key/Time each
                     shrank a bit further) to make room for Note + Last played. */}
-                <Th className="w-[5%] text-left" sortKey="genre" activeSort={activeSort} onSort={handleSort}>Genre</Th>
+                <Th className="w-[5%] text-left" sortKey="genre" activeSort={activeSort} onSort={handleSort}
+                  searchColumn="genre" searchActive={searchColumn === 'genre'} onSearch={pickSearchColumn}>
+                  Genre
+                </Th>
                 <Th className="w-[3%] text-left">Type</Th>
                 <Th className="w-[8%] text-right tnum" sortKey="bpm" activeSort={activeSort} onSort={handleSort}
                   searchColumn="bpm" searchActive={searchColumn === 'bpm'} onSearch={pickSearchColumn}>

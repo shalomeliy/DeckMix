@@ -35,6 +35,7 @@ export function matchesQuery(track: Track, rawQuery: string): boolean {
  *
  * - Title / Artist: the typed text starts a word ("love" finds "Lovely Day"
  *   and "Endless Love", not "Glove").
+ * - Genre: like Title and Artist — the typed text starts a word of the genre ("hou" finds House, "hop" finds Hip Hop).
  * - BPM: narrows from the first digit typed, the way the owner types it
  *   (24/09: "12" showed nothing, because it meant 11.5–12.5). The typed
  *   digits are the start of the BPM rounded to a whole number: "1" is
@@ -44,11 +45,12 @@ export function matchesQuery(track: Track, rawQuery: string): boolean {
  *   only that key. The two spellings can't collide (a Camelot code always
  *   starts with a digit, a note name never does).
  */
-export type SearchColumn = 'title' | 'artist' | 'bpm' | 'key'
+export type SearchColumn = 'title' | 'artist' | 'genre' | 'bpm' | 'key'
 
 export const SEARCH_COLUMN_LABEL: Record<SearchColumn, string> = {
   title: 'Title',
   artist: 'Artist',
+  genre: 'Genre',
   bpm: 'BPM',
   key: 'Key',
 }
@@ -59,6 +61,8 @@ export function columnSearchHint(column: SearchColumn): string {
       return 'start of a word in the title'
     case 'artist':
       return 'start of a word in the artist'
+    case 'genre':
+      return 'start of a word in the genre — hou → House'
     case 'bpm':
       return '12 → 120–129, 128 → 128, or 120-130'
     case 'key':
@@ -92,6 +96,9 @@ export function matchesColumnQuery(track: Track, column: SearchColumn, rawQuery:
       return startsAWord(track.title ?? track.name, q)
     case 'artist':
       return startsAWord(track.artist, q)
+    case 'genre':
+      // the genre the column shows (a manual pick over the folder name); a track with none never matches a genre search
+      return startsAWord(track.genre, q)
     case 'bpm': {
       if (track.bpm == null) return false
       const range = parseBpmRange(q)
