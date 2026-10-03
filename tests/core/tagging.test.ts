@@ -381,6 +381,8 @@ describe('v0.9.11 blind re-check', () => {
     expect(rest(a)).toHaveLength(REVIEW_CONSISTENCY_CLIPS)
     expect(rest(a)).toEqual(rest(b))
     expect(rest(a).some((k) => k.includes('Trance'))).toBe(false)
+    // spread over many songs, not a few songs' three clips each
+    expect(a.entries.length).toBeGreaterThanOrEqual(14)
   })
 
   it('puts the dance songs first and groups a song’s clips together', () => {

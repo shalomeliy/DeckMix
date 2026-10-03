@@ -4806,7 +4806,7 @@ export async function tagExport(): Promise<void> {
     const r = await saveTagsJson(tagsExportText(all.bar, all.mark, all.vocal, Date.now(), all.decide, all.fresh, all.vocalReview), `deckmix-tags-${day}.json`)
     if (r === 'ok')
       setNotice({
-        text: `Exported ${all.mark.length} waveform "1" tags, ${all.bar.length} earlier 4-button "1" tags, ${all.decide.length} tie-break answers, ${all.fresh.length} new-round answers and ${all.vocal.length} vocal tags.`,
+        text: `Exported ${all.mark.length} waveform "1" tags, ${all.bar.length} earlier 4-button "1" tags, ${all.decide.length} tie-break answers, ${all.fresh.length} new-round answers and ${all.vocal.length} vocal tags and ${all.vocalReview.length} vocal re-check answers.`,
         tone: 'info',
         source: 'tagging',
       })

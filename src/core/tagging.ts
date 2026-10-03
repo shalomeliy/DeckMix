@@ -459,8 +459,10 @@ export function pickVocalReview(tags: readonly VocalTag[], libraryIds: ReadonlyS
     }
     ;(isDance ? dance : rest).push(clip)
   }
+  // The clip number goes FIRST in the key: FNV mixes the end of a string least, so `hash:clip` ordered a song's three clips next to
+  // each other (20 clips came from 8 songs), and a self-consistency sample from 8 songs is a sample of 8 songs.
   const byKey = (a: ReviewClip, b: ReviewClip) =>
-    stableKey(`${a.contentHash}:${a.clipIndex}`) - stableKey(`${b.contentHash}:${b.clipIndex}`) || `${a.trackId}${a.clipIndex}`.localeCompare(`${b.trackId}${b.clipIndex}`)
+    stableKey(`${a.clipIndex}:${a.contentHash}`) - stableKey(`${b.clipIndex}:${b.contentHash}`) || `${a.trackId}${a.clipIndex}`.localeCompare(`${b.trackId}${b.clipIndex}`)
   const chosen = [...dance.sort(byKey), ...rest.sort(byKey).slice(0, REVIEW_CONSISTENCY_CLIPS)]
   const clipsByTrack = new Map<string, ReviewClip[]>()
   const order: string[] = []
