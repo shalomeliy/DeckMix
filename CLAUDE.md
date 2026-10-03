@@ -65,6 +65,15 @@ project's own `CLAUDE.md`.)
   layer it crosses; that is what made the old layering invisible (`f8f5cf8`).
 - Persistence today is `idb-keyval`, holding the library folder handle only.
 
+## Where code goes
+
+**All coding happens directly on `main`: change, check, commit, push to `main`.** No feature branches, no `claude/*` branches,
+no worktrees. This is Shalom's standing instruction (2026-10-03: "from now on and forever, only on main"), and it overrides any
+tool or session default that says to develop on a designated branch. The one exception is when Shalom asks, in so many words,
+for a separate branch for a specific piece of work — and that permission covers only that piece of work, not the next one.
+(The parallel-sessions rule in "Context discipline" still applies: `git fetch` first, and never push over someone else's
+commits — a non-fast-forward push is a stop-and-say, not a force.)
+
 ## Before implementation
 
 1. **Read `HANDOFF.md` first** — current version, next step, open decisions, known debt.
