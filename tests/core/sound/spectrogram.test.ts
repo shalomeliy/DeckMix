@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clipSpectrogram, SPEC_ROWS, spectrogramRowHz } from '@/core/sound/spectrogram.ts'
+import { clipSpectrogram, markFromFractions, SPEC_ROWS, spectrogramRowHz } from '@/core/sound/spectrogram.ts'
 
 const SR = 22050
 const sine = (hz: number, amp: number, sec = 5) => Float32Array.from({ length: SR * sec }, (_, i) => amp * Math.sin((2 * Math.PI * hz * i) / SR))
@@ -84,3 +84,32 @@ describe('clipSpectrogram', () => {
   })
 })
 
+describe('markFromFractions (regions the owner draws on the picture)', () => {
+  it('turns a drag into clip seconds and Hz on the same log scale as the axis', () => {
+    // top of the picture = 4000 Hz, bottom = 100 Hz; a drag from 20% to 60% of the width
+    const m = markFromFractions(0.2, 0, 0.6, 1, 5)!
+    expect(m.t0).toBeCloseTo(1, 9)
+    expect(m.t1).toBeCloseTo(3, 9)
+    expect(m.hz0).toBeCloseTo(100, 6)
+    expect(m.hz1).toBeCloseTo(4000, 6)
+    // the 1 kHz tick sits at (1 - log(10)/log(40)) of the height from the top
+    const y1k = 1 - Math.log(10) / Math.log(40)
+    const around1k = markFromFractions(0, y1k - 0.1, 1, y1k + 0.1, 5)!
+    expect(Math.sqrt(around1k.hz0 * around1k.hz1)).toBeCloseTo(1000, 0)
+  })
+  it('does not care which corner the drag starts from', () => {
+    expect(markFromFractions(0.6, 1, 0.2, 0, 5)).toEqual(markFromFractions(0.2, 0, 0.6, 1, 5))
+  })
+  it('clamps a drag that leaves the picture', () => {
+    const m = markFromFractions(-0.5, -0.5, 1.5, 1.5, 5)!
+    expect(m.t0).toBe(0)
+    expect(m.t1).toBe(5)
+    expect(m.hz0).toBeCloseTo(100, 6)
+    expect(m.hz1).toBeCloseTo(4000, 6)
+  })
+  it('ignores a click or a twitch', () => {
+    expect(markFromFractions(0.5, 0.5, 0.5, 0.5, 5)).toBeNull()
+    expect(markFromFractions(0.5, 0.2, 0.51, 0.8, 5)).toBeNull() // 0.05 s wide
+    expect(markFromFractions(0.2, 0.5, 0.8, 0.5, 5)).toBeNull() // no height
+  })
+})

@@ -51,6 +51,7 @@ const STORAGE_KEYS = [
   'deckmix:tag:fresh:',
   'deckmix:tag:vocal:',
   // v0.9.11: the blind re-check of already-answered vocal clips; new in this version, so nothing old to migrate.
+  'deckmix:tag:vocalmarks:', // v0.9.11: regions the owner drew on a clip's spectrogram
   'deckmix:tag:vocalreview:',
   'deckmix:tempo2:',
   'deckmix:trackMeta',

@@ -140,3 +140,34 @@ function withoutDrums(mag: Float32Array, cols: number): Float32Array {
   }
   return out
 }
+
+/**
+ * A region the owner drew on the picture to say "I hear a voice here" (v0.9.11), in clip seconds and Hz — not pixels, so it
+ * means the same thing at any screen size and can be read by any later script.
+ */
+export interface SpectrogramMark {
+  t0: number
+  t1: number
+  hz0: number
+  hz1: number
+}
+
+/** Smallest region kept: a click or a twitch of the mouse is not a mark. */
+const MIN_MARK_SEC = 0.1
+const MIN_MARK_OCTAVES = 0.15
+
+/**
+ * A drag from one point of the picture to another, as fractions of its width (0 = clip start) and height (0 = TOP = highest pitch),
+ * to a mark. Same log-pitch mapping as the rows and the axis ticks, so a mark drawn on the 1 kHz line says 1000 Hz.
+ * `null` when the drag is too small to mean anything.
+ */
+export function markFromFractions(fx0: number, fy0: number, fx1: number, fy1: number, clipSec: number): SpectrogramMark | null {
+  const cl = (v: number) => Math.min(1, Math.max(0, v))
+  const hzAt = (fy: number) => SPEC_MIN_HZ * Math.pow(SPEC_MAX_HZ / SPEC_MIN_HZ, 1 - cl(fy))
+  const t0 = cl(Math.min(fx0, fx1)) * clipSec
+  const t1 = cl(Math.max(fx0, fx1)) * clipSec
+  const hz0 = hzAt(Math.max(fy0, fy1))
+  const hz1 = hzAt(Math.min(fy0, fy1))
+  if (t1 - t0 < MIN_MARK_SEC || Math.log2(hz1 / hz0) < MIN_MARK_OCTAVES) return null
+  return { t0, t1, hz0, hz1 }
+}

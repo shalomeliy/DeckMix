@@ -406,6 +406,29 @@ export const REVIEW_CONSISTENCY_CLIPS = 20
 
 export type ReviewGroup = 'dance' | 'consistency'
 
+/**
+ * What the owner drew on a clip's spectrogram (v0.9.11): where he HEARS a voice, and whether he hears one he cannot see in the picture.
+ * Its own record, keyed by clip and independent of any yes/no answer — a mark can be made before answering, in either round, and
+ * answering never touches it.
+ */
+export const VOCAL_MARKS_SCHEMA = 1
+export interface VocalMarksTag {
+  schema: number
+  contentHash: string
+  trackId: string
+  name: string
+  genre: string
+  clipIndex: number
+  atSec: number
+  /** Regions in clip seconds and Hz. */
+  marks: { t0: number; t1: number; hz0: number; hz1: number }[]
+  /** "I hear a voice here but it does not show in the picture" — the answer to whether the picture helps at all. */
+  hearsButNoPicture: boolean
+  /** Which picture was on screen when marking. */
+  view: 'voices' | 'all'
+  taggedAt: number
+}
+
 export interface ReviewClip {
   trackId: string
   genre: string
@@ -593,7 +616,8 @@ export function tagsExportText(
   decide: readonly MarkTag[] = [],
   fresh: readonly MarkTag[] = [],
   vocalReview: readonly VocalReviewTag[] = [],
+  vocalMarks: readonly VocalMarksTag[] = [],
 ): string {
   // `bar` keeps its name and shape, so a v0.9.0 script finds its list — as long as it does not insist on schema 1.
-  return JSON.stringify({ app: 'DeckMix', kind: 'tags', schema: MARK_SCHEMA, exportedAt, mark, bar, decide, fresh, vocal, vocalReview }, null, 2)
+  return JSON.stringify({ app: 'DeckMix', kind: 'tags', schema: MARK_SCHEMA, exportedAt, mark, bar, decide, fresh, vocal, vocalReview, vocalMarks }, null, 2)
 }

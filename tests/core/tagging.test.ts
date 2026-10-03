@@ -426,4 +426,11 @@ describe('v0.9.11 blind re-check', () => {
     expect(out.vocalReview).toHaveLength(1)
     expect(out.vocal).toEqual([])
   })
+
+  it('exports the drawn voice regions under their own key', () => {
+    const out = JSON.parse(tagsExportText([], [], [], 1, [], [], [], [{ schema: 1, contentHash: 'h', trackId: 't', name: 'n', genre: 'House', clipIndex: 2, atSec: 9, marks: [{ t0: 1, t1: 2, hz0: 300, hz1: 900 }], hearsButNoPicture: true, view: 'voices', taggedAt: 1 }]))
+    expect(out.vocalMarks).toHaveLength(1)
+    expect(out.vocalMarks[0].marks[0].hz1).toBe(900)
+    expect(out.vocal).toEqual([])
+  })
 })

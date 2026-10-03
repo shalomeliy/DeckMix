@@ -79,6 +79,7 @@ import {
   PLAY_BARS,
   PLAY_LEAD_BARS,
   VOCAL_CLIP_SEC,
+  VOCAL_MARKS_SCHEMA,
   VOCAL_REVIEW_SCHEMA,
   VOCAL_SCHEMA,
   dropSpots,
@@ -90,11 +91,12 @@ import {
   type MarkTag,
   type ReviewClip,
   type SampleEntry,
+  type VocalMarksTag,
   type VocalAnswer,
   type VocalPick,
   vocalRound2Clips,
 } from '@/core/tagging'
-import { getAllTags, putDecideTag, putFreshTag, putMarkTag, putVocalReviewTag, putVocalTag, type AllTags } from '@/platform/tagging-idb/store'
+import { getAllTags, putDecideTag, putFreshTag, putMarkTag, putVocalMarksTag, putVocalReviewTag, putVocalTag, type AllTags } from '@/platform/tagging-idb/store'
 import { TagPlayer } from '@/platform/audio-webaudio/tag-player'
 import {
   hasMixEntryNear,
@@ -4771,6 +4773,39 @@ export async function tagSaveVocal(shownHash: string, answer: VocalAnswer, clip:
   }
 }
 
+/** The regions the owner drew on one clip's picture, saved whole (the list as it is now, empty included) beside — never inside — his answer. */
+export async function tagSaveVocalMarks(
+  shownHash: string,
+  clipIndex: number,
+  clip: number,
+  marks: VocalMarksTag['marks'],
+  hearsButNoPicture: boolean,
+  view: 'voices' | 'all',
+): Promise<boolean> {
+  const c = tagTarget(shownHash)
+  const at = c?.vocalClips.atSec[clip]
+  if (!c || at == null) return false
+  try {
+    await putVocalMarksTag({
+      schema: VOCAL_MARKS_SCHEMA,
+      contentHash: c.contentHash,
+      trackId: c.entry.trackId,
+      name: c.name,
+      genre: c.entry.genre,
+      clipIndex,
+      atSec: at,
+      marks: [...marks],
+      hearsButNoPicture,
+      view,
+      taggedAt: Date.now(),
+    })
+    return true
+  } catch (err) {
+    useStore.getState().setNotice({ text: `Voice regions for "${c.name}" were not saved: ${err instanceof Error ? err.message : String(err)}`, tone: 'warn', source: 'tagging' })
+    return false
+  }
+}
+
 /** The re-check answer for one clip of the song on screen — beside the first pass, never over it. */
 export async function tagSaveVocalReview(shownHash: string, answer: VocalAnswer, rc: ReviewClip): Promise<boolean> {
   const c = tagTarget(shownHash)
@@ -4811,10 +4846,10 @@ export async function tagExport(): Promise<void> {
   const { setNotice } = useStore.getState()
   const day = new Date().toISOString().slice(0, 10)
   try {
-    const r = await saveTagsJson(tagsExportText(all.bar, all.mark, all.vocal, Date.now(), all.decide, all.fresh, all.vocalReview), `deckmix-tags-${day}.json`)
+    const r = await saveTagsJson(tagsExportText(all.bar, all.mark, all.vocal, Date.now(), all.decide, all.fresh, all.vocalReview, all.vocalMarks), `deckmix-tags-${day}.json`)
     if (r === 'ok')
       setNotice({
-        text: `Exported ${all.mark.length} waveform "1" tags, ${all.bar.length} earlier 4-button "1" tags, ${all.decide.length} tie-break answers, ${all.fresh.length} new-round answers and ${all.vocal.length} vocal tags and ${all.vocalReview.length} vocal re-check answers.`,
+        text: `Exported ${all.mark.length} waveform "1" tags, ${all.bar.length} earlier 4-button "1" tags, ${all.decide.length} tie-break answers, ${all.fresh.length} new-round answers and ${all.vocal.length} vocal tags and ${all.vocalReview.length} vocal re-check answers and ${all.vocalMarks.length} clips with voice regions drawn.`,
         tone: 'info',
         source: 'tagging',
       })

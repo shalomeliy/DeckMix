@@ -6,12 +6,14 @@
  * detector said at the time, which a correction does not.
  */
 import { getMany, keys, set } from 'idb-keyval'
-import type { BarTag, MarkTag, VocalReviewTag, VocalTag } from '@/core/tagging'
+import type { BarTag, MarkTag, VocalMarksTag, VocalReviewTag, VocalTag } from '@/core/tagging'
 
 const BAR_PREFIX = 'deckmix:tag:bar:'
 const VOCAL_PREFIX = 'deckmix:tag:vocal:'
 /** v0.9.11's blind re-check of already-answered clips. NOT under VOCAL_PREFIX: `startsWith` would otherwise read these as first-pass answers, and the key would overwrite them. */
 const VOCAL_REVIEW_PREFIX = 'deckmix:tag:vocalreview:'
+/** v0.9.11's regions the owner drew on a clip's picture. Its own prefix for the same reason as the re-check's. */
+const VOCAL_MARKS_PREFIX = 'deckmix:tag:vocalmarks:'
 /** v0.9.1's waveform-marker tags. Their own prefix, so re-tagging a song never overwrites its v0.9.0 answer — the two are compared. */
 const MARK_PREFIX = 'deckmix:tag:mark:'
 /** v0.12.8's blind tie-break on the songs whose two answers disagree. Its own prefix, so the two it settles stay as they were. */
@@ -26,6 +28,7 @@ export interface AllTags {
   fresh: MarkTag[]
   vocal: VocalTag[]
   vocalReview: VocalReviewTag[]
+  vocalMarks: VocalMarksTag[]
 }
 
 /** Throws on failure, like `putGridCorrection` — the caller says so on screen. */
@@ -50,6 +53,10 @@ export async function putVocalReviewTag(tag: VocalReviewTag): Promise<void> {
   await set(`${VOCAL_REVIEW_PREFIX}${tag.contentHash}:${tag.clipIndex}`, tag)
 }
 
+export async function putVocalMarksTag(tag: VocalMarksTag): Promise<void> {
+  await set(`${VOCAL_MARKS_PREFIX}${tag.contentHash}:${tag.clipIndex}`, tag)
+}
+
 /** Every stored tag. Throws on a blocked IndexedDB: an empty list there would read as "nothing tagged yet". */
 export async function getAllTags(): Promise<AllTags> {
   // Keys first, then only the tag values: this store is shared with the
@@ -62,13 +69,15 @@ export async function getAllTags(): Promise<AllTags> {
   const freshKeys = all.filter((k) => k.startsWith(FRESH_PREFIX))
   const vocalKeys = all.filter((k) => k.startsWith(VOCAL_PREFIX))
   const reviewKeys = all.filter((k) => k.startsWith(VOCAL_REVIEW_PREFIX))
-  const [bar, mark, decide, fresh, vocal, vocalReview] = await Promise.all([
+  const marksKeys = all.filter((k) => k.startsWith(VOCAL_MARKS_PREFIX))
+  const [bar, mark, decide, fresh, vocal, vocalReview, vocalMarks] = await Promise.all([
     getMany<BarTag>(barKeys),
     getMany<MarkTag>(markKeys),
     getMany<MarkTag>(decideKeys),
     getMany<MarkTag>(freshKeys),
     getMany<VocalTag>(vocalKeys),
     getMany<VocalReviewTag>(reviewKeys),
+    getMany<VocalMarksTag>(marksKeys),
   ])
   // A key deleted between the two reads comes back undefined — not a tag.
   return {
@@ -78,5 +87,6 @@ export async function getAllTags(): Promise<AllTags> {
     fresh: fresh.filter((t): t is MarkTag => t != null),
     vocal: vocal.filter((t): t is VocalTag => t != null),
     vocalReview: vocalReview.filter((t): t is VocalReviewTag => t != null),
+    vocalMarks: vocalMarks.filter((t): t is VocalMarksTag => t != null),
   }
 }
