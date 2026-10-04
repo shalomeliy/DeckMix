@@ -1,0 +1,41 @@
+/**
+ * The frozen vocal model's per-half-second probabilities for every song in a vocal-marks file, next to the owner's marks for that song.
+ *   node --import ./scripts/train/alias-register.mjs scripts/train/dump-strip-probs.mjs <marks.json> <music dir> <out.json> [--rows]
+ * Decodes with ffmpeg (44.1 kHz stereo float), finds each marked song by its name in <music dir>. A song it cannot find or decode is
+ * printed by name and counted — never dropped silently.
+ */
+import fs from 'node:fs'
+import path from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { cellFeatureRows } from '../../src/core/sound/cell-features.ts'
+import { cellProbabilities, parseVocalModel } from '../../src/core/sound/vocal-model.ts'
+import { vocalFeatures } from '../../src/core/sound/vocal-presence.ts'
+
+const [marksPath, musicDir, outPath, rowsFlag] = process.argv.slice(2)
+const withRows = rowsFlag === '--rows' // the 28 feature numbers per cell too, for fitting on his marks
+const marks = JSON.parse(fs.readFileSync(marksPath, 'utf8'))
+const model = parseVocalModel(JSON.parse(fs.readFileSync(new URL('../../src/core/sound/vocal-model.json', import.meta.url), 'utf8')))
+const files = []
+const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { if (e.isDirectory()) walk(path.join(d, e.name)); else files.push(path.join(d, e.name)) } }
+walk(musicDir)
+const SR = 44100
+const out = []
+const missing = []
+for (const m of marks.marks) {
+  const f = files.find((p) => path.parse(p).name === m.name)
+  if (!f) { missing.push(m.name); continue }
+  const raw = execFileSync('ffmpeg', ['-v', 'error', '-i', f, '-f', 'f32le', '-ac', '2', '-ar', String(SR), '-'], { maxBuffer: 1 << 30 })
+  const inter = new Float32Array(raw.buffer, raw.byteOffset, raw.byteLength / 4)
+  const n = inter.length / 2
+  const L = new Float32Array(n), R = new Float32Array(n)
+  for (let i = 0; i < n; i++) { L[i] = inter[2 * i]; R[i] = inter[2 * i + 1] }
+  const r = vocalFeatures({ channels: [L, R], sampleRate: SR })
+  if ('result' in r) { missing.push(`${m.name} (${r.result.state})`); continue }
+  const durationSec = n / SR
+  const rows = cellFeatureRows(r.features, durationSec)
+  const { probs, genreKnown } = cellProbabilities(rows, m.genre ?? "", model)
+  out.push({ name: m.name, genre: m.genre ?? '', durationSec, genreKnown, regions: m.regions, probs: Array.from(probs, (p) => +p.toFixed(4)), ...(withRows ? { rows: rows.map((r) => r.map((v) => +v.toFixed(5))) } : {}) })
+  console.log(`${m.name}: ${durationSec.toFixed(1)} s, ${probs.length} cells`)
+}
+fs.writeFileSync(outPath, JSON.stringify(out))
+console.log(`${out.length} of ${marks.marks.length} songs written${missing.length ? `; not found or not analysed: ${missing.join(', ')}` : ''}`)

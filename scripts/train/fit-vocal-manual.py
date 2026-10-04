@@ -1,4 +1,6 @@
 """
+NOTE (04/10): "scored like the app" below means the strip BEFORE 04/10 (0.40/0.15 with an unsure band). The app now uses
+core/sound/vocal-strip.ts's hysteresis + the owner's 2 s rule; calibrate-strip-marks.py scores that.
 v0.9.10b: does training on the owner's HAND-MADE vocal marks (whole songs) beat the model he has now?
     .venv-train/Scripts/python scripts/train/fit-vocal-manual.py
 Reads %TEMP%/synth-cells.json, %TEMP%/real-cells.json (the 5 s clips, sealed ones already dropped) and %TEMP%/manual-cells.json

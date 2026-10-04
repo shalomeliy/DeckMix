@@ -93,11 +93,11 @@ describe('vocalCountdown', () => {
     const t = tl('0'.repeat(10) + '2'.repeat(10) + '0'.repeat(40))
     expect(vocalCountdown(t, 0, dur)).toEqual({ phase: 'before', startsInSec: 5, endsInSec: 10 })
   })
-  it('a gap shorter than the merge threshold does not split the voice; a longer one does', () => {
-    expect(COUNTDOWN_MERGE_GAP_SEC).toBe(3)
+  it("the owner's rule: a gap of 2 s or less does not split the voice; a longer one does", () => {
+    expect(COUNTDOWN_MERGE_GAP_SEC).toBe(2)
     const short = tl('1'.repeat(10) + '0'.repeat(4) + '1'.repeat(10) + '0'.repeat(36)) // 2 s gap
     expect(vocalCountdown(short, 2, dur)).toEqual({ phase: 'in', startsInSec: 0, endsInSec: 10 })
-    const long = tl('1'.repeat(10) + '0'.repeat(8) + '1'.repeat(10) + '0'.repeat(32)) // 4 s gap
+    const long = tl('1'.repeat(10) + '0'.repeat(5) + '1'.repeat(10) + '0'.repeat(35)) // 2.5 s gap
     expect(vocalCountdown(long, 2, dur)).toEqual({ phase: 'in', startsInSec: 0, endsInSec: 3 })
   })
 })

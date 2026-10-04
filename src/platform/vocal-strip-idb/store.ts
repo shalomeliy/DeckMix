@@ -7,7 +7,7 @@
 import { del, get, set } from 'idb-keyval'
 import type { VocalResult } from '@/core/sound/vocal-timeline'
 
-export const VOCAL_STRIP_VERSION = 1
+export const VOCAL_STRIP_VERSION = 2
 const KEY_PREFIX = 'deckmix:vocalStrip:'
 
 interface Stored {

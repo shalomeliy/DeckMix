@@ -1,4 +1,6 @@
 """
+NOTE (04/10): this describes the strip BEFORE 04/10 (0.40/0.15 with an unsure band). The app now uses core/sound/vocal-strip.ts's
+hysteresis + the owner's 2 s rule; calibrate-strip-marks.py is the script for that.
 v0.9.10b: how the vocal strip's two thresholds behave, measured on songs the model never saw.
     .venv-train/Scripts/python scripts/train/calibrate-strip.py
 Reads %TEMP%/synth-cells.json and %TEMP%/real-cells.json (sealed clips already dropped by export-real-cells.mjs; this script cannot open them).

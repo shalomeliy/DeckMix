@@ -2,9 +2,11 @@
  * The vocal timeline contract (v0.9.10): what the analysis returns, what is
  * stored, and how a strip is drawn from it. Pure.
  *
- * Three cell values, never two: `unsure` is an answer of its own. A strip that
- * drew "unsure" as "no vocals" would teach the owner to trust an empty lane at
- * a mix point it knows nothing about — the failure the spec guards hardest.
+ * Three cell values: `unsure` is an answer of its own. A strip that drew
+ * "unsure" as "no vocals" would teach the owner to trust an empty lane at a mix
+ * point it knows nothing about. (Since 04/10 the computer's strip in
+ * vocal-strip.ts gives only vocal/none, by the owner's rule; `unsure` remains
+ * for the classic path and for a hand-marking draft with no guess under it.)
  */
 
 /** 0 = no vocals, 1 = vocals, 2 = the cues are weak or disagree. */
@@ -132,10 +134,12 @@ export function dashedFraction(t: VocalTimeline): number {
 }
 
 /**
- * A voice-free gap shorter than this does not count as one for the countdown: a breath between two lines is not a place to mix, and a timer that
- * said "vocal ends in 0:01" and then "starts in 0:01" would be noise. The strip itself still draws every gap.
+ * A voice-free gap this long or shorter does not count as one for the countdown: a breath between two lines is not a place to mix, and a timer
+ * that said "vocal ends in 0:01" and then "starts in 0:01" would be noise. It is the owner's own rule (03/10): a stop of two seconds or less is
+ * still singing, only a longer one is "no vocals" — the same number vocal-strip.ts fills gaps with (it was 3 here before he said it).
+ * The strip itself still draws every gap he marked by hand.
  */
-export const COUNTDOWN_MERGE_GAP_SEC = 3
+export const COUNTDOWN_MERGE_GAP_SEC = 2
 
 export interface VocalCountdown {
   /** `in` = a voice is playing now; `before` = one comes later; `after` = none is left; `none` = none anywhere in the track. */
@@ -162,7 +166,7 @@ export function vocalCountdown(t: VocalTimeline, positionSec: number, durationSe
       const from = start * VOCAL_CELL_SEC
       const to = Math.min(durationSec > 0 ? durationSec : Infinity, i * VOCAL_CELL_SEC)
       const last = runs[runs.length - 1]
-      if (last && from - last.to < COUNTDOWN_MERGE_GAP_SEC) last.to = to
+      if (last && from - last.to <= COUNTDOWN_MERGE_GAP_SEC) last.to = to
       else runs.push({ from, to })
       start = -1
     }

@@ -49,8 +49,9 @@ function countdownText(c: VocalCountdown): string {
 
 /**
  * The vocal strip (v0.9.10b): a lane under the whole-track overview, same width, so a point on the overview and the same point on the lane are one
- * vertical line — with its own playhead and played shade, like the overview's. Three looks, never two: solid = voice, dashed = unsure, empty = no
- * voice. Unsure is NEVER drawn like "no voice". Display only: it suggests no mix and moves nothing.
+ * vertical line — with its own playhead and played shade, like the overview's. Solid = voice, empty = no voice, dashed = unsure. Since 04/10 the
+ * computer's strip only gives the first two (the owner's rule, core/sound/vocal-strip.ts); dashed is left for a hand-marking draft with no
+ * computer guess under it. Unsure is NEVER drawn like "no voice". Display only: it suggests no mix and moves nothing.
  *
  * Under it, the two timers the owner asked for (03/10): when the voice starts and when it ends. They count "unsure" as voice (core: `vocalCountdown`).
  * When there is no strip, the line says why in words instead of staying blank (the project's "never skip silently").
