@@ -139,19 +139,26 @@ export function barLineAtOrBeforeSec(sec: number, grid: BeatGrid): number {
   return nextBarLineSec(sec, grid) - (60 / grid.bpm) * BEATS_PER_BAR
 }
 
+/** The yellow (bar) line at or after `sec`: the first one the playhead has not yet passed. A press exactly on a line keeps that line. */
+export function barLineAtOrAfterSec(sec: number, grid: BeatGrid): number {
+  const before = barLineAtOrBeforeSec(sec, grid)
+  return sec - before < 1e-6 ? before : before + (60 / grid.bpm) * BEATS_PER_BAR
+}
+
 /**
  * Where two presses put a mark (the owner, 04/10: "take the last yellow line that passed instead of half a second back" — vocals come in and out
- * on the bars, and the song's bars are about to be fixed, so the marks will sit right on them). With a beat grid BOTH presses go back to the
- * yellow line before them, the "ended" one too, exactly as he asked. Two presses inside one bar would land on the same line and make a mark of
- * nothing, so the end goes to the NEXT line instead (that bar becomes the mark); the same for presses before the first line, where the start is
- * clamped to the song's start. No grid (nothing to snap to) → the old half second before / after.
+ * on the bars, and the song's bars are about to be fixed, so the marks will sit right on them). With a beat grid "started" goes back to the
+ * yellow line before the press and "ended" FORWARD to the line after it. The first version took "ended" back too, as first asked; that cut off
+ * the last part of a voice that ends mid-bar, and he chose the line after (same day). Presses before the first line, where the start is clamped
+ * to the song's start, can still leave a sliver: then the end goes to the next line after that. No grid (nothing to snap to) → the old half
+ * second before / after.
  */
 export function markedSpan(startPressSec: number, endPressSec: number, grid: BeatGrid | null): { fromSec: number; toSec: number } {
   const lo = Math.min(startPressSec, endPressSec)
   const hi = Math.max(startPressSec, endPressSec)
   if (!usableGrid(grid)) return { fromSec: lo - MARK_LEAD_SEC, toSec: hi + MARK_TAIL_SEC }
   const fromSec = Math.max(0, barLineAtOrBeforeSec(lo, grid))
-  const toSec = barLineAtOrBeforeSec(hi, grid)
+  const toSec = barLineAtOrAfterSec(hi, grid)
   return { fromSec, toSec: toSec - fromSec < MIN_REGION_SEC ? nextBarLineSec(hi, grid) : toSec }
 }
 

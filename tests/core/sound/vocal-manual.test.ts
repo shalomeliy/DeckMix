@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MARK_LEAD_SEC, MARK_TAIL_SEC, MIN_REGION_SEC, addMarkedRegion, barLineAtOrBeforeSec, drawnBarGrid, markedSpan, addRegion, effectiveTimeline, manualLabels, moveRegionEdge, removeLastRegion, undoLastEnd } from '@/core/sound/vocal-manual.ts'
+import { MARK_LEAD_SEC, MARK_TAIL_SEC, MIN_REGION_SEC, addMarkedRegion, barLineAtOrAfterSec, barLineAtOrBeforeSec, drawnBarGrid, markedSpan, addRegion, effectiveTimeline, manualLabels, moveRegionEdge, removeLastRegion, undoLastEnd } from '@/core/sound/vocal-manual.ts'
 import { CELL_NONE, CELL_UNSURE, CELL_VOCAL, type VocalTimeline } from '@/core/sound/vocal-timeline.ts'
 
 const base = (s: string): VocalTimeline => ({ cells: Uint8Array.from([...s].map(Number)), stereo: true })
@@ -105,22 +105,27 @@ describe('snap to the yellow bar line before the press (the owner, 04/10)', () =
     expect(barLineAtOrBeforeSec(6.29, GRID)).toBeCloseTo(4.3, 9)
     expect(barLineAtOrBeforeSec(0.1, GRID)).toBeCloseTo(-1.7, 9)
   })
-  it('both "started" and "ended" go back to the previous yellow line, not half a second', () => {
+  it('the line at or after a time: the next one, a press on a line keeps it', () => {
+    expect(barLineAtOrAfterSec(5, GRID)).toBeCloseTo(6.3, 9)
+    expect(barLineAtOrAfterSec(6.3, GRID)).toBeCloseTo(6.3, 9)
+    expect(barLineAtOrAfterSec(4.31, GRID)).toBeCloseTo(6.3, 9)
+  })
+  it('"started" goes back to the yellow line before the press and "ended" forward to the one after it — a voice ending mid-bar is kept', () => {
     const r = addMarkedRegion([], 5.1, 11.9, 60, 'voice', GRID)
     expect(r.ok).toBe(true)
     const m = r.ok ? r.regions[0]! : null
     expect(m?.fromSec).toBeCloseTo(4.3, 9)
-    expect(m?.toSec).toBeCloseTo(10.3, 9)
+    expect(m?.toSec).toBeCloseTo(12.3, 9)
     expect(m?.kind).toBeUndefined()
   })
   it('a black mark snaps the same way, and seeking back between the presses still works', () => {
     const r = addMarkedRegion([], 11.9, 5.1, 60, 'none', GRID)
     const m = r.ok ? r.regions[0]! : null
     expect(m?.fromSec).toBeCloseTo(4.3, 9)
-    expect(m?.toSec).toBeCloseTo(10.3, 9)
+    expect(m?.toSec).toBeCloseTo(12.3, 9)
     expect(m?.kind).toBe('none')
   })
-  it('two presses inside one bar make that whole bar, not a mark of nothing', () => {
+  it('two presses inside one bar make that whole bar', () => {
     const s = markedSpan(4.5, 5.5, GRID)
     expect(s.fromSec).toBeCloseTo(4.3, 9)
     expect(s.toSec).toBeCloseTo(6.3, 9)
@@ -154,7 +159,7 @@ describe('snap to the yellow bar line before the press (the owner, 04/10)', () =
     expect(u.reopenStartPressSec).toBeCloseTo(4.3, 9)
     const again = addMarkedRegion(u.regions, u.reopenStartPressSec ?? 0, 14.4, 60, 'voice', GRID)
     expect(again.ok && again.regions[0]!.fromSec).toBeCloseTo(4.3, 9)
-    expect(again.ok && again.regions[0]!.toSec).toBeCloseTo(14.3, 9)
+    expect(again.ok && again.regions[0]!.toSec).toBeCloseTo(16.3, 9)
   })
 })
 
