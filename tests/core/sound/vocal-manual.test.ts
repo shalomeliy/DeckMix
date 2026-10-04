@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MARK_LEAD_SEC, MARK_TAIL_SEC, MIN_REGION_SEC, addMarkedRegion, addRegion, effectiveTimeline, manualLabels, moveRegionEdge, removeLastRegion, undoLastEnd } from '@/core/sound/vocal-manual.ts'
+import { MARK_LEAD_SEC, MARK_TAIL_SEC, MIN_REGION_SEC, addMarkedRegion, barLineAtOrBeforeSec, drawnBarGrid, markedSpan, addRegion, effectiveTimeline, manualLabels, moveRegionEdge, removeLastRegion, undoLastEnd } from '@/core/sound/vocal-manual.ts'
 import { CELL_NONE, CELL_UNSURE, CELL_VOCAL, type VocalTimeline } from '@/core/sound/vocal-timeline.ts'
 
 const base = (s: string): VocalTimeline => ({ cells: Uint8Array.from([...s].map(Number)), stereo: true })
@@ -93,6 +93,68 @@ describe('reaction-time lead and tail', () => {
   it('two accidental presses are still refused — the widening does not rescue a mis-click', () => {
     expect(addMarkedRegion([], 5, 5.2, 20)).toEqual({ ok: false, reason: 'too-short' })
     expect(addMarkedRegion([], NaN, 5, 20)).toEqual({ ok: false, reason: 'bad-time' })
+  })
+})
+
+describe('snap to the yellow bar line before the press (the owner, 04/10)', () => {
+  // 120 BPM → a bar is 2 s; the first yellow line at 0.3 s, then 2.3, 4.3, 6.3 …
+  const GRID = { bpm: 120, offsetSec: 0.3 }
+  it('the line at or before a time: one already passed, a press on a line keeps it, before the first line goes below 0', () => {
+    expect(barLineAtOrBeforeSec(5, GRID)).toBeCloseTo(4.3, 9)
+    expect(barLineAtOrBeforeSec(4.3, GRID)).toBeCloseTo(4.3, 9)
+    expect(barLineAtOrBeforeSec(6.29, GRID)).toBeCloseTo(4.3, 9)
+    expect(barLineAtOrBeforeSec(0.1, GRID)).toBeCloseTo(-1.7, 9)
+  })
+  it('both "started" and "ended" go back to the previous yellow line, not half a second', () => {
+    const r = addMarkedRegion([], 5.1, 11.9, 60, 'voice', GRID)
+    expect(r.ok).toBe(true)
+    const m = r.ok ? r.regions[0]! : null
+    expect(m?.fromSec).toBeCloseTo(4.3, 9)
+    expect(m?.toSec).toBeCloseTo(10.3, 9)
+    expect(m?.kind).toBeUndefined()
+  })
+  it('a black mark snaps the same way, and seeking back between the presses still works', () => {
+    const r = addMarkedRegion([], 11.9, 5.1, 60, 'none', GRID)
+    const m = r.ok ? r.regions[0]! : null
+    expect(m?.fromSec).toBeCloseTo(4.3, 9)
+    expect(m?.toSec).toBeCloseTo(10.3, 9)
+    expect(m?.kind).toBe('none')
+  })
+  it('two presses inside one bar make that whole bar, not a mark of nothing', () => {
+    const s = markedSpan(4.5, 5.5, GRID)
+    expect(s.fromSec).toBeCloseTo(4.3, 9)
+    expect(s.toSec).toBeCloseTo(6.3, 9)
+  })
+  it('a start before the first line is clamped to the song start; a mis-click is still refused before any snapping', () => {
+    const r = addMarkedRegion([], 0.1, 3, 60, 'voice', GRID)
+    expect(r.ok && r.regions[0]!.fromSec).toBe(0)
+    expect(addMarkedRegion([], 5, 5.2, 60, 'voice', GRID)).toEqual({ ok: false, reason: 'too-short' })
+  })
+  it('presses before the first line that would clamp to a sliver end on the next line instead of being refused as too short', () => {
+    const r = addMarkedRegion([], 0.05, 0.95, 60, 'voice', GRID)
+    expect(r.ok && r.regions[0]!.fromSec).toBe(0)
+    expect(r.ok && r.regions[0]!.toSec).toBeCloseTo(2.3, 9)
+  })
+  it('snaps to the lines the waveform draws: a BPM with no detected grid draws (and snaps to) lines from 0; no BPM → none', () => {
+    expect(drawnBarGrid({ bpm: 120, beatGrid: null })).toEqual({ bpm: 120, offsetSec: 0 })
+    expect(drawnBarGrid({ bpm: 120, beatGrid: GRID })).toEqual(GRID)
+    expect(drawnBarGrid({ bpm: null, beatGrid: null })).toBeNull()
+  })
+  it('undo of a mark saved with the old half-second lead takes the lead back off (it is not on a line)', () => {
+    const u = undoLastEnd([{ fromSec: 4.0, toSec: 9 }], GRID)
+    expect(u.reopenStartPressSec).toBeCloseTo(4.5, 9)
+  })
+  it('no grid, or a broken one → the old half second', () => {
+    expect(markedSpan(4, 7, null)).toEqual({ fromSec: 4 - MARK_LEAD_SEC, toSec: 7 + MARK_TAIL_SEC })
+    expect(markedSpan(4, 7, { bpm: 0, offsetSec: 0 })).toEqual({ fromSec: 4 - MARK_LEAD_SEC, toSec: 7 + MARK_TAIL_SEC })
+  })
+  it('undo of "ended" reopens on the snapped start, and pressing "ended" again gives the same start', () => {
+    const made = addMarkedRegion([], 5.1, 11.9, 60, 'voice', GRID)
+    const u = undoLastEnd(made.ok ? made.regions : [], GRID)
+    expect(u.reopenStartPressSec).toBeCloseTo(4.3, 9)
+    const again = addMarkedRegion(u.regions, u.reopenStartPressSec ?? 0, 14.4, 60, 'voice', GRID)
+    expect(again.ok && again.regions[0]!.fromSec).toBeCloseTo(4.3, 9)
+    expect(again.ok && again.regions[0]!.toSec).toBeCloseTo(14.3, 9)
   })
 })
 

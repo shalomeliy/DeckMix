@@ -46,7 +46,7 @@ import {
 import { crossfadeProgress, exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
 import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
 import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
-import { addMarkedRegion, moveRegionEdge, undoLastEnd, type VocalManualTag } from '@/core/sound/vocal-manual'
+import { addMarkedRegion, drawnBarGrid, moveRegionEdge, undoLastEnd, type VocalManualTag } from '@/core/sound/vocal-manual'
 import { deleteVocalManual, getAllVocalManual, getVocalManual, putVocalManual } from '@/platform/vocal-manual-idb/store'
 import { deleteVocalStrip } from '@/platform/vocal-strip-idb/store'
 import { parseVocalMarksFile, vocalMarksExportText } from '@/core/sound/vocal-manual-file'
@@ -3940,7 +3940,7 @@ export async function toggleVocalMark(deckId: DeckId, kind: 'voice' | 'none' = '
     vocalNotice('סימון השירה שהיה פתוח היה של שיר אחר ולא נשמר.')
     return
   }
-  const added = addMarkedRegion(tag.regions, open.startSec, deck.positionSec, deck.durationSec, open.kind ?? 'voice')
+  const added = addMarkedRegion(tag.regions, open.startSec, deck.positionSec, deck.durationSec, open.kind ?? 'voice', drawnBarGrid(deck))
   if (!added.ok) {
     vocalNotice(added.reason === 'too-short' ? 'הסימון קצר מחצי שנייה ולא נשמר.' : 'הסימון לא נשמר: זמן לא תקין.')
     return
@@ -3961,7 +3961,7 @@ export async function undoVocalMark(deckId: DeckId): Promise<void> {
     vocalNotice('אין סימון לבטל בשיר הזה.', 'info')
     return
   }
-  const undone = undoLastEnd(tag.regions)
+  const undone = undoLastEnd(tag.regions, drawnBarGrid(s.decks[deckId]))
   await saveVocalManual({ ...tag, regions: undone.regions, updatedAt: Date.now() })
   // back to "started, not yet ended": a wrong "ended" is fixed by pressing it again where it belongs
   if (undone.reopenStartPressSec != null) s.setVocalMarkOpen(deckId, { contentHash: tag.contentHash, startSec: undone.reopenStartPressSec, kind: undone.reopenKind })

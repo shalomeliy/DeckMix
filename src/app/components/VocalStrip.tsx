@@ -2,8 +2,9 @@ import { useMemo, useRef, useState } from 'react'
 import { HintIcon } from '@/app/components/controls'
 import { useSettings } from '@/app/hooks/useSettings'
 import { useStore } from '@/app/state/store'
+import { useShallow } from 'zustand/react/shallow'
 import * as ctl from '@/controls'
-import { MARK_LEAD_SEC, MARK_TAIL_SEC, effectiveTimeline } from '@/core/sound/vocal-manual'
+import { MIN_REGION_SEC, drawnBarGrid, effectiveTimeline, markedSpan } from '@/core/sound/vocal-manual'
 import {
   CELL_NONE,
   CELL_VOCAL,
@@ -68,10 +69,17 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
   const noVoice = !!contentHash && noVoiceFor === contentHash
   // His marks win over the model's guess (core: `effectiveTimeline`). The open one is drawn up to the play position, in whole seconds like the timers.
   const secBucket = Math.floor(positionSec)
+  // The open mark is drawn where "ended" would put it now (the same yellow-line snap, core: `markedSpan`); on a grid it grows a bar at a time.
+  // Under MIN_REGION_SEC "ended" would be refused, so until then only the stretch between the press and the playhead is drawn, not a whole bar.
+  const grid = useStore(useShallow((s) => drawnBarGrid(s.decks[deckId])))
+  const draftEnd = grid ? positionSec : secBucket
+  const draft = !open ? null : Math.abs(draftEnd - open.startSec) < MIN_REGION_SEC ? { fromSec: Math.min(open.startSec, draftEnd), toSec: Math.max(open.startSec, draftEnd) } : markedSpan(open.startSec, draftEnd, grid)
+  const draftFrom = draft?.fromSec ?? 0
+  const draftTo = draft?.toSec ?? 0
   // The timers read the half-second cells of everything together: his marks over the guess, or only his marks once the song is finished.
   const timeline = useMemo(
-    () => effectiveTimeline(vocal?.timeline ?? null, tag, durationSec, open ? { fromSec: open.startSec - MARK_LEAD_SEC, toSec: secBucket + MARK_TAIL_SEC, kind: open.kind } : null),
-    [vocal?.timeline, tag, durationSec, open, secBucket],
+    () => effectiveTimeline(vocal?.timeline ?? null, tag, durationSec, open ? { fromSec: draftFrom, toSec: draftTo, kind: open.kind } : null),
+    [vocal?.timeline, tag, durationSec, open, draftFrom, draftTo],
   )
   // What is drawn: the model's guess (unless the song is finished — then it has no say), and over it his marks at their EXACT times, not rounded
   // out to half seconds like the cells the timers read. The mark still open grows with the play position.
@@ -82,7 +90,7 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
   const segs = useMemo(() => (displayTimeline && durationSec > 0 ? vocalStripSegments(displayTimeline, durationSec, 600, 2) : []), [displayTimeline, durationSec])
   const bars = [
     ...(tag?.regions ?? []).map((r, i) => ({ ...r, index: i as number | null })),
-    ...(open ? [{ fromSec: Math.min(open.startSec, secBucket) - MARK_LEAD_SEC, toSec: Math.max(open.startSec, secBucket) + MARK_TAIL_SEC, kind: open.kind, index: null as number | null }] : []),
+    ...(open ? [{ fromSec: draftFrom, toSec: draftTo, kind: open.kind, index: null as number | null }] : []),
   ]
   // Dragging an edge (the owner, 03/10: resize the purple bars with the mouse). Only when marking is on and no mark is open.
   const laneRef = useRef<HTMLDivElement>(null)

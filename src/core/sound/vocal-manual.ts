@@ -6,7 +6,9 @@
  * `regions` is the list in the order he made them, NOT a merged set, so "undo last" undoes what he last did even when it overlapped an older mark.
  * Overlaps are merged only when a timeline is built.
  */
+import { BEATS_PER_BAR, nextBarLineSec } from '@/core/beatgrid'
 import { CELL_NONE, CELL_UNSURE, CELL_VOCAL, VOCAL_CELL_SEC, type VocalTimeline } from '@/core/sound/vocal-timeline'
+import type { BeatGrid } from '@/core/types'
 
 export interface VocalRegion {
   fromSec: number
@@ -58,13 +60,20 @@ export function removeLastRegion(regions: readonly VocalRegion[]): VocalRegion[]
 /**
  * Undo of the last "ended" press: the mark goes back to being OPEN, at the press that started it, so a wrong "ended" is fixed by pressing "ended"
  * again at the right moment — not by marking the whole stretch from scratch. (Cancelling the open mark is the second step, for a wrong "started".)
- * The start press is recovered from the stored mark by taking the lead back off; a mark that was clamped at the start of the song gives a press
+ * Without a grid the start press is recovered from the stored mark by taking the lead back off; a mark that was clamped at the start of the song gives a press
  * a little later than the real one, which only matters to the draft until he presses "ended".
  */
-export function undoLastEnd(regions: readonly VocalRegion[]): { regions: VocalRegion[]; reopenStartPressSec: number | null; reopenKind: 'voice' | 'none' } {
+export function undoLastEnd(
+  regions: readonly VocalRegion[],
+  grid: BeatGrid | null = null,
+): { regions: VocalRegion[]; reopenStartPressSec: number | null; reopenKind: 'voice' | 'none' } {
   const last = regions[regions.length - 1]
   if (!last) return { regions: [], reopenStartPressSec: null, reopenKind: 'voice' }
-  return { regions: regions.slice(0, -1), reopenStartPressSec: last.fromSec + MARK_LEAD_SEC, reopenKind: last.kind === 'none' ? 'none' : 'voice' }
+  // On a grid a mark made since 04/10 starts ON a yellow line, and a press on a line snaps to that same line, so the start itself is the press to
+  // reopen at. A mark that is not on a line was made with the old half-second lead (or on another grid): take the lead back off, as before.
+  const onLine = usableGrid(grid) && Math.abs(barLineAtOrBeforeSec(last.fromSec + 1e-6, grid) - last.fromSec) < 1e-6
+  const reopen = onLine ? last.fromSec : last.fromSec + MARK_LEAD_SEC
+  return { regions: regions.slice(0, -1), reopenStartPressSec: reopen, reopenKind: last.kind === 'none' ? 'none' : 'voice' }
 }
 
 /**
@@ -107,21 +116,61 @@ export function manualLabels(regions: readonly VocalRegion[], durationSec: numbe
 /**
  * Reaction time (the owner, 03/10): from hearing the voice start to pressing the button takes a moment, so "started" is placed this much BEFORE
  * the press and "ended" this much AFTER it (his wording). It was a full second first; he measured it on his own marks the same day and said it
- * was too much, so it is half a second. Fixed, not a setting.
+ * was too much, so it is half a second. Fixed, not a setting. Since 04/10 this is only the fallback for a song with no beat grid — see `markedSpan`.
  */
 export const MARK_LEAD_SEC = 0.5
 export const MARK_TAIL_SEC = 0.5
 
+function usableGrid(grid: BeatGrid | null): grid is BeatGrid {
+  return !!grid && Number.isFinite(grid.bpm) && grid.bpm > 0 && Number.isFinite(grid.offsetSec)
+}
+
 /**
- * The mark that two presses make. The too-short check is on the PRESSES, before the widening: two accidental presses a moment apart must still be
- * refused, not turned into a two-second vocal by the lead and tail.
+ * The yellow lines exactly as the deck's waveform draws them (`Deck.tsx` → `Waveform.tsx`: `bpm` with the grid's offset, 0 when there is no grid
+ * yet). The snap must use the same lines he sees: a tag BPM with no detected grid still draws yellow lines, so it is snapped to as well. Only no
+ * BPM at all (no lines on screen) falls back to the half second.
  */
-export function addMarkedRegion(regions: readonly VocalRegion[], startPressSec: number, endPressSec: number, durationSec: number, kind: 'voice' | 'none' = 'voice'): AddRegionResult {
-  if (![startPressSec, endPressSec].every(Number.isFinite)) return { ok: false, reason: 'bad-time' }
+export function drawnBarGrid(deck: { bpm: number | null; beatGrid: BeatGrid | null }): BeatGrid | null {
+  return deck.bpm && deck.bpm > 0 ? { bpm: deck.bpm, offsetSec: deck.beatGrid?.offsetSec ?? 0 } : null
+}
+
+/** The yellow (bar) line at or before `sec`: the last one the playhead has already passed. A press exactly on a line keeps that line. */
+export function barLineAtOrBeforeSec(sec: number, grid: BeatGrid): number {
+  return nextBarLineSec(sec, grid) - (60 / grid.bpm) * BEATS_PER_BAR
+}
+
+/**
+ * Where two presses put a mark (the owner, 04/10: "take the last yellow line that passed instead of half a second back" — vocals come in and out
+ * on the bars, and the song's bars are about to be fixed, so the marks will sit right on them). With a beat grid BOTH presses go back to the
+ * yellow line before them, the "ended" one too, exactly as he asked. Two presses inside one bar would land on the same line and make a mark of
+ * nothing, so the end goes to the NEXT line instead (that bar becomes the mark); the same for presses before the first line, where the start is
+ * clamped to the song's start. No grid (nothing to snap to) → the old half second before / after.
+ */
+export function markedSpan(startPressSec: number, endPressSec: number, grid: BeatGrid | null): { fromSec: number; toSec: number } {
   const lo = Math.min(startPressSec, endPressSec)
   const hi = Math.max(startPressSec, endPressSec)
-  if (hi - lo < MIN_REGION_SEC) return { ok: false, reason: 'too-short' }
-  return addRegion(regions, lo - MARK_LEAD_SEC, hi + MARK_TAIL_SEC, durationSec, kind)
+  if (!usableGrid(grid)) return { fromSec: lo - MARK_LEAD_SEC, toSec: hi + MARK_TAIL_SEC }
+  const fromSec = Math.max(0, barLineAtOrBeforeSec(lo, grid))
+  const toSec = barLineAtOrBeforeSec(hi, grid)
+  return { fromSec, toSec: toSec - fromSec < MIN_REGION_SEC ? nextBarLineSec(hi, grid) : toSec }
+}
+
+/**
+ * The mark that two presses make. The too-short check is on the PRESSES, before the snapping: two accidental presses a moment apart must still be
+ * refused, not turned into a whole bar of vocal.
+ */
+export function addMarkedRegion(
+  regions: readonly VocalRegion[],
+  startPressSec: number,
+  endPressSec: number,
+  durationSec: number,
+  kind: 'voice' | 'none' = 'voice',
+  grid: BeatGrid | null = null,
+): AddRegionResult {
+  if (![startPressSec, endPressSec].every(Number.isFinite)) return { ok: false, reason: 'bad-time' }
+  if (Math.abs(endPressSec - startPressSec) < MIN_REGION_SEC) return { ok: false, reason: 'too-short' }
+  const span = markedSpan(startPressSec, endPressSec, grid)
+  return addRegion(regions, span.fromSec, span.toSec, durationSec, kind)
 }
 
 /**
