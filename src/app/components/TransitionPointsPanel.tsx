@@ -8,7 +8,7 @@ import {
 } from '@/core/structure'
 import type { BeatGrid, DeckId } from '@/core/types'
 import { TRANSITION_CROSSFADE_SEC } from '@/core/constants'
-import { HANDOFF_NEEDS_STRAIGHT_SYNC, MIN_BARS_AFTER_MIX, bVoiceStarts, enoughSongAfterMix, handoffEndInB, planHandoff, plainTransitionClashSec, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
+import { HANDOFF_NEEDS_STRAIGHT_SYNC, MAX_FADE_BARS, MIN_BARS_AFTER_MIX, bVoiceStarts, enoughSongAfterMix, handoffEndInB, planHandoff, plainTransitionClashSec, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
 import { Pill } from '@/app/components/controls'
 
 /**
@@ -112,8 +112,9 @@ function handoffRows(other: HandoffSide, otherPosSec: number, self: HandoffSide)
   for (const voice of bVoiceStarts(self)) {
     const plan = planHandoff(other, otherPosSec, self, voice)
     if (!plan) continue
-    // v0.9.23: a voice this close to the song's end would leave B over before the mix is — counted on screen, not offered.
-    if (enoughSongAfterMix(self.durationSec, self.grid, handoffEndInB(plan, self.grid))) rows.push({ voice, plan })
+    // v0.9.23: a voice this close to the song's end would leave B over before the mix is — counted on screen, not offered. Judged on the
+    // longest fade, not this plan's: the click re-plans from the live playhead (`startVocalHandoffAt`), and that plan's fade can be longer.
+    if (enoughSongAfterMix(self.durationSec, self.grid, handoffEndInB({ ...plan, fadeBars: MAX_FADE_BARS }, self.grid))) rows.push({ voice, plan })
     else tooLate++
   }
   return { rows: rows.sort((x, y) => x.plan.handoffSec - y.plan.handoffSec), tooLate }
@@ -146,9 +147,12 @@ export function TransitionPointsPanel({
   // library-wide `analysisState`, which can already read "analyzed" from an
   // earlier background pass while this specific deck load is still running.
   // v0.9.23: an energy point B enters at must leave B playing well past the crossfade — the late ones are counted below, not offered.
+  // The crossfade is 8 s of the room's time, not of B's: with SYNC, B covers more of its own seconds when it is sped up, and the entry
+  // moves up to half a bar to land on a bar line. Half again of the fade and one bar of B cover both; the 24-bar margin is the real rule.
   const { candidates, lateCandidates } = useMemo(() => {
     const all = bands ? findTransitionCandidates(bands, durationSec, beatGrid) : []
-    const ok = all.filter((c) => enoughSongAfterMix(durationSec, beatGrid, c.sec + TRANSITION_CROSSFADE_SEC))
+    const pad = TRANSITION_CROSSFADE_SEC * 1.5 + (beatGrid ? (240 / beatGrid.bpm) : 2)
+    const ok = all.filter((c) => enoughSongAfterMix(durationSec, beatGrid, c.sec + pad))
     return { candidates: ok, lateCandidates: all.length - ok.length }
   }, [bands, durationSec, beatGrid])
 

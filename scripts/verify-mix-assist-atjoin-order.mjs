@@ -201,7 +201,7 @@ await scenario('both confirmed', { bConfirmed: true }, (result, errors) => {
   if (result.error) return
   // Since v0.9.22 Mix Assist also reports on the key (these synthetic songs have none, and that is said — never skipped silently). What
   // this case pins is unchanged: with both grids confirmed, no grid warning and nothing else from the transition itself.
-  ok('both confirmed: no notice raised by the transition', result.notice === null || result.notice.source === 'keylock', JSON.stringify(result.notice))
+  ok('both confirmed: no notice raised by the transition', result.notice === null || (result.notice.source === 'keylock' && /^Key sync לא זז: לשיר ב.* אין סולם\.$/.test(result.notice.text)), JSON.stringify(result.notice))
   ok('both confirmed: deck B ends up playing', result.bPlaying === true, String(result.bPlaying))
   ok('both confirmed: no console errors', errors.length === 0, errors[0])
 })
