@@ -7,6 +7,8 @@ import {
   handoffProgress,
   handoffMidKnobs,
   HANDOFF_MID_CUT,
+  nextPhraseStartSec,
+  PHRASE_BARS,
   planHandoff,
   plainTransitionClashSec,
   type HandoffPlan,
@@ -60,15 +62,27 @@ describe('planHandoff', () => {
     expect(p).toMatchObject({ joinSec: 44, entrySec: 16, handoffSec: 60, bVoiceSec: 32, fadeEndSec: 76, runwayBars: 8, fadeBars: 8, onVoiceEnd: true })
     expect(voiceOverVoice(A, B, p)).toBe(false)
   })
-  it('shortens the runway before it moves the handoff', () => {
-    const p = planHandoff(A, 50, B, bv)!
-    expect(p).toMatchObject({ joinSec: 52, handoffSec: 60, runwayBars: MIN_RUNWAY_BARS, onVoiceEnd: true })
-    expect(voiceOverVoice(A, B, p)).toBe(false)
+  // v0.9.17, the owner: "you mixed right away instead of waiting for the right moment". At 50 the old planner cut the runway to 4 bars and
+  // joined on the very next bar (52); at 55 it slid the handoff into A's quiet and joined at 56 — one bar after the click, both times.
+  it('never shortens the runway to fit the playhead: too late for this voice end → the next one, a whole phrase ahead', () => {
+    for (const pos of [50, 55]) {
+      const p = planHandoff(A, pos, B, bv)!
+      expect(p).toMatchObject({ joinSec: 84, handoffSec: 100, runwayBars: PHRASE_BARS, onVoiceEnd: true })
+      expect(voiceOverVoice(A, B, p)).toBe(false)
+    }
   })
-  it('A already quiet: hands over later in the same quiet, if A can still go down there', () => {
-    const p = planHandoff(A, 55, B, bv)!
-    expect(p).toMatchObject({ joinSec: 56, handoffSec: 64, fadeEndSec: 80, onVoiceEnd: false })
-    expect(voiceOverVoice(A, B, p)).toBe(false)
+  it('A still quiet for long: the handoff can be a whole phrase after its voice end — never at a bar in between', () => {
+    const a = side(160, [[20, 40], [120, 150]])
+    const p = planHandoff(a, 35, B, bv)!
+    expect(p).toMatchObject({ joinSec: 40, handoffSec: 56, runwayBars: PHRASE_BARS, onVoiceEnd: false })
+    expect(voiceOverVoice(a, B, p)).toBe(false)
+  })
+  it('B with less than a phrase of quiet before its voice: half a phrase of runway, still not cut to the playhead', () => {
+    const b6 = side(120, [[2, 12], [24, 90]]) // quiet 12–24: 6 bars before the voice at 24
+    const [v] = bVoiceStarts(b6)
+    expect(v.quietBars).toBe(6)
+    expect(planHandoff(A, 30, b6, v)).toMatchObject({ joinSec: 52, handoffSec: 60, runwayBars: MIN_RUNWAY_BARS })
+    expect(planHandoff(A, 53, b6, v)).toMatchObject({ joinSec: 92, handoffSec: 100 })
   })
   it('not enough quiet left for the fade → the next time A stops singing', () => {
     const p = planHandoff(A, 66, B, bv)!
@@ -107,6 +121,38 @@ describe('planHandoff', () => {
     expect(onLine(p.joinSec, 0.7) && onLine(p.handoffSec, 0.7) && onLine(p.entrySec, 1.1) && onLine(p.bVoiceSec, 1.1)).toBe(true)
     expect(p.handoffSec).toBeCloseTo(60.7)
     expect(voiceOverVoice(a, b, p)).toBe(false)
+  })
+})
+
+describe('nextPhraseStartSec (v0.9.17)', () => {
+  const g = { bpm: 120, offsetSec: 0 } // a phrase of 8 bars is 16 s
+  const t = timeline(120, [[20, 60], [80, 100]])
+  it('counts whole phrases from where the voice last started or stopped', () => {
+    expect(nextPhraseStartSec(g, t, 120, 30)).toEqual({ sec: 36, by: 'voice' })
+    expect(nextPhraseStartSec(g, t, 120, 36)).toEqual({ sec: 52, by: 'voice' }) // on the line itself → the next one
+    expect(nextPhraseStartSec(g, t, 120, 61)).toEqual({ sec: 76, by: 'voice' })
+  })
+  it('the next voice change is a phrase start too, even when the verse is not a multiple of 8 bars', () => {
+    expect(nextPhraseStartSec(g, t, 120, 70)).toEqual({ sec: 76, by: 'voice' })
+    expect(nextPhraseStartSec(g, t, 120, 77)).toEqual({ sec: 80, by: 'voice' }) // 92 would be past the voice coming back at 80
+  })
+  it('in the intro, counted back from the first voice', () => {
+    expect(nextPhraseStartSec(g, t, 120, 1)).toEqual({ sec: 4, by: 'voice' })
+  })
+  it('no voice to count from: from the first yellow line, and it says so', () => {
+    expect(nextPhraseStartSec({ bpm: 120, offsetSec: 1 }, null, 120, 20)).toEqual({ sec: 33, by: 'grid' })
+    expect(nextPhraseStartSec({ bpm: 120, offsetSec: 1 }, timeline(120, []), 120, 20)).toEqual({ sec: 33, by: 'grid' })
+  })
+  it("no phrase start left before A's last bars: the next yellow line, said as such — never a wait past the song's end (review, 05/10)", () => {
+    expect(nextPhraseStartSec({ bpm: 120, offsetSec: 0 }, null, 120, 113)).toEqual({ sec: 114, by: 'end' })
+    expect(nextPhraseStartSec(g, timeline(120, [[20, 100]]), 120, 107)).toEqual({ sec: 108, by: 'end' })
+    // From 101 the next phrase start is 116, with under 4 bars of A left after it: the next bar. From 85 the voice end at 100 still leaves 10.
+    expect(nextPhraseStartSec(g, timeline(120, [[20, 100]]), 120, 101)).toEqual({ sec: 102, by: 'end' })
+    expect(nextPhraseStartSec(g, timeline(120, [[20, 100]]), 120, 85)).toEqual({ sec: 100, by: 'voice' })
+  })
+  it('a voice that starts mid-bar counts from the yellow line before it, and one that stops mid-bar from the line after', () => {
+    expect(nextPhraseStartSec(g, timeline(120, [[21, 61]]), 120, 30)).toEqual({ sec: 36, by: 'voice' })
+    expect(nextPhraseStartSec(g, timeline(120, [[21, 61]]), 120, 63)).toEqual({ sec: 78, by: 'voice' })
   })
 })
 
@@ -165,6 +211,15 @@ describe('handoffProgress', () => {
     expect(handoffProgress(p, 60)).toBeCloseTo(0.5)
     expect(handoffProgress(p, 68)).toBeCloseTo(0.75)
     expect(handoffProgress(p, 80)).toBe(1)
+  })
+})
+
+describe('plainTransitionClashSec, joined at a phrase start (v0.9.17)', () => {
+  it('reads the voices from where B really joins, not from the next bar', () => {
+    // From 62, B entering at 26: on the next bar (64) B's voice (32) arrives at A 70 — A is quiet until 80, clean. Joined at the phrase start
+    // (76) the same voice arrives at A 82, with A singing again from 80: a clash the next-bar reading would have missed.
+    expect(plainTransitionClashSec(A, 62, B, 26, 8)).toBeNull()
+    expect(plainTransitionClashSec(A, 62, B, 26, 8, 1, 76)).toBeCloseTo(81)
   })
 })
 

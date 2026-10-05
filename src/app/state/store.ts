@@ -232,6 +232,8 @@ export interface AppState {
     waitingUntilSec: number | null
     /** v0.9.15: a vocal handoff — the second (on the outgoing deck) where its voice ends and the incoming one's starts. `null` otherwise. */
     handoffSec: number | null
+    /** v0.9.17: `waitingUntilSec` is a phrase start of the outgoing deck (an energy point or a Mix-in pad), not an excellent pair's exit second. */
+    onPhrase: boolean
   } | null
 
   /**

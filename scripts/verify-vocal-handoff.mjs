@@ -10,6 +10,8 @@
  *    at the fade end; the transition finishes and A is paused;
  *  - sampled every 50 ms through the whole run: never a voice over a voice while both decks are audible (gain > 5% on both sides);
  *  - today's plain transition from B's 30 s point is flagged "שירה על שירה" in the panel;
+ *  - v0.9.17: neither kind of row comes in right away — a handoff joins a whole phrase before A's voice end, an energy point on A's next
+ *    phrase start (counted from where A's voice starts), and the row says when; a Mix-in pad the same; in A's last bars, the next bar, said;
  *  - nothing throws.
  * Content of a real strip is not judged here; the planner's numbers on his real marks are scripts/train/measure-handoff-marks.mjs.
  */
@@ -84,7 +86,9 @@ const setup = await page.evaluate(async ({ A_VOICE, B_VOICE }) => {
     const t = s.decks[deck].track
     s.setVocalManual(t.contentHash, { schema: 1, contentHash: t.contentHash, trackId: t.id, name: t.name, genre: 'House', finished: true, updatedAt: Date.now(), regions: voice.map(([fromSec, toSec]) => ({ fromSec, toSec })) })
   }
-  ctl.seekDeck('A', 12)
+  // From 6, not 12 (v0.9.17): the join is a whole phrase before A's voice end at 30, so the click has to come before that line for this run
+  // to show B waiting for it rather than for A's next voice end.
+  ctl.seekDeck('A', 6)
   ctl.play('A')
   await new Promise((r) => setTimeout(r, 1500))
   const d = useStore.getState().decks
@@ -121,6 +125,7 @@ if (setup.error) {
   ok("today's plain transition from B's 30 s point would put a voice over a voice", clashFlag != null, `first clash at A ${clashFlag?.toFixed(1)} s`)
 
   if (rowCount >= 1) {
+    const clickA = await page.evaluate(async () => (await window.mod('/src/app/state/store.ts')).useStore.getState().decks.A.positionSec)
     await rows.first().click()
     const run = await page.evaluate(async ({ A_VOICE, B_VOICE }) => {
       const { useStore } = await window.mod('/src/app/state/store.ts')
@@ -148,6 +153,10 @@ if (setup.error) {
     ok('one click starts a handoff that names its handoff second', !!t && t.handoffSec != null && t.waitingUntilSec != null, t ? `B joins at A ${t.waitingUntilSec?.toFixed(2)} s, handoff at A ${t.handoffSec?.toFixed(2)} s` : 'no transition')
     const firstB = run.samples.find((s) => s.bPlaying)
     ok('B stays paused until the join line, then plays', !!firstB && t && firstB.a >= t.waitingUntilSec - 0.6, firstB ? `B started with A at ${firstB.a.toFixed(2)} s` : 'B never played')
+    const barA = (60 / setup.gridA.bpm) * 4
+    ok("v0.9.17: B waits for the phrase start — a whole phrase (8 bars) before A's voice end, not the next bar after the click",
+      !!t && !!firstB && Math.abs(t.handoffSec - t.waitingUntilSec - 8 * barA) < 0.05 && firstB.a - clickA > 2 * barA,
+      t && firstB ? `click at A ${clickA.toFixed(2)} s, B in at A ${firstB.a.toFixed(2)} s, ${((t.handoffSec - t.waitingUntilSec) / barA).toFixed(2)} bars before the handoff` : '')
     ok('B starts in its quiet stretch (before its voice at 20 s)', !!firstB && firstB.b < 20, firstB ? `B at ${firstB.b.toFixed(2)} s` : '')
     if (t) {
       const near = run.samples.filter((s) => Math.abs(s.a - t.handoffSec) < 0.15)
@@ -235,6 +244,115 @@ if (!setup.error) {
   })
   ok("v0.9.16: B's MID turned by hand during the runway stays his through the swap", !hand.error && hand.bCutBefore === -0.4 && hand.swapped.active && hand.swapped.b === 0.2 && hand.swapped.a === -0.4, JSON.stringify(hand))
   ok("v0.9.16: a cancel after the swap puts A's MID back and leaves his B knob alone", !hand.error && hand.afterCancel.a === 0 && hand.afterCancel.b === 0.2, JSON.stringify(hand.afterCancel ?? hand))
+}
+
+// v0.9.17, the owner: "the moment I clicked one of the Mix Assist options you mixed right away". An ENERGY point clicked in the panel now
+// waits for A's next phrase start, counted from where A's voice starts (8 s) — not A's next yellow line.
+if (!setup.error) {
+  const prep = await page.evaluate(async () => {
+    const { useStore } = await window.mod('/src/app/state/store.ts')
+    const ctl = await window.mod('/src/controls.ts')
+    const s = useStore.getState()
+    const ta = s.library.tracks.find((t) => t.name.startsWith('Handoff A'))
+    const tb = s.library.tracks.find((t) => t.name.startsWith('Handoff B'))
+    ctl.cancelTransition()
+    ctl.pause('A'); ctl.pause('B')
+    await ctl.loadTrackToDeck('A', ta)
+    await ctl.loadTrackToDeck('B', tb)
+    const deadline = Date.now() + 30000
+    while (Date.now() < deadline && !(useStore.getState().decks.A.beatGrid && useStore.getState().decks.B.beatGrid && useStore.getState().decks.B.bands && !useStore.getState().decks.A.loading && !useStore.getState().decks.B.loading)) await new Promise((r) => setTimeout(r, 200))
+    ctl.seekDeck('A', 10)
+    ctl.play('A')
+    await new Promise((r) => setTimeout(r, 1200))
+    return true
+  })
+  const phraseLine = page.locator('[data-testid="phrase-join"]').first()
+  const shown = await phraseLine.innerText({ timeout: 5000 }).catch(() => '')
+  ok('v0.9.17: each energy point says when it will come in — the phrase start of A', /תחילת קטע/.test(shown), shown || 'no line')
+  if (prep && shown) {
+    const clickA = await page.evaluate(async () => (await window.mod('/src/app/state/store.ts')).useStore.getState().decks.A.positionSec)
+    await phraseLine.locator('xpath=..').click()
+    const run = await page.evaluate(async (clickA) => {
+      const { useStore } = await window.mod('/src/app/state/store.ts')
+      const ctl = await window.mod('/src/controls.ts')
+      const core = await window.mod('/src/core/vocal-handoff.ts')
+      const side = ctl.deckHandoffSide('A')
+      const expected = core.nextPhraseStartSec(side.grid, side.timeline, side.durationSec, clickA).sec
+      const t = useStore.getState().activeTransition
+      const notice = useStore.getState().notice?.text
+      let firstB = null
+      const end = Date.now() + 40000
+      while (Date.now() < end && !firstB) {
+        const d = useStore.getState().decks
+        if (d.B.playing) firstB = d.A.positionSec
+        await new Promise((r) => setTimeout(r, 20))
+      }
+      ctl.cancelTransition()
+      return { expected, waitingUntilSec: t?.waitingUntilSec ?? null, notice, firstB }
+    }, clickA)
+    const barA = (60 / setup.gridA.bpm) * 4
+    ok('v0.9.17: an energy point waits for that phrase start, then B plays — not on the next bar after the click',
+      run.waitingUntilSec != null && Math.abs(run.waitingUntilSec - run.expected) < 0.05 && run.firstB != null && run.firstB >= run.expected - 0.1 && run.firstB < run.expected + barA && run.firstB - clickA > 2 * barA && /תחילת קטע/.test(run.notice ?? ''),
+      `click at A ${clickA.toFixed(2)} s, phrase start ${run.expected.toFixed(2)} s, B in at A ${run.firstB?.toFixed(2)} s · "${run.notice}"`)
+  }
+}
+
+// v0.9.17 review: a Mix-in pad (the same start as the panel's click) waits for the phrase too; and a click in A's last bars, with no phrase
+// start left before the end, joins on the next bar and says so — never a wait past the song's end that leaves the room silent.
+if (!setup.error) {
+  const pad = await page.evaluate(async () => {
+    const { useStore } = await window.mod('/src/app/state/store.ts')
+    const ctl = await window.mod('/src/controls.ts')
+    const core = await window.mod('/src/core/vocal-handoff.ts')
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+    const s = useStore.getState()
+    const ta = s.library.tracks.find((t) => t.name.startsWith('Handoff A'))
+    const tb = s.library.tracks.find((t) => t.name.startsWith('Handoff B'))
+    const reset = async (aAt) => {
+      ctl.cancelTransition()
+      ctl.pause('A'); ctl.pause('B')
+      await ctl.loadTrackToDeck('A', ta)
+      await ctl.loadTrackToDeck('B', tb)
+      const deadline = Date.now() + 30000
+      while (Date.now() < deadline && !(useStore.getState().decks.A.beatGrid && useStore.getState().decks.B.beatGrid && !useStore.getState().decks.A.loading && !useStore.getState().decks.B.loading)) await sleep(200)
+      ctl.seekDeck('A', aAt)
+      ctl.play('A')
+      await sleep(400)
+    }
+    await reset(10)
+    ctl.saveMixEntryHotCue('B', 30, 'Mix in')
+    const idx = useStore.getState().decks.B.hotCues.find((c) => c.kind === 'mixEntry')?.index
+    if (idx == null) return { error: 'no mix-in pad saved' }
+    const side = ctl.deckHandoffSide('A')
+    const clickA = useStore.getState().decks.A.positionSec
+    ctl.pressHotCue('B', idx)
+    const t = useStore.getState().activeTransition
+    const expected = core.nextPhraseStartSec(side.grid, side.timeline, side.durationSec, clickA).sec
+    const padResult = { clickA, expected, waitingUntilSec: t?.waitingUntilSec ?? null, onPhrase: t?.onPhrase }
+    // The crossfader moved by hand during the phrase wait: the cancel notice names the phrase wait, not an "excellent mix".
+    ctl.setCrossfader(-1)
+    await sleep(100)
+    padResult.cancelNotice = useStore.getState().notice?.text
+    padResult.cancelled = !useStore.getState().activeTransition
+
+    await reset(64) // a 70 s song: no phrase start with 4 bars of A after it
+    const clickEnd = useStore.getState().decks.A.positionSec
+    ctl.startAutoTransitionOnPhrase('A', 'B', 30)
+    const te = useStore.getState().activeTransition
+    const endResult = { clickEnd, waitingUntilSec: te?.waitingUntilSec ?? null, notice: useStore.getState().notice?.text, nextBar: core.nextPhraseStartSec(side.grid, side.timeline, side.durationSec, clickEnd) }
+    let bIn = null
+    const deadline = Date.now() + 8000
+    while (Date.now() < deadline && bIn == null) { if (useStore.getState().decks.B.playing) bIn = useStore.getState().decks.A.positionSec; await sleep(20) }
+    endResult.bIn = bIn
+    ctl.cancelTransition()
+    return { padResult, endResult }
+  })
+  const barA = (60 / setup.gridA.bpm) * 4
+  const p = pad.padResult
+  ok('v0.9.17: a Mix-in pad waits for the same phrase start as the panel', !pad.error && p.onPhrase === true && Math.abs(p.waitingUntilSec - p.expected) < 0.05 && p.expected - p.clickA > 2 * barA, JSON.stringify(pad.error ?? p))
+  ok('v0.9.17: moving the crossfader during the phrase wait cancels it and says so in Hebrew — not "excellent mix"', !pad.error && p.cancelled && /תחילת הקטע/.test(p.cancelNotice ?? '') && !/Excellent/.test(p.cancelNotice ?? ''), p?.cancelNotice)
+  const e = pad.endResult
+  ok("v0.9.17: in A's last bars, with no phrase start left, B comes in on the next bar and the notice says why", !pad.error && e && e.nextBar.by === 'end' && e.bIn != null && e.bIn - e.clickEnd < barA + 0.3 && /אין עוד תחילת קטע/.test(e.notice ?? ''), JSON.stringify(e))
 }
 
 const resp = await page.evaluate(() => {

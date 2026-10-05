@@ -13,8 +13,13 @@
  *  - today: the plain transition (B from its first yellow line, next bar, 8 s fade) — how often it puts a voice over a voice. B's own intro
  *    is the kindest entry for it; the energy points would usually be later in B and clash more. Counted with the panel's own half-bar
  *    margin (plainTransitionClashSec).
+ *  - click->join: how long B waits before it comes in, and how often it comes in within one bar of the click — "right away".
  * 05/10, his 71 songs: found 89.0 / 91.7 / 84.5 / 96.1% (T→T, H→H, T→H, H→T), clean 100% of plans, wait median 0:18–0:19; today's
  * transition voice over voice 23.3 / 4.3 / 4.6 / 21.3% (22.6 / 4.3 / 4.6 / 21.0% before the margin).
+ * v0.9.17 (same day, the owner: "you mixed right away instead of waiting for the right moment"): the v0.9.15 planner joined within one bar
+ * of the click on 47.7 / 47.8 / 48.1 / 47.4% of plans (runway cut to fit, or the handoff slid into A's quiet). With a whole-phrase runway
+ * that is never cut: 7.9 / 6.8 / 9.5 / 5.6% (the voice end really is a phrase ahead), click->join median 0:14 / 0:12 / 0:13 / 0:13 (was
+ * 0:03–0:04), found 87.4 / 90.2 / 83.1 / 94.6%, clean 100%, wait for the handoff median 0:25–0:28.
  */
 import fs from 'node:fs'
 import { effectiveTimeline } from '../../src/core/sound/vocal-manual.ts'
@@ -66,6 +71,8 @@ for (const pair of [['Techno', 'Techno'], ['House', 'House'], ['Techno', 'House'
   let clicks = 0, found = 0, clean = 0, plans = 0, onEnd = 0, todayClash = 0, todayN = 0
   const waits = []
   const runways = []
+  const joinWaits = []
+  let joinNow = 0
   const noPlanA = new Map()
   for (const a of songs.filter((s) => s.genre === pair[0])) {
     for (const b of songs.filter((s) => s.genre === pair[1] && s !== a)) {
@@ -87,6 +94,9 @@ for (const pair of [['Techno', 'Techno'], ['House', 'House'], ['Techno', 'House'
         if (best.onVoiceEnd) onEnd++
         waits.push(best.handoffSec - pos)
         runways.push(best.runwayBars)
+        joinWaits.push(best.joinSec - pos)
+        const barA = (60 / a.side.grid.bpm) * 4
+        if (best.joinSec - pos <= barA + 1e-6) joinNow++
         const ratio = a.side.grid.bpm / b.side.grid.bpm
         let ok = true
         for (let t = best.joinSec; t < best.fadeEndSec; t += 0.05) {
@@ -99,6 +109,7 @@ for (const pair of [['Techno', 'Techno'], ['House', 'House'], ['Techno', 'House'
   console.log(`\n${pair[0]} -> ${pair[1]}: ${clicks} clicks`)
   console.log(`  handoff found: ${pct(found, clicks)} | clean (independent check): ${clean}/${plans} | on A's voice end: ${pct(onEnd, plans)}`)
   console.log(`  wait click->handoff: median ${mmss(q(waits, 0.5))}, 90% ${mmss(q(waits, 0.9))} | runway bars median ${q(runways, 0.5)}`)
+  console.log(`  click->join: median ${mmss(q(joinWaits, 0.5))} | joins within one bar of the click ("right away"): ${pct(joinNow, plans)}`)
   console.log(`  today's plain transition (B from its start, 8 s): voice over voice ${pct(todayClash, todayN)}`)
   const worst = [...noPlanA.entries()].sort((x, y) => y[1] - x[1]).slice(0, 3)
   if (worst.length) console.log(`  most "no plan" as A: ${worst.map(([n, c]) => `${n.slice(0, 40)} (${c})`).join('; ')}`)

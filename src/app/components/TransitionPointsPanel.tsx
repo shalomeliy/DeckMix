@@ -94,6 +94,8 @@ interface Props {
   syncMult: number
   /** A handoff row was clicked: the plan is recomputed from the live position at the click (`ctl.startVocalHandoffAt`). */
   onHandoff: (voice: BVoiceStart) => void
+  /** v0.9.17: where an energy point would join the other deck, and why there (`ctl.deckPhraseJoin`); null without a grid. */
+  phraseJoin: (otherPositionSec: number) => { sec: number; why: string } | null
 }
 
 /** Shown at most: the earliest ones. A row is a click target on a ~710 px screen, and the energy points still have to fit under them. */
@@ -130,6 +132,7 @@ export function TransitionPointsPanel({
   otherVocalSide,
   syncMult,
   onHandoff,
+  phraseJoin,
 }: Props) {
   // bands stays null until *this deck's* load-time analysis resolves
   // (`controls.ts`'s `loadTrackToDeck`) — independent of the track's
@@ -178,9 +181,11 @@ export function TransitionPointsPanel({
           : `מסירת שירה: אין בדק ${otherDeckId} עד סוף השיר רגע שקט מספיק ארוך (4 תיבות) להוריד אותו`
         : null
   // The second signal on each energy point: the plain transition from there — would it put a voice over a voice? Never merged with the energy dot.
+  // v0.9.17: an energy point starts where the playing song's next phrase starts, not on its next bar — the row says when.
+  const join = phraseJoin(otherPositionBucketSec)
   const vocalMessage = (candidateSec: number): { text: string; dot: string } | null => {
     if (!sides) return null
-    const clash = plainTransitionClashSec(sides.other, otherPositionBucketSec, sides.self, candidateSec, TRANSITION_CROSSFADE_SEC, syncMult)
+    const clash = plainTransitionClashSec(sides.other, otherPositionBucketSec, sides.self, candidateSec, TRANSITION_CROSSFADE_SEC, syncMult, join?.sec ?? null)
     return clash == null
       ? { text: 'שירה: נקי', dot: 'var(--color-live)' }
       : { text: `שירה על שירה ב-${fmtSec(clash)} (דק ${otherDeckId})`, dot: 'var(--color-danger)' }
@@ -210,7 +215,8 @@ export function TransitionPointsPanel({
               onClick={() => onHandoff(voice)}
               className="rounded-[var(--radius-sm)] text-left transition-opacity hover:opacity-80"
             >
-              <Pill tone="idle" label={`נכנס ב-${fmtSec(plan.entrySec)} · ${plan.runwayBars} תיבות בלי שירה · שר מ-${fmtSec(plan.bVoiceSec)}`} />
+              {/* v0.9.17: when A gets there, not B's own entry second — "נכנס ב-0:04" with A at 0:07 read as "right now". */}
+              <Pill tone="idle" label={`נכנס כשדק ${otherDeckId} ב-${fmtSec(plan.joinSec)} · ${plan.runwayBars} תיבות בלי שירה · שר מ-${fmtSec(plan.bVoiceSec)}`} />
               <span className="mt-0.5 flex items-center gap-1 px-2 text-2xs text-grid-muted">
                 <span className="h-1 w-1 shrink-0 rounded-full" style={{ background: 'var(--color-live)' }} />
                 {plan.onVoiceEnd ? `דק ${otherDeckId} מפסיק לשיר ב-${fmtSec(plan.handoffSec)}` : `דק ${otherDeckId} שקט ב-${fmtSec(plan.handoffSec)}`}
@@ -247,6 +253,11 @@ export function TransitionPointsPanel({
                 className="rounded-[var(--radius-sm)] text-left transition-opacity hover:opacity-80"
               >
                 <Pill tone="idle" label={`${fmtSec(c.sec)} · ${REASON_LABEL[c.reason]}`} />
+                {join && (
+                  <span className="mt-0.5 block px-2 text-2xs text-grid-muted" data-testid="phrase-join">
+                    {`נכנס כשדק ${otherDeckId} ב-${fmtSec(join.sec)} — ${join.why} · בעוד ${fmtSec(join.sec - otherPositionBucketSec)}`}
+                  </span>
+                )}
                 <span className="mt-0.5 flex items-center gap-1 px-2 text-2xs text-grid-muted">
                   <span className="h-1 w-1 shrink-0 rounded-full" style={{ background: dot }} />
                   {text}

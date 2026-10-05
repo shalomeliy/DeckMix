@@ -25,10 +25,9 @@ import type { BeatGrid } from '@/core/types'
 /** Shown instead of handoff rows when SYNC would play the incoming deck half- or double-time (see the doc comment above). */
 export const HANDOFF_NEEDS_STRAIGHT_SYNC = 'מסירת שירה: הדקים יסונכרנו בחצי או בכפול קצב — המסירה מחושבת רק לקצב ישר'
 
-/** The fewest bars B plays under A before the handoff — less is not "coming in with the drums", it is a cut. Chosen, not measured. */
+/** The fewest bars B plays under A before the handoff — less is not "coming in with the drums", it is a cut. Half a phrase (v0.9.17: the
+ * runway is a whole `PHRASE_BARS`, or this when B has less quiet than that). Chosen, not measured. */
 export const MIN_RUNWAY_BARS = 4
-/** The runway the plan aims for when the songs allow it. Chosen, not measured: the owner said "in parallel", not how long. */
-export const TARGET_RUNWAY_BARS = 8
 /** A is taken down over at least this many bars — "slowly" (his word) — and only inside A's own quiet stretch. Chosen, not measured. */
 export const MIN_FADE_BARS = 4
 /** …and at most this many: a longer quiet stretch is not a reason to keep A in the mix longer. */
@@ -121,40 +120,85 @@ export function bVoiceStarts(side: HandoffSide): BVoiceStart[] {
 }
 
 /**
+ * v0.9.17, the owner (05/10): "the moment I clicked one of the Mix Assist options you mixed right away instead of waiting for the right
+ * moment … you are supposed to know when to come in by where the verses start". Electronic music moves in phrases of 8 bars; a DJ brings the
+ * new song in where a new phrase of the playing song starts, never on just any bar. Until v0.9.16 the energy points joined on A's NEXT
+ * yellow line (v0.8.14), and the handoff shortened its runway — or slid the handoff into A's quiet — until the join fit "now".
+ */
+export const PHRASE_BARS = 8
+
+/**
+ * Where a new phrase of A starts, after `positionSec`. The phrase lines are counted from where A's voice starts or stops — his own marks,
+ * which sit on yellow lines and are where the verses really start — not from the grid's first line: the grid only knows bars, and an
+ * intro of 6 bars would put every count from it two bars off. Counted from the last voice change at or before the playhead (or, still in
+ * the intro, back from the first one ahead); the next voice change itself is also a phrase start, since a verse need not be a multiple of
+ * 8 bars. With no voice at all, the count runs from the grid's first yellow line, and `by` says so; with no phrase start left before A's
+ * last `MIN_FADE_BARS`, the next yellow line (`by: 'end'`).
+ */
+export function nextPhraseStartSec(
+  grid: BeatGrid,
+  timeline: VocalTimeline | null,
+  durationSec: number,
+  positionSec: number,
+): { sec: number; by: 'voice' | 'grid' | 'end' } {
+  const bar = barSec(grid)
+  const phrase = PHRASE_BARS * bar
+  const after = positionSec + EPS
+  const changes: number[] = []
+  if (timeline) {
+    for (const r of voiceRuns(timeline, durationSec)) {
+      changes.push(barLineAtOrBeforeSec(r.from + EPS, grid), barLineAtOrAfterSec(r.to, grid))
+    }
+  }
+  // Sorted: a voice end goes forward to its line and the next start back to its own, and under a bar apart the two can cross.
+  changes.sort((x, y) => x - y)
+  const anchor = [...changes].reverse().find((c) => c <= after) ?? changes[0]
+  const by = anchor == null ? 'grid' : 'voice'
+  const from = anchor ?? grid.offsetSec
+  let sec = from + Math.floor((after - from) / phrase + 1) * phrase
+  if (sec <= after) sec += phrase
+  const nextChange = changes.find((c) => c > after)
+  if (nextChange != null && nextChange < sec - EPS) sec = nextChange
+  // No phrase start left with A still playing long enough to be faded out (review, 05/10): a click in A's last bars would otherwise wait
+  // past the song's end — A stops, B never starts, the room goes silent. The next bar instead, as before v0.9.17, and `by` says so.
+  if (sec > durationSec - MIN_FADE_BARS * bar) return { sec: nextBarLineSec(after, grid), by: 'end' }
+  return { sec, by }
+}
+
+/**
  * The earliest clean handoff into B's voice at `bVoice`, with A at `aPositionSec` now. Null when none is left in A — the caller says so in
  * words, and the plain transition stays available.
  *
- * Search order: the first of A's quiet stretches (from now on) that holds a fade of at least `MIN_FADE_BARS`. In it the handoff is as early
- * as possible — right at A's voice end when the runway fits before it — with the runway as long as the songs allow (up to
- * `TARGET_RUNWAY_BARS`, never under `MIN_RUNWAY_BARS`). A runway that does not fit before A's voice end at full length is shortened first;
- * only below the minimum is the handoff moved later into the quiet.
+ * v0.9.17: the runway is a whole phrase (`PHRASE_BARS`), or half of one when B has fewer quiet bars than that, and it is never cut short to
+ * fit the playhead; the handoff is at A's voice end, or a whole phrase after it while A is still quiet. When that is already too close, the
+ * plan waits for A's next voice end — the join lands where a new phrase of A starts, never on just the next bar.
  */
 export function planHandoff(a: HandoffSide, aPositionSec: number, b: HandoffSide, bVoice: BVoiceStart): HandoffPlan | null {
   const barA = barSec(a.grid)
   const barB = barSec(b.grid)
   // B needs a beat of A to join on: the next yellow line still ahead (a join exactly on the playhead would already be behind it by the next frame).
   const firstJoin = nextBarLineSec(aPositionSec + EPS, a.grid)
-  const maxRunway = Math.min(TARGET_RUNWAY_BARS, bVoice.quietBars)
+  const runway = bVoice.quietBars >= PHRASE_BARS ? PHRASE_BARS : MIN_RUNWAY_BARS
+  if (bVoice.quietBars < runway) return null
   for (const q of quietStretches(a, aPositionSec)) {
     // A's voice ends mid-bar more often than not: the handoff waits for the yellow line after it, so A is quiet from there on.
-    const earliestHandoff = barLineAtOrAfterSec(q.from, a.grid)
-    let runway = maxRunway
-    let handoffSec = earliestHandoff
-    while (runway > MIN_RUNWAY_BARS && earliestHandoff - runway * barA < firstJoin - EPS) runway--
-    if (earliestHandoff - runway * barA < firstJoin - EPS) handoffSec = firstJoin + runway * barA
-    const fadeBars = Math.min(MAX_FADE_BARS, Math.floor((q.to - handoffSec) / barA + EPS))
-    if (fadeBars < MIN_FADE_BARS) continue
-    return {
-      joinSec: handoffSec - runway * barA,
-      entrySec: bVoice.voiceSec - runway * barB,
-      handoffSec,
-      bVoiceSec: bVoice.voiceSec,
-      // Clamped: the floor above allows a hair past the quiet's end, and when that end is the song's end the engine's position is clamped to
-      // the duration and would never reach a fade end beyond it — the transition would hang just short of finishing.
-      fadeEndSec: Math.min(q.to, handoffSec + fadeBars * barA),
-      runwayBars: runway,
-      fadeBars,
-      onVoiceEnd: q.afterVoice && Math.abs(handoffSec - earliestHandoff) < EPS,
+    const voiceEnd = barLineAtOrAfterSec(q.from, a.grid)
+    for (let handoffSec = voiceEnd; ; handoffSec += PHRASE_BARS * barA) {
+      const fadeBars = Math.min(MAX_FADE_BARS, Math.floor((q.to - handoffSec) / barA + EPS))
+      if (fadeBars < MIN_FADE_BARS) break
+      if (handoffSec - runway * barA < firstJoin - EPS) continue
+      return {
+        joinSec: handoffSec - runway * barA,
+        entrySec: bVoice.voiceSec - runway * barB,
+        handoffSec,
+        bVoiceSec: bVoice.voiceSec,
+        // Clamped: the floor above allows a hair past the quiet's end, and when that end is the song's end the engine's position is clamped
+        // to the duration and would never reach a fade end beyond it — the transition would hang just short of finishing.
+        fadeEndSec: Math.min(q.to, handoffSec + fadeBars * barA),
+        runwayBars: runway,
+        fadeBars,
+        onVoiceEnd: q.afterVoice && handoffSec === voiceEnd,
+      }
     }
   }
   return null
@@ -174,7 +218,7 @@ export function handoffProgress(plan: Pick<HandoffPlan, 'joinSec' | 'handoffSec'
 
 /**
  * The second signal next to each energy point (v0.9.15, the spec: "drums similar · voices clash" as SEPARATE marks, never one merged score):
- * would the plain transition — B from `entrySec`, starting on A's next yellow line, `fadeSec` of crossfade — put a voice over a voice? Returns
+ * would the plain transition — B from `entrySec`, starting at `joinSec` (A's next yellow line when not given), `fadeSec` of crossfade — put a voice over a voice? Returns
  * the first A second where both sing, or null when it is clean. B's seconds advance by beats, as with SYNC on; `syncMult` is SYNC's own
  * half/double reading (`syncMultiplier`: B counts as `b.bpm × syncMult`).
  *
@@ -189,8 +233,10 @@ export function plainTransitionClashSec(
   entrySec: number,
   fadeSec: number,
   syncMult: number = 1,
+  /** v0.9.17: where B really joins — A's next phrase start (`nextPhraseStartSec`). Without it, A's next yellow line (the join until then). */
+  joinSec: number | null = null,
 ): number | null {
-  const join = nextBarLineSec(aPositionSec + EPS, a.grid)
+  const join = joinSec ?? nextBarLineSec(aPositionSec + EPS, a.grid)
   const ratio = a.grid.bpm / (b.grid.bpm * syncMult)
   const halfBarB = barSec(b.grid) / 2
   const end = join + fadeSec + barSec(a.grid) / 2

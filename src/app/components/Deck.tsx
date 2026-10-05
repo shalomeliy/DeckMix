@@ -263,11 +263,12 @@ export function Deck({ deckId }: { deckId: DeckId }) {
               otherVocalSide={otherVocalSide}
               syncMult={ctl.handoffSyncMultiplier(otherDeckId, deckId)}
               onHandoff={(voice) => ctl.startVocalHandoffAt(otherDeckId, deckId, voice)}
+              phraseJoin={(pos) => ctl.deckPhraseJoin(otherDeckId, pos)}
               onSelect={(sec) => {
-                // Starts on the other deck's next yellow line (v0.8.14). No
+                // Starts where the other deck's next phrase starts (v0.9.17; the next yellow line until then). No
                 // "Mix in" pad here any more — it's saved only if the mix is
                 // then rated Excellent (`rateMixTransition`).
-                ctl.startAutoTransition(otherDeckId, deckId, sec)
+                ctl.startAutoTransitionOnPhrase(otherDeckId, deckId, sec)
               }}
             />
           )}

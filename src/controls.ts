@@ -44,7 +44,7 @@ import {
   shiftGrid,
 } from '@/core/beatgrid'
 import { crossfadeProgress, exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
-import { HANDOFF_NEEDS_STRAIGHT_SYNC, handoffMidKnobs, handoffProgress, handoffSide, planHandoff, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
+import { HANDOFF_NEEDS_STRAIGHT_SYNC, handoffMidKnobs, handoffProgress, handoffSide, nextPhraseStartSec, planHandoff, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
 import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
 import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
 import { MIN_REGION_SEC, closeOpenMark, drawnBarGrid, moveRegionEdge, undoLastEnd, type VocalManualTag } from '@/core/sound/vocal-manual'
@@ -1467,7 +1467,8 @@ export function pressHotCue(deckId: DeckId, index: number) {
   const cue = decks[deckId].hotCues.find((c) => c.index === index)
   const otherDeckId: DeckId = deckId === 'A' ? 'B' : 'A'
   if (shouldTriggerMixEntry(cue, decks[deckId].playing, decks[otherDeckId].playing)) {
-    startAutoTransition(otherDeckId, deckId, cue!.positionSec)
+    // The same start as the panel's click (v0.9.17: on A's next phrase start, not its next bar).
+    startAutoTransitionOnPhrase(otherDeckId, deckId, cue!.positionSec)
     return
   }
   setHotCue(deckId, index)
@@ -3358,10 +3359,13 @@ function cancelTransitionIfOutgoingDeckTouched(deckId: DeckId) {
 function cancelTransitionByHand(what: string) {
   const waitingUntilSec = useStore.getState().activeTransition?.waitingUntilSec
   const handoffSec = useStore.getState().activeTransition?.handoffSec
+  const onPhrase = useStore.getState().activeTransition?.onPhrase
   cancelTransition()
   if (handoffSec != null) {
     // A handoff runs for many bars after its wait, so it is named whether it was still waiting or already mixing.
     useStore.getState().setNotice({ text: `מסירת השירה בוטלה — ${what === 'the crossfader was moved' ? 'הזזת את הקרוספיידר' : what.replace(/^deck (\w) was touched$/, 'נגעת בדק $1')}.`, tone: 'info', source: 'sync' })
+  } else if (waitingUntilSec != null && onPhrase) {
+    useStore.getState().setNotice({ text: `המעבר בוטל — ${what === 'the crossfader was moved' ? 'הזזת את הקרוספיידר' : what.replace(/^deck (\w) was touched$/, 'נגעת בדק $1')} בזמן שחיכה לתחילת הקטע ב-${formatMinSec(waitingUntilSec)}.`, tone: 'info', source: 'sync' })
   } else if (waitingUntilSec != null) {
     useStore.getState().setNotice({
       text: `Excellent-match mix cancelled — ${what} while it was waiting for ${formatMinSec(waitingUntilSec)}.`,
@@ -3439,6 +3443,8 @@ export function startAutoTransition(
    * down to nothing by `fadeEndSec`.
    */
   handoff: { handoffSec: number; fadeEndSec: number } | null = null,
+  /** v0.9.17: `waitUntilSec` is a phrase start of A (`startAutoTransitionOnPhrase`), not a saved exit second — only the "passed" text differs. */
+  waitIsPhrase = false,
 ) {
   const { decks, setNotice } = useStore.getState()
   if (activeTransition) {
@@ -3479,7 +3485,12 @@ export function startAutoTransition(
   const fromEngine = engine.decks[fromDeckId]
   const toEngine = engine.decks[toDeckId]
 
-  const passedText = (sec: number) => (handoff ? passedHandoffText(fromDeckId, sec) : passedExitText(fromDeckId, sec))
+  const passedText = (sec: number) =>
+    handoff
+      ? passedHandoffText(fromDeckId, sec)
+      : waitIsPhrase
+        ? `דק ${fromDeckId} עבר את ${formatMinSec(sec)}, תחילת הקטע ש-${toDeckId} חיכה לה — המעבר לא התחיל. בחר שוב בחלון של Mix Assist.`
+        : passedExitText(fromDeckId, sec)
   if (waitUntilSec != null && exitWaitStatus(fromEngine.position, waitUntilSec, barSecOf(from.beatGrid)) === 'passed') {
     setNotice({ text: passedText(waitUntilSec), tone: 'warn', source: 'sync' })
     return
@@ -3598,7 +3609,7 @@ export function startAutoTransition(
     })
     if (activeTransition) activeTransition.unsubscribe = unsubscribeFade
     useStore.setState({
-      activeTransition: { fromDeckId, toDeckId, exitPointSec, waitingForBar: false, waitingUntilSec: null, handoffSec: handoff?.handoffSec ?? null },
+      activeTransition: { fromDeckId, toDeckId, exitPointSec, waitingForBar: false, waitingUntilSec: null, handoffSec: handoff?.handoffSec ?? null, onPhrase: waitIsPhrase },
     })
   }
 
@@ -3647,7 +3658,9 @@ export function startAutoTransition(
           useStore.getState().setNotice({
             text: handoff
               ? `דק ${fromDeckId} בלופ לפני ${formatMinSec(waitUntilSec)} — מסירת השירה מחכה עד שהלופ ישוחרר.`
-              : `Deck ${fromDeckId} is looping before ${formatMinSec(waitUntilSec)} — the excellent mix waits until the loop is released.`,
+              : waitIsPhrase
+                ? `דק ${fromDeckId} בלופ לפני ${formatMinSec(waitUntilSec)} — דק ${toDeckId} מחכה לתחילת הקטע עד שהלופ ישוחרר.`
+                : `Deck ${fromDeckId} is looping before ${formatMinSec(waitUntilSec)} — the excellent mix waits until the loop is released.`,
             tone: 'info',
             source: 'sync',
           })
@@ -3680,7 +3693,7 @@ export function startAutoTransition(
     joinedFromSec: null,
   }
   useStore.setState({
-    activeTransition: { fromDeckId, toDeckId, exitPointSec, waitingForBar: true, waitingUntilSec: waitUntilSec, handoffSec: handoff?.handoffSec ?? null },
+    activeTransition: { fromDeckId, toDeckId, exitPointSec, waitingForBar: true, waitingUntilSec: waitUntilSec, handoffSec: handoff?.handoffSec ?? null, onPhrase: waitIsPhrase },
   })
 }
 
@@ -3733,6 +3746,39 @@ export function startVocalHandoffAt(fromDeckId: DeckId, toDeckId: DeckId, voice:
     return
   }
   startVocalHandoff(fromDeckId, toDeckId, plan)
+}
+
+/**
+ * v0.9.17: an energy point of the Mix Assist panel was clicked. Until now it joined on A's next yellow line (v0.8.14) — the owner (05/10):
+ * "you mixed right away instead of waiting for the right moment … you are supposed to know when to come in by where the verses start". It
+ * now waits for the next phrase start of A (`nextPhraseStartSec`): counted from where A's voice starts and stops, or, with no voice to count
+ * from, from the grid's first yellow line — and the notice says which, so a count he cannot check is never passed off as his verses.
+ */
+export function startAutoTransitionOnPhrase(fromDeckId: DeckId, toDeckId: DeckId, entrySec: number) {
+  const phrase = deckPhraseJoin(fromDeckId, engine.decks[fromDeckId].position)
+  if (!phrase) {
+    startAutoTransition(fromDeckId, toDeckId, entrySec) // no grid: refuses, and says why
+    return
+  }
+  startAutoTransition(fromDeckId, toDeckId, entrySec, phrase.sec, `דק ${toDeckId} ייכנס כשדק ${fromDeckId} יגיע ל-${formatMinSec(phrase.sec)} — ${phrase.why}.`, null, true)
+}
+
+/**
+ * Where an energy point or a Mix-in pad joins, from `positionSec` of the outgoing deck, and why there — in the owner's words. One function
+ * for the panel's line and the click, so the two can only differ by the second the panel's position is floored to. Null without a grid.
+ */
+export function deckPhraseJoin(deckId: DeckId, positionSec: number): { sec: number; why: string } | null {
+  const deck = useStore.getState().decks[deckId]
+  if (!deck.beatGrid) return null
+  const side = deckHandoffSide(deckId)
+  const phrase = nextPhraseStartSec(deck.beatGrid, 'missing' in side ? null : side.timeline, deck.durationSec, positionSec)
+  const why =
+    phrase.by === 'voice'
+      ? 'תחילת קטע, לפי איפה שהשירה שלו מתחילה ונגמרת'
+      : phrase.by === 'grid'
+        ? `תחילת קטע, לפי ספירת 8 תיבות מתחילת השיר (${'missing' in side ? side.missing : 'אין בו שירה לספור ממנה'})`
+        : 'אין עוד תחילת קטע לפני סוף השיר, אז בתיבה הבאה'
+  return { sec: phrase.sec, why }
 }
 
 /** One bar in track seconds — the unit `exitWaitStatus` measures its window in. */
