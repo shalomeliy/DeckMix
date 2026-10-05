@@ -166,7 +166,19 @@ const r = await page.evaluate(async () => {
   const before = S().decks.A.keySyncShift
   await window.kl.load('KL Tone')
   await window.kl.settled('A')
-  out.reload = { before, after: S().decks.A.keySyncShift }
+  window.kl.setKey('A', '8A')
+  ctl.seekDeck('A', 5)
+  ctl.play('A')
+  // the sound, not only the button: the first review found the engine kept the old shift and the new song played a semitone up
+  out.reload = { before, after: S().decks.A.keySyncShift, keyLock: S().decks.A.keyLock, hz: await window.measure() }
+  ctl.pause('A')
+  // 6b. the other deck's key changes after the press: key sync comes off, and says so
+  await ctl.toggleKeySync('A')
+  const on = S().decks.A.keySyncShift
+  window.kl.setKey('B', '4A')
+  await new Promise((r) => setTimeout(r, 100))
+  out.follow = { on, after: S().decks.A.keySyncShift, engine: (await window.mod('/src/platform/audio-webaudio/engine.ts')).engine.decks.A.keyShift, notice: S().notice?.text ?? null }
+  window.kl.setKey('B', '3A')
   // 7. the three buttons under each platter: none wider than its deck column, none overlapping the tempo fader
   await ctl.toggleKeySync('A')
   await new Promise((r) => setTimeout(r, 200))
@@ -176,6 +188,9 @@ const r = await page.evaluate(async () => {
     const fader = row.parentElement.nextElementSibling?.getBoundingClientRect()
     return { left: rr.left, right: rr.right, colLeft: col.left, colRight: col.right, faderLeft: fader?.left ?? null, n: row.querySelectorAll('button').length }
   })
+  // 8. eject: the button goes out with the song
+  await ctl.ejectDeck('A')
+  out.eject = { shift: S().decks.A.keySyncShift, engine: (await window.mod('/src/platform/audio-webaudio/engine.ts')).engine.decks.A.keyShift }
   return out
 })
 ok('both decks finished their own analysis before the keys were set', r.settled === true, String(r.settled))
@@ -188,7 +203,11 @@ ok('the button reads "Key +1"', r.label.includes('Key +1'), JSON.stringify(r.lab
 ok('tempo +8%: still one semitone up, not a record', r.fast > 465 && r.fast < 470, `${r.fast.toFixed(1)} Hz (without key lock it would be ${(466.16 * 1.08).toFixed(1)})`)
 ok('pressed again: back to its own key, key lock left on', r.back.shift === null && r.back.keyLock && r.back.hz > 439 && r.back.hz < 443, `shift ${r.back.shift}, keyLock ${r.back.keyLock}, ${r.back.hz.toFixed(1)} Hz`)
 ok('key lock off clears key sync', r.lockOff.shift === null && !r.lockOff.keyLock && Math.abs(r.lockOff.hz - 440) < 3, `shift ${r.lockOff.shift}, keyLock ${r.lockOff.keyLock}, ${r.lockOff.hz.toFixed(1)} Hz`)
-ok('a new track on the deck clears the move', r.reload.before === 1 && r.reload.after === null, `before ${r.reload.before}, after ${r.reload.after}`)
+ok('a new track on the deck clears the move, and the new song plays at its own pitch', r.reload.before === 1 && r.reload.after === null && r.reload.keyLock && Math.abs(r.reload.hz - 440) < 3,
+  `before ${r.reload.before}, after ${r.reload.after}, keyLock ${r.reload.keyLock}, ${r.reload.hz.toFixed(1)} Hz`)
+ok("the other deck's key changes after the press: key sync comes off and says so", r.follow.on === 1 && r.follow.after === null && r.follow.engine === 0 && /כובה/.test(r.follow.notice ?? ''),
+  `on ${r.follow.on}, after ${r.follow.after}, engine ${r.follow.engine}, "${r.follow.notice}"`)
+ok('eject takes key sync off with the song', r.eject.shift === null && r.eject.engine === 0, `store ${r.eject.shift}, engine ${r.eject.engine}`)
 ok('three buttons under each platter, inside the deck, clear of the tempo fader', r.rows.length === 2 && r.rows.every((x) => x.n === 3 && x.left >= x.colLeft - 0.5 && (x.faderLeft == null || x.right <= x.faderLeft)),
   JSON.stringify(r.rows.map((x) => ({ n: x.n, row: [Math.round(x.left), Math.round(x.right)], fader: x.faderLeft && Math.round(x.faderLeft) }))))
 const f = await page.evaluate(() => ({ scroll: document.documentElement.scrollHeight, inner: window.innerHeight, w: document.documentElement.scrollWidth, iw: window.innerWidth }))

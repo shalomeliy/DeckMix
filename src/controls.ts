@@ -80,7 +80,7 @@ import type { ParsedKey } from '@/core/key-parse'
 import { hashBytes, hashFile } from '@/platform/source-fsaccess/hash'
 import { settings } from '@/platform/settings-idb/store'
 import { DEFAULTS, FIELD_BY_KEY, secPerRev, type Settings } from '@/core/settings'
-import { heardSemitones, planKeySync } from '@/core/key-sync'
+import { heardSemitones, planKeySync, shiftCamelot } from '@/core/key-sync'
 import { GLIDE_BACK_SEC, glideTempoAt, masterHasGone } from '@/core/tempo-glide'
 import {
   MARK_SCHEMA,
@@ -437,6 +437,9 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
   // would then drag this new track from the old one's tempo (v0.8.39 review).
   cancelTempoGlide(deckId)
   engine.decks[deckId].setTempo(storedTempo ?? 0)
+  // The key lock stays on across loads; a key sync move does not — it was planned for the last song. Left in the engine, the new song
+  // played shifted under a button that read "Key sync" (independent review, 05/10).
+  engine.decks[deckId].setKeyShift(0)
   if (startSec > 0) engine.decks[deckId].seek(startSec)
   patchDeck(deckId, {
     track: { ...track, contentHash, bpm: track.bpm ?? undefined, durationSec },
@@ -657,8 +660,10 @@ export function ejectDeck(deckId: DeckId) {
   const deck = engine.decks[deckId]
   stopLoop(deckId)
   deck.unload()
+  deck.setKeyShift(0)
   patchDeck(deckId, {
     track: null,
+    keySyncShift: null,
     positionSec: 0,
     durationSec: 0,
     bpm: null,
@@ -1218,50 +1223,93 @@ export async function toggleKeyLock(deckId: DeckId) {
   }
   engine.decks[deckId].setKeyLock(on)
   // Key sync rides on the key lock: with the stretch out of the path the move is not heard, so a lit "Key +2" would be a lie.
-  if (!on) engine.decks[deckId].setKeyShift(0)
-  useStore.getState().patchDeck(deckId, on ? { keyLock: on } : { keyLock: on, keySyncShift: null })
+  useStore.getState().patchDeck(deckId, { keyLock: on })
+  if (!on) clearKeySync(deckId)
 }
 
 /**
  * v0.9.21: key sync. Moves this deck by whole semitones (`planKeySync`, ±6 at most) to the nearest key that fits the other deck as it is
  * heard right now, turning the key lock on first — the move needs the stretch. Pressed again, it puts the deck back on its own key and
- * leaves the key lock as it is. Either deck without a key: nothing moves and the notice names the deck.
+ * leaves the key lock as it is. Either deck without a song or a key: nothing moves and the notice names the deck.
  */
 export async function toggleKeySync(deckId: DeckId) {
   const { decks, setNotice } = useStore.getState()
   if (decks[deckId].keySyncShift != null) {
-    engine.decks[deckId].setKeyShift(0)
-    useStore.getState().patchDeck(deckId, { keySyncShift: null })
+    clearKeySync(deckId)
     useStore.getState().clearNotice('keylock')
     return
   }
   const otherId: DeckId = deckId === 'A' ? 'B' : 'A'
   const mine = decks[deckId].track
   const other = decks[otherId].track
-  if (!mine || !other) {
-    setNotice({ text: `Key sync צריך שיר בשני הדקים — בדק ${!mine ? deckId : otherId} אין שיר.`, tone: 'warn', source: 'keylock' })
+  const empty = [!mine && deckId, !other && otherId].filter(Boolean)
+  if (empty.length) {
+    setNotice({ text: `Key sync צריך שיר בשני הדקים — ${empty.length === 2 ? 'שני הדקים ריקים' : `בדק ${empty[0]} אין שיר`}.`, tone: 'warn', source: 'keylock' })
     return
   }
   const otherDeck = engine.decks[otherId]
   const otherRate = tempoToRate(decks[otherId].tempo, settings.values.tempoRange)
-  const plan = planKeySync(mine.camelot, other.camelot, heardSemitones(otherRate, otherDeck.keyLock, otherDeck.keyShift))
+  const plan = planKeySync(mine!.camelot, other!.camelot, heardSemitones(otherRate, otherDeck.keyLock, otherDeck.keyShift))
   if (!plan) {
-    const missing = [!mine.camelot && deckId, !other.camelot && otherId].filter(Boolean).join(' ו-')
-    setNotice({ text: `Key sync לא זז: לשיר בדק ${missing} אין סולם.`, tone: 'warn', source: 'keylock' })
+    // a code that is there but is not Camelot counts as no key, and is named the same way
+    const missing = [!shiftCamelot(mine!.camelot ?? '', 0) && deckId, !shiftCamelot(other!.camelot ?? '', 0) && otherId].filter(Boolean)
+    setNotice({ text: `Key sync לא זז: לשיר ב${missing.length === 2 ? 'שני הדקים' : `דק ${missing[0]}`} אין סולם.`, tone: 'warn', source: 'keylock' })
     return
   }
   if (!engine.decks[deckId].keyLock) {
     await toggleKeyLock(deckId)
-    if (!engine.decks[deckId].keyLock) return // the key lock could not load; its notice already says why
+    if (!engine.decks[deckId].keyLock) {
+      // A failed load already put its reason up; a press while another key lock press is still loading returns with nothing on screen.
+      if (!engine.keyLockError) setNotice({ text: 'Key lock עדיין נטען — לחץ שוב על Key sync.', tone: 'info', source: 'keylock' })
+      return
+    }
+  }
+  // The first key lock load is awaited above: a song loaded onto either deck meanwhile makes this plan one for songs no longer there.
+  const now = useStore.getState().decks
+  if (now[deckId].track?.id !== mine!.id || now[otherId].track?.id !== other!.id) {
+    setNotice({ text: 'Key sync לא זז: שיר הוחלף באמצע. לחץ שוב.', tone: 'warn', source: 'keylock' })
+    return
   }
   engine.decks[deckId].setKeyShift(plan.shift)
   useStore.getState().patchDeck(deckId, { keySyncShift: plan.shift })
+  keySyncBasis[deckId] = { mine: mine!.id, mineKey: mine!.camelot ?? null, other: other!.id, otherKey: other!.camelot ?? null }
   const moved = plan.shift === 0 ? `${plan.from} כבר מתאים` : `${plan.from} זז ${plan.shift > 0 ? '+' : ''}${plan.shift} ל-${plan.to}, מתאים`
   const between = plan.targetOffBy != null
     ? ` (דק ${otherId} מנגן בלי Key lock והטמפו שם אותו בין שני סולמות; נלקח הקרוב, ${plan.target})`
     : ''
   setNotice({ text: `דק ${deckId}: ${moved} לדק ${otherId} (${plan.target})${between}.`, tone: plan.targetOffBy != null ? 'warn' : 'info', source: 'keylock' })
 }
+
+function clearKeySync(deckId: DeckId) {
+  engine.decks[deckId].setKeyShift(0)
+  keySyncBasis[deckId] = null
+  useStore.getState().patchDeck(deckId, { keySyncShift: null })
+}
+
+/**
+ * What a key sync was planned against. When either song or either key changes afterwards — the other deck loads a song, a late
+ * detection or the owner's correction reaches a deck (`core/tag-merge.ts`) — the move no longer fits what it says it fits, so it is
+ * taken off and the notice says why, rather than a lit "Key +1" over a mix that now clashes.
+ */
+const keySyncBasis: Record<DeckId, { mine: string; mineKey: string | null; other: string; otherKey: string | null } | null> = { A: null, B: null }
+useStore.subscribe((s) => {
+  for (const deckId of ['A', 'B'] as const) {
+    const basis = keySyncBasis[deckId]
+    if (!basis || s.decks[deckId].keySyncShift == null) continue
+    const otherId: DeckId = deckId === 'A' ? 'B' : 'A'
+    const mine = s.decks[deckId].track
+    const other = s.decks[otherId].track
+    const why =
+      mine?.id !== basis.mine ? null // this deck's own load or eject clears it itself
+        : other?.id !== basis.other ? `דק ${otherId} החליף שיר`
+          : (mine?.camelot ?? null) !== basis.mineKey ? `הסולם של השיר בדק ${deckId} השתנה`
+            : (other?.camelot ?? null) !== basis.otherKey ? `הסולם של השיר בדק ${otherId} השתנה`
+              : undefined
+    if (why === undefined) continue
+    clearKeySync(deckId)
+    if (why) s.setNotice({ text: `Key sync בדק ${deckId} כובה: ${why}. לחץ שוב כדי להתאים מחדש.`, tone: 'info', source: 'keylock' })
+  }
+})
 
 export function toggleVinylMode(deckId: DeckId) {
   const deck = engine.decks[deckId]
