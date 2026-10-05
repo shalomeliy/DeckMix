@@ -137,7 +137,8 @@ ok('the library header is still on screen with the marking row on', libTop > 0 &
 
 const btn = (n) => page.locator('[data-vocal-marking="A"]').getByRole('button', { name: n })
 if (ov) {
-  const at = async (fr) => { await page.mouse.click(ov.x + ov.width * fr, ov.y + ov.height / 2); await page.waitForTimeout(500) }
+  // measured at every click: the deck can move after `ov` was taken (05/10, with the House model: overview top 89 -> 127 px, clicks missed it)
+  const at = async (fr) => { const o = await rect('[data-overview="A"]'); await page.mouse.click(o.x + o.width * fr, o.y + o.height / 2); await page.waitForTimeout(500) }
   await at(0.3); await btn('התחילה שירה').click(); await at(0.5); await btn('נגמרה שירה').click()
   await page.waitForTimeout(400)
   ok('marking: start + end draws a manual mark', (await page.locator('[data-vocal-strip="A"] [data-vocal-manual]').count()) >= 1)
@@ -163,7 +164,8 @@ if (ov) {
 // Resizing a purple bar with the mouse: two handles per mark; a drag moves just that edge, Shift is ten times finer, the wheel nudges, and the
 // result is saved (read back from the IndexedDB record, not only from memory).
 if (ov) {
-  const at = async (fr) => { await page.mouse.click(ov.x + ov.width * fr, ov.y + ov.height / 2); await page.waitForTimeout(500) }
+  // measured at every click: the deck can move after `ov` was taken (05/10, with the House model: overview top 89 -> 127 px, clicks missed it)
+  const at = async (fr) => { const o = await rect('[data-overview="A"]'); await page.mouse.click(o.x + o.width * fr, o.y + o.height / 2); await page.waitForTimeout(500) }
   await at(0.3); await btn('התחילה שירה').click(); await at(0.5); await btn('נגמרה שירה').click(); await page.waitForTimeout(400)
   const regions = () => page.evaluate(async () => {
     const db = await new Promise((r) => { const q = indexedDB.open('keyval-store'); q.onsuccess = () => r(q.result) })
@@ -196,7 +198,8 @@ if (ov) {
 
 // Black marks: the computer's purple guess can be painted over with "no voice" while teaching (the owner could only add purple before).
 if (ov) {
-  const at = async (fr) => { await page.mouse.click(ov.x + ov.width * fr, ov.y + ov.height / 2); await page.waitForTimeout(500) }
+  // measured at every click: the deck can move after `ov` was taken (05/10, with the House model: overview top 89 -> 127 px, clicks missed it)
+  const at = async (fr) => { const o = await rect('[data-overview="A"]'); await page.mouse.click(o.x + o.width * fr, o.y + o.height / 2); await page.waitForTimeout(500) }
   await at(0.7); await btn('התחיל שקט (אין שירה)').click()
   ok('while a black mark is open the purple button stays on (pressing it would close the black where the voice begins)', !(await btn('התחילה שירה').isDisabled()))
   await at(0.9); await btn('נגמר השקט').click(); await page.waitForTimeout(400)
@@ -220,7 +223,8 @@ if (ov) {
 // "finished" on with no marks (his choice of how),
 // finishing makes the whole song "no voice" and says so, and a black mark still open when he presses it is closed and kept, not dropped.
 if (ov) {
-  const at = async (fr) => { await page.mouse.click(ov.x + ov.width * fr, ov.y + ov.height / 2); await page.waitForTimeout(500) }
+  // measured at every click: the deck can move after `ov` was taken (05/10, with the House model: overview top 89 -> 127 px, clicks missed it)
+  const at = async (fr) => { const o = await rect('[data-overview="A"]'); await page.mouse.click(o.x + o.width * fr, o.y + o.height / 2); await page.waitForTimeout(500) }
   const row = () => page.locator('[data-vocal-marking="A"]').innerText()
   const clear = async () => { await btn('מחק סימונים וחזור לניחוש').click(); await btn('בטוח? לחץ שוב').click(); await page.waitForTimeout(400) }
   const noVoiceBox = page.locator('[data-vocal-marking="A"]').getByRole('checkbox', { name: 'אין שירה בשיר' })
@@ -246,7 +250,8 @@ if (ov) {
 
 // Teaching: after "finished", the button offers to teach the computer from this song; it then reads as taught and the library counts it.
 if (ov) {
-  const at = async (fr) => { await page.mouse.click(ov.x + ov.width * fr, ov.y + ov.height / 2); await page.waitForTimeout(500) }
+  // measured at every click: the deck can move after `ov` was taken (05/10, with the House model: overview top 89 -> 127 px, clicks missed it)
+  const at = async (fr) => { const o = await rect('[data-overview="A"]'); await page.mouse.click(o.x + o.width * fr, o.y + o.height / 2); await page.waitForTimeout(500) }
   await at(0.3); await btn('התחילה שירה').click(); await at(0.5)
   await btn('סיימתי לסמן את השיר').click(); await page.waitForTimeout(400)
   ok('finishing with a voice still open closes it and leaves no black open on the finished song', (await btn('התחיל שקט (אין שירה)').count()) === 1 && (await btn('נגמר השקט').count()) === 0)

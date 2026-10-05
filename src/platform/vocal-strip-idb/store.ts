@@ -1,13 +1,13 @@
 /**
  * Finished vocal strips on `idb-keyval` (v0.9.10b), one record per (song, genre): the model's genre column changes the answer, so a genre edit is a
  * different entry, not a stale one. `VOCAL_STRIP_VERSION` covers everything the answer depends on besides the audio: the frozen model, the
- * per-genre models from his marks (vocal-genre-models.json, v3) and the thresholds in core/sound/vocal-strip.ts. Bump it with either, and every strip is recomputed in the background — never served stale.
+ * per-genre models from his marks (vocal-genre-models.json: Techno v3, House v4) and the thresholds in core/sound/vocal-strip.ts. Bump it with either, and every strip is recomputed in the background — never served stale.
  * `failed` is never stored: a failure is not an answer about the song and the next run should try again.
  */
 import { del, get, set } from 'idb-keyval'
 import type { VocalResult } from '@/core/sound/vocal-timeline'
 
-export const VOCAL_STRIP_VERSION = 3
+export const VOCAL_STRIP_VERSION = 4
 const KEY_PREFIX = 'deckmix:vocalStrip:'
 
 interface Stored {

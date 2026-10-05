@@ -1,7 +1,7 @@
 """
 v0.9.10b (04/10): a genre's vocal strip learns from the owner's hand marks in that genre ("I marked every Techno song in my library — make
 the Techno analysis follow my marks").
-    python scripts/train/fit-genre-marks.py <probs.json> <genre> [out.json]
+    python scripts/train/fit-genre-marks.py <probs.json> <genre> [out.json] [--pool=<other probs.json>:<other genre>]
 <probs.json> comes from dump-strip-probs.mjs with --rows (the frozen model's probabilities, the 28 features and his labels per cell).
 Needs numpy + scikit-learn.
 
@@ -28,9 +28,20 @@ STRIP = (2, 0.5, 0.25, 4)  # vocal-strip.ts: SMOOTH_RADIUS_CELLS, VOICE_ON_AT, V
 BLEND, C, EDGE = 0.5, 0.1, 2
 SHIFTS = np.arange(-3, 3.01, 0.25)
 
+args = [a for a in sys.argv[1:] if not a.startswith("--pool=")]
+pools = [a[len("--pool="):].rsplit(":", 1) for a in sys.argv[1:] if a.startswith("--pool=")]
+sys.argv = [sys.argv[0], *args]
 songs = [s for s in json.load(open(sys.argv[1], encoding="utf-8")) if s["genre"] == sys.argv[2]]
 assert songs and all("rows" in s and "labels" in s for s in songs), "need dump-strip-probs.mjs --rows output for this genre"
 N = len(songs)
+# --pool=<probs.json>:<genre>: another genre's marked songs join EVERY fit as extra lessons (never scored, never in the shift). 05/10, House:
+# his 31 House songs alone moved the strip 71.5% -> 73.0% with 11 songs worse; with his 42 Techno songs in the lessons, 74.9%.
+for path_, g in pools:
+    extra = [s for s in json.load(open(path_, encoding="utf-8")) if s["genre"] == g]
+    assert extra and all("rows" in s and "labels" in s for s in extra), f"--pool {path_}:{g} has no --rows songs"
+    songs += extra
+P = len(songs) - N  # songs[N:] are the pooled ones
+POOL = list(range(N, N + P))
 
 
 def runs(x):
@@ -86,6 +97,7 @@ def keep(y):
 
 
 def fit(idx):
+    idx = list(idx) + POOL
     K = [keep(Y[j]) for j in idx]
     X = np.vstack([R[j][k] for j, k in zip(idx, K)])
     y = np.concatenate([Y[j][k] for j, k in zip(idx, K)])
@@ -128,16 +140,16 @@ out = {
     "mean": [float(v) for v in sc.mean_], "scale": [float(v) for v in sc.scale_],
     "coef": [float(v) for v in lr.coef_[0]], "intercept": float(lr.intercept_[0]),
     "blend": BLEND, "shift": shift,
-    "provenance": {"trainedOn": datetime.date.today().isoformat(), "songs": N, "cells": int(sum(len(y) for y in Y)),
+    "provenance": {"trainedOn": datetime.date.today().isoformat(), "songs": N, **({"pooledSongs": P, "pooledFrom": [g for _, g in pools]} if P else {}), "cells": int(sum(len(y) for y in Y[:N])),
                    "looAgreement": round(ok_n / n, 4), "frozenAgreement": round(ok_b / n, 4), "source": "the owner's hand marks (vocal-marks export)"},
 }
 # The app does this arithmetic from the exported numbers alone: it must match scikit-learn's.
-for j in range(N):
+for j in range(N + P):
     zg = out["intercept"] + ((R[j] - np.array(out["mean"])) / np.where(np.array(out["scale"]) == 0, 1, out["scale"])) @ np.array(out["coef"])
     assert np.allclose(sig(zg), m.predict_proba(R[j])[:, 1], atol=1e-6), "exported numbers do not reproduce the fitted model"
 # The same check end to end, on the strip: node runs the shipped arithmetic on this file and measure-strip-marks.mjs scores it; on these
 # (training) songs it must print this number, give or take the 4-decimal rounding of the frozen probabilities in <probs.json>.
-ins = sum((strip(sig(z_of(m, j) + shift), *STRIP) == T[j]).sum() for j in range(N)) / sum(len(t) for t in T)
+ins = sum((strip(sig(z_of(m, j) + shift), *STRIP) == T[j]).sum() for j in range(N)) / sum(len(t) for t in T[:N])
 print(f"on the {N} training songs themselves (not a measurement, a parity reference for the app): {ins:.1%}")
 if len(sys.argv) > 3:
     # Written as the whole file the app reads (src/core/sound/vocal-genre-models.json), this genre's entry next to any others already there.

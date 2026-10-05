@@ -92,12 +92,13 @@ describe('detectVocalStrip', () => {
     expect(r.timeline).not.toBeNull()
     expect(r.note).toContain('לא מוכר')
   })
-  it('a Techno strip learned from his own marks says so on screen; other genres do not', () => {
+  it('a Techno or House strip learned from his own marks says so on screen; other genres do not', () => {
     const shipped = parseVocalModel(JSON.parse(readFileSync('src/core/sound/vocal-model.json', 'utf8')), JSON.parse(readFileSync('src/core/sound/vocal-genre-models.json', 'utf8')))
     const t = detectVocalStrip(pcm(40, tone), 'Techno', shipped)
     expect(t.timeline).not.toBeNull()
     expect(t.note).toBe('נלמד מהסימונים שלך ב-Techno')
-    expect(detectVocalStrip(pcm(40, tone), 'House', shipped).note).toBeUndefined()
+    expect(detectVocalStrip(pcm(40, tone), 'House', shipped).note).toBe('נלמד מהסימונים שלך ב-House')
+    expect(detectVocalStrip(pcm(40, tone), 'Hip Hop', shipped).note).toBeUndefined()
   })
   it('a Techno song where it finds no voice still says "no voice" on screen, not only where the strip came from', () => {
     const g = JSON.parse(readFileSync('src/core/sound/vocal-genre-models.json', 'utf8'))
@@ -135,7 +136,7 @@ describe('the cache version is tied to what the answer depends on', () => {
       .update(readFileSync('src/core/sound/vocal-model.json'))
       .update(readFileSync('src/core/sound/vocal-genre-models.json'))
       .digest('hex')
-    expect({ version: VOCAL_STRIP_VERSION, fingerprint }).toEqual({ version: 3, fingerprint: 'eb0d18cbc0fb2166bc4e253edbf2221a7a0f3f4e26bc337adc576bffe0ef34b5' })
+    expect({ version: VOCAL_STRIP_VERSION, fingerprint }).toEqual({ version: 4, fingerprint: '22f0808f060d859788c27a4c2ee116ff2e528b5aa7a674bef238c69c92586594' })
   })
 })
 

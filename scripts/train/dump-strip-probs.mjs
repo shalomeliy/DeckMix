@@ -27,7 +27,15 @@ const missing = []
 for (const m of marks.marks) {
   const f = files.find((p) => path.parse(p).name === m.name)
   if (!f) { missing.push(m.name); continue }
-  const raw = execFileSync('ffmpeg', ['-v', 'error', '-i', f, '-f', 'f32le', '-ac', '2', '-ar', String(SR), '-'], { maxBuffer: 1 << 30 })
+  let raw
+  try {
+    raw = execFileSync('ffmpeg', ['-v', 'error', '-i', f, '-f', 'f32le', '-ac', '2', '-ar', String(SR), '-'], { maxBuffer: 1 << 30, stdio: ['ignore', 'pipe', 'pipe'] })
+  } catch (err) {
+    // 05/10: two of his House WAVs carry a tag chunk ffmpeg refuses ("too short LIST tag") and the whole run died on the first one. Named and
+    // counted instead; a copy with only its fmt + data chunks decodes (the audio is the same bytes).
+    missing.push(`${m.name} (ffmpeg: ${String(err.stderr ?? err).trim().split('\n')[0]})`)
+    continue
+  }
   const inter = new Float32Array(raw.buffer, raw.byteOffset, raw.byteLength / 4)
   const n = inter.length / 2
   const L = new Float32Array(n), R = new Float32Array(n)

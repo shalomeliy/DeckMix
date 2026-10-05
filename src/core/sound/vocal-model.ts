@@ -20,7 +20,7 @@ export interface VocalModel {
   scale: number[]
   coef: number[]
   intercept: number
-  provenance: Record<string, string | number>
+  provenance: Record<string, string | number | string[]>
   /**
    * Per-genre models learned from the owner's OWN hand marks in that genre (04/10, his request: "make the Techno analysis follow my marks"),
    * from src/core/sound/vocal-genre-models.json. Absent = the frozen model alone, exactly as before.
@@ -41,7 +41,7 @@ export interface GenreModel {
   intercept: number
   blend: number
   shift: number
-  provenance: Record<string, string | number>
+  provenance: Record<string, string | number | string[]>
 }
 
 const isNumbers = (v: unknown, n: number): v is number[] => Array.isArray(v) && v.length === n && v.every((x) => typeof x === 'number' && Number.isFinite(x))
