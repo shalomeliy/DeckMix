@@ -19,7 +19,7 @@ import {
 import { useShallow } from 'zustand/react/shallow'
 import { bootCopy, bootFor, bootForScanError } from '@/core/library-boot'
 import { findSimilarTracks, orderBySimilarMatches } from '@/core/embedding-search'
-import { findDuplicates, type DuplicateGroup } from '@/core/duplicates'
+import { describeDuplicate, findDuplicates, type DuplicateGroup, type DuplicateNote } from '@/core/duplicates'
 import { libraryEmptyCopy } from '@/core/library-list-copy'
 import { SEARCH_COLUMN_LABEL, columnSearchHint, type SearchColumn } from '@/core/library-search'
 import { applyOwnerMeta, mergeAnalysisPatch, mergeTagPatch } from '@/core/tag-merge'
@@ -757,6 +757,7 @@ export function Library() {
   // filtered everything out" apart from "the folder genuinely has nothing" —
   // the two used to render the identical "no audio files" message.
   const dupReport = useMemo(() => findDuplicates(library.tracks), [library.tracks])
+  const trackById = useMemo(() => new Map(library.tracks.map((t) => [t.id, t])), [library.tracks])
   const sortedFiltered = ctl.sortedFilteredTracks()
   const preMixList = dupOnly ? duplicatesView(sortedFiltered, dupReport.byTrack, library.sortKey == null) : sortedFiltered
   const activeCrate = library.activeCrateId ? (crates.get(library.activeCrateId) ?? null) : null
@@ -1191,7 +1192,7 @@ export function Library() {
             ) : (
               <span
                 className="text-2xs text-grid-dim"
-                title="Duplicates are found by identical content, or by the same artist/title and length. Identical content is only known once a track has been loaded or analysed."
+                title="Duplicates are found by identical content, or by a loosely matching artist/title (other mixes and lengths included). Identical content is only known once a track has been loaded or analysed."
               >
                 no duplicates
                 {dupReport.unchecked > 0 && ` yet · ${dupReport.unchecked} not checkable yet`}
@@ -1537,6 +1538,10 @@ export function Library() {
                   loadedOnA={aHash != null && aHash === t.contentHash}
                   loadedOnB={bHash != null && bHash === t.contentHash}
                   duplicate={dupReport.byTrack.get(t.id)}
+                  duplicateNote={(() => {
+                    const g = dupReport.byTrack.get(t.id)
+                    return g ? describeDuplicate(t, g, trackById) : undefined
+                  })()}
                 />
               ))}
               {padBottom > 0 && (
@@ -1707,11 +1712,15 @@ function duplicatesView(
   return [...dups].sort((a, b) => order.get(byTrack.get(a.id)!.id)! - order.get(byTrack.get(b.id)!.id)!)
 }
 
+/** `=` same bytes, `≈` same song and version, `V` same song in another mix or length. */
+const DUP_GLYPH: Record<DuplicateGroup['kind'], string> = { identical: '=', probable: '≈', version: 'V' }
+
 function duplicatesTitle(groups: DuplicateGroup[], unchecked: number): string {
   const identical = groups.filter((g) => g.kind === 'identical').length
-  const probable = groups.length - identical
+  const probable = groups.filter((g) => g.kind === 'probable').length
+  const versions = groups.length - identical - probable
   return [
-    `Songs in the library more than once: ${identical} identical, ${probable} probable (same artist/title and length). Nothing is deleted or moved — this only lists them. Identical copies are only recognised once a track has been loaded or analysed.`,
+    `Songs in the library more than once: ${identical} identical (=), ${probable} probably the same file in another format (≈), ${versions} the same song in another mix or length (V). Names are compared loosely — word order, an extra word or a letter apart still match. Nothing is deleted or moved — this only lists them. Identical copies are only recognised once a track has been loaded or analysed.`,
     unchecked > 0 ? `${unchecked} tracks cannot be compared yet (no content hash and no tags/length) — more may appear.` : '',
   ]
     .filter(Boolean)
@@ -1731,6 +1740,7 @@ function Row({
   loadedOnA,
   loadedOnB,
   duplicate,
+  duplicateNote,
 }: {
   track: Track
   selected: boolean
@@ -1749,6 +1759,8 @@ function Row({
   loadedOnB: boolean
   /** v0.8.45: the group this track belongs to when the library holds it more than once. */
   duplicate?: DuplicateGroup
+  /** v0.9.24: what sets this file apart from its twins — shown on the chip, not only in a tooltip. */
+  duplicateNote?: DuplicateNote
 }) {
   const key = keyLabel(track, keyMode)
   const tone = keyColor(track.camelot)
@@ -1870,15 +1882,16 @@ function Row({
           {duplicate && (
             <span
               role="img"
-              aria-label={duplicate.kind === 'identical' ? 'Identical copy exists' : 'Probably the same song exists'}
-              title={
-                duplicate.kind === 'identical'
-                  ? `Identical file content: ${duplicate.trackIds.length} copies in the library`
-                  : `Probably the same song (same artist/title and length): ${duplicate.trackIds.length} files — the audio differs, e.g. MP3 and WAV`
-              }
-              className="shrink-0 rounded-[var(--radius-xs)] bg-surface-2 px-1 text-[10px] font-bold leading-4 text-warn"
+              aria-label={duplicateNote?.detail ?? `${DUP_GLYPH[duplicate.kind]} ${duplicate.trackIds.length} files`}
+              title={duplicateNote?.detail}
+              className={`shrink-0 whitespace-nowrap rounded-[var(--radius-xs)] bg-surface-2 px-1 text-[10px] font-bold leading-4 ${duplicate.kind === 'version' ? 'text-grid-muted' : 'text-warn'}`}
             >
-              {duplicate.kind === 'identical' ? '=' : '≈'}×{duplicate.trackIds.length}
+              {DUP_GLYPH[duplicate.kind]}×{duplicate.trackIds.length}
+              {duplicateNote && duplicateNote.short.length > 0 && (
+                // v0.9.24: the owner asked for the difference to be *seen* — a
+                // tooltip alone is a hover per row in a list of hundreds.
+                <span className="ms-1 font-normal">{duplicateNote.short.join(' · ')}</span>
+              )}
             </span>
           )}
           {match && (
