@@ -210,3 +210,36 @@ export function plainTransitionClashSec(
   }
   return first
 }
+
+/**
+ * v0.9.16, the owner's "yes" (05/10) to doing with the mixer's own EQ what stems would do: the MID knob, where most of a voice sits (the
+ * mid band is a bell at `EQ_MID_HZ`), is turned down on B while it plays under A, and swapped at the handoff — B's comes back, A's goes
+ * down. It is not separation: a synth or a guitar in the same band goes down with the voice. It is an extra margin on top of the plan,
+ * which is already clean by where B enters; a DJ does the same by hand on any mixer, with no separated channels (the patent note in
+ * ROADMAP.md v0.9.15 is about those).
+ *
+ * The knob value, on the mixer's own scale (−1 = full cut, 0 = flat). Chosen, not measured: about −28 dB at the band's centre — deep
+ * enough to take a voice back, short of the full kill, which leaves a hole a listener notices.
+ */
+export const HANDOFF_MID_CUT = -0.4
+/** The swap at the handoff takes one bar of A — a turn of the knob, not a cut on a single beat. */
+export const HANDOFF_MID_SWAP_BARS = 1
+
+/**
+ * Both MID knobs at A's play position. `aOwn`/`bOwn` are where the owner had them before the handoff: a knob he had already turned lower
+ * than the cut is never turned UP by this. Before the join nothing is touched (B is not heard yet); after the swap A stays down until the
+ * transition ends, and the caller puts it back then (A is paused by then).
+ */
+export function handoffMidKnobs(
+  plan: Pick<HandoffPlan, 'joinSec' | 'handoffSec'>,
+  aPositionSec: number,
+  barSecA: number,
+  aOwn: number,
+  bOwn: number,
+): { a: number; b: number } {
+  const aCut = Math.min(aOwn, HANDOFF_MID_CUT)
+  const bCut = Math.min(bOwn, HANDOFF_MID_CUT)
+  if (aPositionSec < plan.handoffSec) return { a: aOwn, b: bCut }
+  const t = Math.min(1, (aPositionSec - plan.handoffSec) / Math.max(EPS, HANDOFF_MID_SWAP_BARS * barSecA))
+  return { a: aOwn + (aCut - aOwn) * t, b: bCut + (bOwn - bCut) * t }
+}

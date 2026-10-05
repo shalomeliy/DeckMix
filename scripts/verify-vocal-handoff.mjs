@@ -135,12 +135,14 @@ if (setup.error) {
         const p = (x + 1) / 2
         const gA = Math.cos((p * Math.PI) / 2), gB = Math.sin((p * Math.PI) / 2)
         const a = s.decks.A, b = s.decks.B
-        samples.push({ a: a.positionSec, b: b.positionSec, x, bPlaying: b.playing, aPlaying: a.playing, active: !!s.activeTransition })
+        const ch = s.mixer.channels
+        samples.push({ a: a.positionSec, b: b.positionSec, x, bPlaying: b.playing, aPlaying: a.playing, active: !!s.activeTransition, aMid: ch.A.eqMid, bMid: ch.B.eqMid })
         if (a.playing && b.playing && gA > 0.05 && gB > 0.05 && voiced(A_VOICE, a.positionSec) && voiced(B_VOICE, b.positionSec) && !clash) clash = { a: a.positionSec, b: b.positionSec, x }
         if (!s.activeTransition && samples.length > 5) break
         await new Promise((r) => setTimeout(r, 50))
       }
-      return { at0, samples, clash, final: { aPlaying: useStore.getState().decks.A.playing, bPlaying: useStore.getState().decks.B.playing, x: useStore.getState().mixer.crossfader } }
+      const ch = useStore.getState().mixer.channels
+      return { at0, samples, clash, final: { aPlaying: useStore.getState().decks.A.playing, bPlaying: useStore.getState().decks.B.playing, x: useStore.getState().mixer.crossfader, aMid: ch.A.eqMid, bMid: ch.B.eqMid } }
     }, { A_VOICE, B_VOICE })
     const t = run.at0
     ok('one click starts a handoff that names its handoff second', !!t && t.handoffSec != null && t.waitingUntilSec != null, t ? `B joins at A ${t.waitingUntilSec?.toFixed(2)} s, handoff at A ${t.handoffSec?.toFixed(2)} s` : 'no transition')
@@ -155,6 +157,15 @@ if (setup.error) {
       ok("B's voice comes in at the handoff (within a bar)", Math.abs(handoffB - 20) < 2.1 && handoffB <= 20.2, `B at ${handoffB.toFixed(2)} s at the handoff`)
     }
     ok('never a voice over a voice while both decks are audible', !run.clash, run.clash ? JSON.stringify(run.clash) : `${run.samples.length} samples every 50 ms`)
+    // v0.9.16: the MID knobs. Under A, B's middle is down; one bar after the handoff they have swapped; at the end A's is back where it was.
+    if (t) {
+      const runway = run.samples.filter((s) => s.bPlaying && s.a < t.handoffSec - 0.2)
+      ok("v0.9.16: while B plays under A, B's MID is down and A's untouched", runway.length > 5 && runway.every((s) => Math.abs(s.bMid + 0.4) < 0.01 && Math.abs(s.aMid) < 0.01), `${runway.length} samples, B mid ${runway[0]?.bMid}, A mid ${runway[0]?.aMid}`)
+      const bar = (60 / setup.gridA.bpm) * 4
+      const swapped = run.samples.filter((s) => s.active && s.a > t.handoffSec + bar + 0.2)
+      ok('v0.9.16: a bar after the handoff the MIDs have swapped (A down, B back)', swapped.length > 5 && swapped.every((s) => Math.abs(s.aMid + 0.4) < 0.01 && Math.abs(s.bMid) < 0.01), `${swapped.length} samples, A mid ${swapped[0]?.aMid}, B mid ${swapped[0]?.bMid}`)
+      ok("v0.9.16: when it finishes, A's MID is back where it was", run.final.aMid === 0 && run.final.bMid === 0, `A ${run.final.aMid}, B ${run.final.bMid}`)
+    }
     ok('the transition finished: B playing, A paused, crossfader fully on B', run.final.bPlaying && !run.final.aPlaying && run.final.x > 0.99, JSON.stringify(run.final))
   }
 }
@@ -184,10 +195,57 @@ if (!setup.error) {
     ctl.toggleLoop('A')
     await new Promise((r) => setTimeout(r, 500))
     const after = useStore.getState()
-    return { active: !!after.activeTransition, bPlaying: after.decks.B.playing, x: after.mixer.crossfader, notice: after.notice?.text }
+    return { active: !!after.activeTransition, bPlaying: after.decks.B.playing, x: after.mixer.crossfader, notice: after.notice?.text, aMid: after.mixer.channels.A.eqMid, bMid: after.mixer.channels.B.eqMid }
   })
-  ok('a loop on A mid-handoff cancels it, says so, and leaves A alone on the crossfader', !loop.error && !loop.active && !loop.bPlaying && loop.x <= -0.99 && /לופ/.test(loop.notice ?? ''), JSON.stringify(loop))
+  ok('a loop on A mid-handoff cancels it, says so, leaves A alone on the crossfader, and puts both MIDs back', !loop.error && !loop.active && !loop.bPlaying && loop.x <= -0.99 && /לופ/.test(loop.notice ?? '') && loop.bMid === 0 && loop.aMid === 0, JSON.stringify(loop))
 }
+
+// v0.9.16: a MID knob he turns during the handoff is his (never moved or put back), and a cancel AFTER the swap puts A's back.
+if (!setup.error) {
+  const hand = await page.evaluate(async () => {
+    const { useStore } = await window.mod('/src/app/state/store.ts')
+    const ctl = await window.mod('/src/controls.ts')
+    const core = await window.mod('/src/core/vocal-handoff.ts')
+    const s = useStore.getState()
+    const ta = s.library.tracks.find((t) => t.name.startsWith('Handoff A'))
+    const tb = s.library.tracks.find((t) => t.name.startsWith('Handoff B'))
+    ctl.cancelTransition()
+    ctl.pause('A'); ctl.pause('B')
+    await ctl.loadTrackToDeck('A', ta)
+    await ctl.loadTrackToDeck('B', tb)
+    const deadline = Date.now() + 90000
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+    while (Date.now() < deadline && !(useStore.getState().decks.A.beatGrid && useStore.getState().decks.B.beatGrid && !useStore.getState().decks.A.loading && !useStore.getState().decks.B.loading)) await sleep(200)
+    ctl.seekDeck('A', 12)
+    ctl.play('A')
+    await sleep(300)
+    ctl.startVocalHandoffAt('A', 'B', core.bVoiceStarts(ctl.deckHandoffSide('B'))[0])
+    const t = useStore.getState().activeTransition
+    if (!t) return { error: 'handoff did not start' }
+    while (Date.now() < deadline && !useStore.getState().decks.B.playing) await sleep(50)
+    await sleep(500)
+    const bCutBefore = useStore.getState().mixer.channels.B.eqMid
+    ctl.setEq('B', 'mid', 0.2) // his hand, during the runway
+    const bar = (60 / useStore.getState().decks.A.beatGrid.bpm) * 4
+    while (Date.now() < deadline && useStore.getState().decks.A.positionSec < t.handoffSec + bar + 0.5) await sleep(50)
+    const swapped = { a: useStore.getState().mixer.channels.A.eqMid, b: useStore.getState().mixer.channels.B.eqMid, active: !!useStore.getState().activeTransition }
+    ctl.cancelTransition()
+    const ch = useStore.getState().mixer.channels
+    return { bCutBefore, swapped, afterCancel: { a: ch.A.eqMid, b: ch.B.eqMid } }
+  })
+  ok("v0.9.16: B's MID turned by hand during the runway stays his through the swap", !hand.error && hand.bCutBefore === -0.4 && hand.swapped.active && hand.swapped.b === 0.2 && hand.swapped.a === -0.4, JSON.stringify(hand))
+  ok("v0.9.16: a cancel after the swap puts A's MID back and leaves his B knob alone", !hand.error && hand.afterCancel.a === 0 && hand.afterCancel.b === 0.2, JSON.stringify(hand.afterCancel ?? hand))
+}
+
+const resp = await page.evaluate(() => {
+  const ctx = new OfflineAudioContext(1, 128, 44100)
+  const n = ctx.createBiquadFilter()
+  n.type = 'peaking'; n.frequency.value = 1000; n.Q.value = 0.9; n.gain.value = -0.4 * 70
+  const hz = new Float32Array([100, 200, 500, 1000, 2000, 4000, 8000]), mag = new Float32Array(7), ph = new Float32Array(7)
+  n.getFrequencyResponse(hz, mag, ph)
+  return [...hz].map((h, i) => `${h} Hz ${(20 * Math.log10(mag[i])).toFixed(1)} dB`)
+})
+console.log(`INFO  the MID cut at -0.4 (deck.ts: peaking 1 kHz, Q 0.9): ${resp.join(' · ')}`)
 
 const f = await page.evaluate(() => ({ scroll: document.documentElement.scrollHeight, inner: window.innerHeight }))
 ok('page still fits 710 px', f.scroll <= f.inner, `scrollHeight ${f.scroll} / ${f.inner}`)

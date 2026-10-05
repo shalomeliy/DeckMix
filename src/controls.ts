@@ -44,7 +44,7 @@ import {
   shiftGrid,
 } from '@/core/beatgrid'
 import { crossfadeProgress, exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
-import { HANDOFF_NEEDS_STRAIGHT_SYNC, handoffProgress, handoffSide, planHandoff, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
+import { HANDOFF_NEEDS_STRAIGHT_SYNC, handoffMidKnobs, handoffProgress, handoffSide, planHandoff, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
 import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
 import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
 import { MIN_REGION_SEC, closeOpenMark, drawnBarGrid, moveRegionEdge, undoLastEnd, type VocalManualTag } from '@/core/sound/vocal-manual'
@@ -2575,6 +2575,12 @@ export function setChannelVolume(deckId: DeckId, v: number) {
 }
 
 export function setEq(deckId: DeckId, band: 'low' | 'mid' | 'high', v: number) {
+  // v0.9.16: a MID knob turned by hand during a handoff is his from then on — the handoff stops moving it and will not put it back.
+  const m = activeTransition?.midEq
+  if (m && band === 'mid') {
+    if (deckId === activeTransition!.fromDeckId) m.fromByHand = true
+    if (deckId === activeTransition!.toDeckId) m.toByHand = true
+  }
   engine.decks[deckId].setEq(band, v)
   const key = band === 'low' ? 'eqLow' : band === 'mid' ? 'eqMid' : 'eqHigh'
   useStore.getState().patchChannel(deckId, { [key]: v })
@@ -3306,6 +3312,26 @@ interface ActiveTransition {
   entrySec: number
   /** v0.8.16: the outgoing deck's position at the join, set by `join` — `null` until then. What `markExcellentPair` saves as the pair's exit second. */
   joinedFromSec: number | null
+  /**
+   * v0.9.16: a handoff turns both MID knobs (`handoffMidKnobs`). Where the owner had them before — put back on finish (A) and on cancel
+   * (both) — and whether he has since turned one by hand: from that moment that knob is his, never moved or put back by the handoff.
+   */
+  midEq?: { fromOwn: number; toOwn: number; fromByHand: boolean; toByHand: boolean }
+}
+
+/** Sets one deck's MID knob for the handoff — engine and the knob on screen together, so the owner sees it turn. */
+function setHandoffMid(deckId: DeckId, v: number) {
+  if (useStore.getState().mixer.channels[deckId].eqMid === v) return
+  engine.decks[deckId].setEq('mid', v)
+  useStore.getState().patchChannel(deckId, { eqMid: v })
+}
+
+/** Puts the MID knobs a handoff turned back where the owner had them, except one he turned himself since. */
+function restoreHandoffMid(t: ActiveTransition, which: 'from' | 'both') {
+  const m = t.midEq
+  if (!m) return
+  if (!m.fromByHand) setHandoffMid(t.fromDeckId, m.fromOwn)
+  if (which === 'both' && !m.toByHand) setHandoffMid(t.toDeckId, m.toOwn)
 }
 
 let activeTransition: ActiveTransition | null = null
@@ -3528,6 +3554,11 @@ export function startAutoTransition(
     // `syncDeck` is a toggle: on a deck whose SYNC was already on it would switch it OFF, and B would drift against A for the whole join —
     // for a handoff, up to 16 bars of drift under bar maths that assume the two are locked.
     if (!useStore.getState().decks[toDeckId].syncActive) syncDeck(toDeckId)
+    if (handoff && activeTransition) {
+      const ch = useStore.getState().mixer.channels
+      activeTransition.midEq = { fromOwn: ch[fromDeckId].eqMid, toOwn: ch[toDeckId].eqMid, fromByHand: false, toByHand: false }
+    }
+    const barSecFrom = barSecOf(fromGrid)
 
     const startedAtSec = engine.currentTime
     let lastFromPos = joinedFromSec
@@ -3547,6 +3578,12 @@ export function startAutoTransition(
           return
         }
         lastFromPos = pos
+        const m = activeTransition?.midEq
+        if (m) {
+          const k = handoffMidKnobs({ joinSec: joinedFromSec, handoffSec: handoff.handoffSec }, pos, barSecFrom, m.fromOwn, m.toOwn)
+          if (!m.fromByHand) setHandoffMid(fromDeckId, k.a)
+          if (!m.toByHand) setHandoffMid(toDeckId, k.b)
+        }
       }
       const progress = handoff
         ? handoffProgress({ joinSec: joinedFromSec, ...handoff }, fromEngine.position)
@@ -3741,6 +3778,8 @@ function finishTransition() {
   if (!t) return
   activeTransition = null
   t.unsubscribe()
+  // A is paused below; its MID goes back to where he had it, so the next song on that deck does not start with its middle cut.
+  restoreHandoffMid(t, 'from')
   useStore.setState({ activeTransition: null })
   setMasterDeck(t.toDeckId)
   pause(t.fromDeckId)
@@ -3780,6 +3819,7 @@ export function cancelTransition() {
   if (!t) return
   activeTransition = null
   t.unsubscribe()
+  restoreHandoffMid(t, 'both')
   useStore.setState({ activeTransition: null })
 
   const toEngine = engine.decks[t.toDeckId]

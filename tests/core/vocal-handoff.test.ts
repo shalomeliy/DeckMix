@@ -5,6 +5,8 @@ import {
   MIN_RUNWAY_BARS,
   bVoiceStarts,
   handoffProgress,
+  handoffMidKnobs,
+  HANDOFF_MID_CUT,
   planHandoff,
   plainTransitionClashSec,
   type HandoffPlan,
@@ -169,5 +171,26 @@ describe('handoffProgress', () => {
 describe('plainTransitionClashSec, A side', () => {
   it('clean when A is quiet through the whole fade', () => {
     expect(plainTransitionClashSec(A, 61, B, 40, 8)).toBeNull()
+  })
+})
+
+describe('handoffMidKnobs (v0.9.16)', () => {
+  const p = { joinSec: 44, handoffSec: 60 }
+  it("B's mid is down while it plays under A; A's is untouched", () => {
+    expect(handoffMidKnobs(p, 50, 2, 0, 0)).toEqual({ a: 0, b: HANDOFF_MID_CUT })
+  })
+  it('the swap takes one bar from the handoff: B comes back, A goes down', () => {
+    const half = handoffMidKnobs(p, 61, 2, 0, 0)
+    expect(half.a).toBeCloseTo(HANDOFF_MID_CUT / 2)
+    expect(half.b).toBeCloseTo(HANDOFF_MID_CUT / 2)
+    expect(handoffMidKnobs(p, 62, 2, 0, 0)).toEqual({ a: HANDOFF_MID_CUT, b: 0 })
+    expect(handoffMidKnobs(p, 70, 2, 0, 0)).toEqual({ a: HANDOFF_MID_CUT, b: 0 })
+  })
+  it("returns to the owner's own knob, and never turns up a knob he had lower than the cut", () => {
+    const back = handoffMidKnobs(p, 70, 2, 0.2, 0.3)
+    expect(back.a).toBeCloseTo(HANDOFF_MID_CUT)
+    expect(back.b).toBeCloseTo(0.3)
+    expect(handoffMidKnobs(p, 50, 2, -0.9, -0.8)).toEqual({ a: -0.9, b: -0.8 })
+    expect(handoffMidKnobs(p, 70, 2, -0.9, -0.8)).toEqual({ a: -0.9, b: -0.8 })
   })
 })
