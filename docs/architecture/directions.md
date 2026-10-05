@@ -54,7 +54,7 @@ src/
 
 | Port | היום | swaps עתידיים | סטטוס |
 | --- | --- | --- | --- |
-| **`AudioBackend`** | Web Audio קשיח ב‑`engine.ts`/`deck.ts`, tempo כ‑`playbackRate` גולמי (משנה pitch) | AudioWorklet + WASM DSP — מועמד קונקרטי ל‑key‑lock: [Rubber Band](https://github.com/breakfastquay/rubberband) WASM (v0.9, ראה `ROADMAP.md`) · native ASIO/CoreAudio ב‑Tauri · WebGPU mixing | ⬜ interface ב‑v0.1.6 |
+| **`AudioBackend`** | Web Audio קשיח ב‑`engine.ts`/`deck.ts`, tempo כ‑`playbackRate` גולמי (משנה pitch) | AudioWorklet + WASM DSP — key‑lock: Signalsmith Stretch (MIT, נבנה ב‑v0.9.20, `platform/audio-webaudio/keylock.ts`) · native ASIO/CoreAudio ב‑Tauri · WebGPU mixing | ⬜ interface ב‑v0.1.6 |
 | **`TrackSource`** | File System Access ב‑`library.ts` | URL · ספק ענן (OAuth) · locker אופליין (Cache API) · stems כמקור | ⬜ interface ב‑v0.1.6, מקורות נוספים v0.15 |
 | **`ControlTransport`** | Web MIDI בלבד (`transport-webmidi/manager.ts`) | WebHID · Bluetooth MIDI · WebSerial · OSC · טלפון/רשת כשלט | ⬜ הפרדת צד‑קלט ב‑v0.1.6 |
 | **`Analyzer` + `AnalysisCache`** | `detectBeatGrid` (`analyze.ts` + `core/beatgrid.ts`, v0.3.0) — bpm+phase, עדיין ניחוש מבוסס autocorrelation | WASM · WebGPU · שירות מרוחק · מודל ML למבנה/סולם | ⬜ interface v0.1.6, cache v0.4 |

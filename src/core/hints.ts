@@ -67,6 +67,9 @@ const HINT_BASE = {
   },
   'deck.pfl': { text: 'Send this deck to the headphone cue mix.', action: 'cueMonitor' },
   'deck.vinyl': { text: 'Vinyl mode: stop and start spin down and up instead of cutting.' },
+  'deck.keylock': {
+    text: 'Key lock: the tempo fader changes the speed and the song keeps its own pitch. Off, faster also sounds higher, like a record. Scratching always sounds like a record.',
+  },
   'deck.tempo': {
     text: 'Pitch the track up or down, within the tempo range set in Settings.',
     action: 'tempo',

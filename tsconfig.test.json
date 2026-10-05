@@ -2,7 +2,10 @@
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo",
     "target": "es2023",
-    "lib": ["ES2023"],
+    /* DOM since v0.9.20: tests/platform/deck-keylock.test.ts runs the real
+       audio-webaudio Deck over a fake player, and deck.ts names AudioContext,
+       GainNode and the rest. Types only — the test supplies the objects. */
+    "lib": ["ES2023", "DOM"],
     /* `wicg-file-system-access` is here because core/types.ts declares a Track
        around a FileSystemFileHandle. Any test that reaches core/mapping — the
        first one to do so was relative-delta — pulls that in, and without the
@@ -26,5 +29,7 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["tests"]
+  /* The .d.ts comes with the DOM above: deck.ts reaches keylock.ts, whose
+     dynamic import of the untyped package needs it. */
+  "include": ["tests", "src/platform/audio-webaudio/signalsmith-stretch.d.ts"]
 }

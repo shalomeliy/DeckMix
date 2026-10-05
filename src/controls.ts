@@ -1196,6 +1196,28 @@ export function jogTouch(deckId: DeckId, down: boolean) {
   }
 }
 
+/**
+ * v0.9.20: key lock on one deck. The first press builds the stretch (`engine.ensureKeyLock`); when that fails the button stays off and the
+ * notice says why — never a lit button over unchanged sound.
+ */
+let keyLockLoading = false
+export async function toggleKeyLock(deckId: DeckId) {
+  // A second press while the first one is still loading the stretch: `on` was read before the wait, so it would have ended "on" too.
+  if (keyLockLoading) return
+  const on = !engine.decks[deckId].keyLock
+  if (on) {
+    keyLockLoading = true
+    const ok = await engine.ensureKeyLock().finally(() => (keyLockLoading = false))
+    if (!ok) {
+      useStore.getState().setNotice({ text: `Key lock is not available: ${engine.keyLockError ?? 'unknown reason'}.`, tone: 'warn', source: 'keylock' })
+      return
+    }
+    useStore.getState().clearNotice('keylock')
+  }
+  engine.decks[deckId].setKeyLock(on)
+  useStore.getState().patchDeck(deckId, { keyLock: on })
+}
+
 export function toggleVinylMode(deckId: DeckId) {
   const deck = engine.decks[deckId]
   const on = !deck.vinylMode

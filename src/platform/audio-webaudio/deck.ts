@@ -3,6 +3,8 @@ import { BufferSourcePlayer, WorkletPlayer, type SourcePlayer } from '@/platform
 import type { FxRack } from '@/platform/audio-webaudio/fx'
 import { settings } from '@/platform/settings-idb/store'
 import type { DeckId } from '@/core/types'
+import { keyLockSemitones } from '@/core/key-lock'
+import type { StretchNode } from '@/platform/audio-webaudio/keylock'
 
 /**
  * Spin-down, spin-up, tempo range and EQ depth are the user's now (Settings ›
@@ -32,7 +34,8 @@ const MAX_SYNC_BEND = 0.06
 /**
  * One playback deck. Owns its Web Audio graph:
  *
- *   player -> trim -> eqLow -> eqMid -> eqHigh -> filter -> channelGain
+ *   player -> head -> dry ----------------> trim -> eqLow -> eqMid -> eqHigh -> filter -> channelGain
+ *                 -> key lock (stretch) -> wet -^
  *        channelGain -> fxSeam -> faderGain -> (master bus)
  *                     -> fxSeam -> cueGain   -> (cue bus)
  *
@@ -53,6 +56,22 @@ export class Deck {
   private ctx: AudioContext
 
   private trim: GainNode
+  /** v0.9.20: where the player plays into; `dry` and `wet` (through the key lock) take it on to `trim`, one at a time. */
+  private head: GainNode
+  private dry: GainNode
+  private wet: GainNode
+  private keyLockNode: StretchNode | null = null
+  private keyLockLatencySec = 0
+  private _keyLock = false
+  /**
+   * Track seconds the player runs AHEAD of what is heard, while the key lock is in the path. The stretch takes `keyLockLatencySec` to turn
+   * input into output, so a deck that played from where it is heard would sound that late against the other deck, and every bar line,
+   * SYNC and Mix Assist join would land late by it. Instead the player is moved that far ahead and `position` subtracts it: what the app
+   * reads as the position is what comes out of the speakers, keyed or not. Set when the deck starts, the key lock goes in, and on every
+   * tempo move — there only the amount changes, the player does not move, so nothing is heard. The cost of running ahead: a start or a jump
+   * skips its first `ahead` of audio (a kick's attack on a hot cue), the price of being on time. Zero while paused — the stretch empties its buffer after a stop, so the last thing heard is where the player stopped.
+   */
+  private ahead = 0
   private eqLow: BiquadFilterNode
   private eqMid: BiquadFilterNode
   private eqHigh: BiquadFilterNode
@@ -93,6 +112,12 @@ export class Deck {
     this.id = id
 
     this.trim = ctx.createGain()
+    this.head = ctx.createGain()
+    this.dry = ctx.createGain()
+    this.wet = ctx.createGain()
+    this.wet.gain.value = 0
+    this.head.connect(this.dry).connect(this.trim)
+    this.wet.connect(this.trim)
     this.eqLow = eqBand(ctx, 'lowshelf', EQ_LOW_HZ)
     this.eqMid = eqBand(ctx, 'peaking', EQ_MID_HZ)
     this.eqHigh = eqBand(ctx, 'highshelf', EQ_HIGH_HZ)
@@ -121,7 +146,7 @@ export class Deck {
     this.fxSeam.connect(this.faderGain)
     this.fxSeam.connect(this.cueGain)
 
-    this.player = new BufferSourcePlayer(ctx, this.trim)
+    this.player = new BufferSourcePlayer(ctx, this.head)
     this.player.onEnd = () => this.handleEnd()
   }
 
@@ -140,6 +165,7 @@ export class Deck {
 
   private handleEnd() {
     this._playing = false
+    this.ahead = 0
     this.onEnded?.()
   }
 
@@ -160,7 +186,7 @@ export class Deck {
       // Construct before disposing. Constructing an AudioWorkletNode can throw,
       // and disposing first would leave the deck holding a torn-down player
       // with no way back — a dead deck from a failure that was recoverable.
-      const next = new WorkletPlayer(this.ctx, this.trim)
+      const next = new WorkletPlayer(this.ctx, this.head)
       const previous = this.player
       this.player = next
       previous.dispose()
@@ -178,11 +204,13 @@ export class Deck {
     this._durationSec = buffer.duration
     this._hasTrack = true
     this._playing = false
+    this.ahead = 0
     this.loopStart = this.loopEnd = null
   }
 
   unload() {
     this.player.unload()
+    this.ahead = 0
     this._durationSec = 0
     this._hasTrack = false
     this._playing = false
@@ -190,7 +218,7 @@ export class Deck {
 
   get position(): number {
     if (!this._hasTrack) return 0
-    return clamp(this.player.positionSec, 0, this._durationSec)
+    return clamp(this.player.positionSec - this.ahead, 0, this._durationSec)
   }
 
   private get rate() {
@@ -199,7 +227,10 @@ export class Deck {
 
   play() {
     if (!this._hasTrack || this._playing) return
-    this.player.start(this.position)
+    const pos = this.position
+    this.ahead = this.aheadWhenPlaying()
+    this.syncLoop()
+    this.player.start(pos + this.ahead)
     this._playing = true
   }
 
@@ -207,6 +238,7 @@ export class Deck {
     if (!this._playing) return
     this.player.stop()
     this._playing = false
+    this.settleAhead()
   }
 
   togglePlay() {
@@ -221,7 +253,10 @@ export class Deck {
   }
 
   seek(sec: number) {
-    this.player.seek(clamp(sec, 0, this.duration))
+    // Not playing but `ahead` still set: a vinyl spin-down (`brakeToStop` keeps it until the platter stops). A CUE pressed in that half second
+    // landed `ahead` past the cue point, and the next PLAY started there — a flam against the grid nothing showed (independent review, 05/10).
+    if (!this._playing) this.settleAhead()
+    this.player.seek(clamp(sec, 0, this.duration) + this.ahead)
   }
 
   /** CUE: jump to cue point; hold-to-play handled by caller. */
@@ -232,6 +267,86 @@ export class Deck {
   setTempo(tempo: number) {
     this._tempo = tempo
     if (!this._scratching) this.player.setRate(this.rate)
+    if (this._keyLock && this.keyLockNode) void this.keyLockNode.schedule({ semitones: keyLockSemitones(this.rate) })
+    // The stretch holds `latency` of wall time, which is `latency × rate` of track: a new rate changes what to subtract, not where the player
+    // is — so no seek. Left alone it went stale by 5 ms at +8% and 34 ms on the ±50% range.
+    if (this._playing && this.keyed) {
+      this.ahead = this.aheadWhenPlaying()
+      this.syncLoop()
+    }
+  }
+
+  // ——— key lock (v0.9.20) ———
+
+  /** Called by the engine once a stretch node exists for this deck. Until then `setKeyLock(true)` refuses and the caller says why. */
+  attachKeyLock(node: StretchNode, latencySec: number) {
+    this.keyLockNode = node
+    this.keyLockLatencySec = latencySec
+    this.head.connect(node)
+    node.connect(this.wet)
+  }
+
+  get keyLock() {
+    return this._keyLock
+  }
+
+  /**
+   * Key lock ("master tempo"): the tempo fader changes the speed and the pitch stays the song's own. The player still runs at the fader's
+   * rate — position, loops, scratch, SYNC all unchanged — and the stretch transposes its output back down (or up) by exactly what the rate
+   * shifted it (`keyLockSemitones`). Bends and SYNC's small nudges are not corrected: they are short, and a turntable's are heard too.
+   * Returns false when there is no stretch node to put in the path (the caller says so on screen).
+   */
+  setKeyLock(on: boolean): boolean {
+    if (on && !this.keyLockNode) return false
+    if (on === this._keyLock) return true
+    const heard = this.position
+    this._keyLock = on
+    this.route()
+    // Toggled mid-play: the player jumps by the latency so the new path is heard where the old one was. A drop of about one latency is
+    // audible at the switch; a DJ switches this between songs, not mid-drop.
+    if (this._playing && !this._scratching) {
+      this.ahead = this.aheadWhenPlaying()
+      this.syncLoop()
+      this.player.seek(heard + this.ahead)
+    }
+    return true
+  }
+
+  /** The stretch is in the path when the key lock is on and no hand is on the platter: a scratch has to sound like a record. */
+  private get keyed() {
+    return this._keyLock && !!this.keyLockNode && !this._scratching
+  }
+
+  private aheadWhenPlaying() {
+    return this.keyed ? this.keyLockLatencySec * this.rate : 0
+  }
+
+  /** The deck has stopped: what was heard last is where the player stopped (the stretch plays out its buffer), so nothing to subtract. */
+  private settleAhead() {
+    if (this.ahead === 0) return
+    this.ahead = 0
+    // Stopped inside the player's loop but past the owner's loop end (the player's loop sits `ahead` later): bring it back by the same wrap
+    // the loop would have made, or the next PLAY starts outside the loop the owner set and walks out of it.
+    if (this.loopStart != null && this.loopEnd != null) {
+      const p = this.player.positionSec
+      if (p >= this.loopEnd) this.player.seek(this.loopStart + ((p - this.loopEnd) % (this.loopEnd - this.loopStart)))
+    }
+    this.syncLoop()
+  }
+
+  private route() {
+    const now = this.ctx.currentTime
+    const keyed = this.keyed
+    this.dry.gain.setTargetAtTime(keyed ? 0 : 1, now, 0.005)
+    this.wet.gain.setTargetAtTime(keyed ? 1 : 0, now, 0.005)
+    if (this.keyLockNode) {
+      void this.keyLockNode.schedule(keyed ? { active: true, semitones: keyLockSemitones(this.rate) } : { active: false })
+    }
+  }
+
+  /** The player's loop sits `ahead` later than the loop the owner set, so the loop he hears is the one he set. */
+  private syncLoop() {
+    if (this.loopStart != null && this.loopEnd != null) this.player.setLoop(this.loopStart + this.ahead, this.loopEnd + this.ahead)
   }
 
   get vinylMode() {
@@ -257,7 +372,15 @@ export class Deck {
    */
   beginScratch() {
     if (!this._hasTrack || this._scratching) return
+    // A hand on the platter takes the key lock out of the path (`keyed`): the player steps back to what is heard, so the record is where it sounds.
+    const heard = this.position
     this._scratching = true
+    if (this._keyLock) this.route()
+    if (this.ahead !== 0) {
+      this.ahead = 0
+      this.syncLoop()
+      this.player.seek(heard)
+    }
     this._resumePlaying = this._playing
     if (!this._playing) {
       // a stopped deck still has to feed the pointer for a scratch to be heard
@@ -355,6 +478,13 @@ export class Deck {
   endScratch() {
     if (!this._scratching) return
     this._scratching = false
+    if (this._keyLock) this.route()
+    if (this._resumePlaying && this.keyed) {
+      const heard = this.position
+      this.ahead = this.aheadWhenPlaying()
+      this.syncLoop()
+      this.player.seek(heard + this.ahead)
+    }
     if (this._resumePlaying) {
       if (this._vinylMode) this.player.rampRate(this.rate, settings.values.spinUpSec)
       else this.player.setRate(this.rate)
@@ -380,14 +510,18 @@ export class Deck {
       if (this._playing || this._scratching) return
       this.player.stop()
       this.player.setRate(this.rate)
+      this.settleAhead()
     }, seconds * 1000)
   }
 
   /** Vinyl start: from a standstill up to speed. */
   spinUpToPlay(seconds = settings.values.spinUpSec) {
     if (!this._hasTrack || this._playing) return
+    const pos = this.position
+    this.ahead = this.aheadWhenPlaying()
+    this.syncLoop()
     this.player.setRate(0)
-    this.player.start(this.position)
+    this.player.start(pos + this.ahead)
     this._playing = true
     this.player.rampRate(this.rate, seconds)
   }
@@ -458,7 +592,7 @@ export class Deck {
   setLoop(startSec: number, endSec: number) {
     this.loopStart = startSec
     this.loopEnd = endSec
-    this.player.setLoop(startSec, endSec)
+    this.player.setLoop(startSec + this.ahead, endSec + this.ahead)
   }
 
   clearLoop() {

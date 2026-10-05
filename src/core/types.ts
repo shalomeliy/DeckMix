@@ -199,6 +199,8 @@ export interface DeckState {
   cuePointSec: number
   /** vinyl mode: stop and start spin down and up instead of cutting */
   vinylMode: boolean
+  /** v0.9.20: key lock — the tempo fader changes the speed, the pitch stays the song's own. Off by default; kept across track loads. */
+  keyLock: boolean
   /** a hand is on the platter right now */
   scratching: boolean
   loopActive: boolean

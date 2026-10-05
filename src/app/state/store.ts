@@ -28,6 +28,7 @@ export type NoticeSource =
   | 'library'
   | 'quantize'
   | 'sync'
+  | 'keylock'
   | 'cues'
   | 'grid'
   | 'padMode'
@@ -96,6 +97,7 @@ function emptyDeck(id: DeckId): DeckState {
     hotCues: [],
     cuePointSec: 0,
     vinylMode: true,
+    keyLock: false,
     scratching: false,
     loopActive: false,
     loopRange: null,

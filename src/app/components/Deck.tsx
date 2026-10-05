@@ -527,17 +527,31 @@ export function Deck({ deckId }: { deckId: DeckId }) {
               />
               <HintIcon id="deck.platter" className="absolute -bottom-1 -right-1" />
             </span>
-            <span className="relative inline-flex">
-              <Button
-                variant="toggle"
-                active={deck.vinylMode}
-                tone={color}
-                onClick={() => ctl.toggleVinylMode(deckId)}
-                title="Vinyl mode: stop and start spin down and up instead of cutting"
-              >
-                Vinyl
-              </Button>
-              <HintIcon id="deck.vinyl" className="absolute -right-1.5 -top-1.5" />
+            <span className="flex gap-2">
+              <span className="relative inline-flex">
+                <Button
+                  variant="toggle"
+                  active={deck.vinylMode}
+                  tone={color}
+                  onClick={() => ctl.toggleVinylMode(deckId)}
+                  title="Vinyl mode: stop and start spin down and up instead of cutting"
+                >
+                  Vinyl
+                </Button>
+                <HintIcon id="deck.vinyl" className="absolute -right-1.5 -top-1.5" />
+              </span>
+              <span className="relative inline-flex">
+                <Button
+                  variant="toggle"
+                  active={deck.keyLock}
+                  tone={color}
+                  onClick={() => void ctl.toggleKeyLock(deckId)}
+                  title="Key lock: the tempo fader changes the speed, the pitch stays the song's own"
+                >
+                  Key lock
+                </Button>
+                <HintIcon id="deck.keylock" className="absolute -right-1.5 -top-1.5" />
+              </span>
             </span>
           </div>
           <Fader

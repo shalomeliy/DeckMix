@@ -25,6 +25,7 @@ src/
     downbeat.ts          detectBarOne — איזו פעימה היא ה-1: הקיק חוזר אחרי הפסקה, "בטוח" רק מעל 0.4 (v0.9.5)
     vocal-handoff.ts     planHandoff — Mix Assist לפי צליל: איפה B נכנס בלי שירה כך שישיר בדיוק כש-A שותק, ומתי A יורד (v0.9.15)
     eq-mix.ts            eqMixFrame — המעבר עם ה-EQ כמו DJ: B בלי בס, החלפת בס, אחר כך MID ו-HIGH של A, ובסוף הקרוספיידר (v0.9.18)
+    key-lock.ts          keyLockSemitones — בכמה חצאי טון להחזיר את הגובה כשהטמפו זז (v0.9.20)
     tempo-glide.ts       masterHasGone/glideTempoAt — מתי השיר הישן "נגמר" ואיך חוזרים לאט ל-BPM המקורי (v0.8.39)
     source-lookup.ts     beatportSearch — קישור חיפוש בלבד; האפליקציה אף פעם לא קוראת את Beatport (v0.8.38)
     ports/              ה‑interfaces: audio, source, transport, analyzer, clock,
@@ -35,6 +36,7 @@ src/
       engine.ts         AudioEngine singleton — ניתוב 4ch/סטריאו, crossfader, setSinkId, decode
       deck.ts           Deck — גרף Web Audio לדק בודד, loops, tempo, vinyl braking
       players.ts        SourcePlayer: BufferSourcePlayer (ישן) + WorkletPlayer (scratch)
+      keylock.ts        createKeyLockNode — Signalsmith Stretch (MIT) ל-key-lock, נטען רק בלחיצה הראשונה (v0.9.20)
       scratch-processor.ts  ★ ה‑AudioWorklet עצמו. אסור שייבא כלום — אין לו DOM.
     source-fsaccess/
       library.ts        File System Access — pick/scan/restore, idb-keyval לתיקייה,

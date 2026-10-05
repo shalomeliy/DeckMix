@@ -1,3 +1,4 @@
+import { createKeyLockNode } from '@/platform/audio-webaudio/keylock'
 import { Deck } from '@/platform/audio-webaudio/deck'
 import { FxRack } from '@/platform/audio-webaudio/fx'
 import { SamplerEngine } from '@/platform/audio-webaudio/sampler'
@@ -316,6 +317,44 @@ export class AudioEngine {
 
   get fxWorkletAvailable() {
     return this.fxWorkletReady
+  }
+
+  /**
+   * v0.9.20: the key lock's stretch nodes, one per deck, built the first time the owner turns a key lock on — not at boot: the library is
+   * ~110 KB and most sets never use it. Resolves false when they cannot be built, with the reason in `keyLockError`, which the caller puts
+   * on screen: a KEY LOCK button that lights up and changes nothing is the silent failure this project forbids.
+   */
+  private keyLockLoad: Promise<boolean> | null = null
+  keyLockError: string | null = null
+
+  async ensureKeyLock(): Promise<boolean> {
+    if (!this.keyLockLoad) {
+      this.keyLockLoad = (async () => {
+        if (typeof AudioWorkletNode === 'undefined') {
+          this.keyLockError = 'this browser has no AudioWorklet'
+          return false
+        }
+        try {
+          const built = await Promise.allSettled([createKeyLockNode(this.ctx), createKeyLockNode(this.ctx)])
+          const failed = built.find((r) => r.status === 'rejected')
+          if (failed) {
+            // One built, one not: the built one would otherwise run unconnected for the rest of the session, once per failed press.
+            for (const r of built) if (r.status === 'fulfilled') r.value.node.disconnect()
+            throw failed.reason
+          }
+          const [a, b] = built.map((r) => (r as PromiseFulfilledResult<Awaited<ReturnType<typeof createKeyLockNode>>>).value)
+          this.decks.A.attachKeyLock(a.node, a.latencySec)
+          this.decks.B.attachKeyLock(b.node, b.latencySec)
+          return true
+        } catch (err) {
+          this.keyLockError = err instanceof Error ? err.message : String(err)
+          // Not cached as a failure for good: a load that failed on a flaky moment can be tried again on the next press.
+          this.keyLockLoad = null
+          return false
+        }
+      })()
+    }
+    return this.keyLockLoad
   }
 
   async listOutputs(): Promise<MediaDeviceInfo[]> {
