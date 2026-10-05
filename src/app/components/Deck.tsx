@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as ctl from '@/controls'
 import { LONG_PRESS_MS, PLATTER_SIZE } from '@/core/constants'
 import { useSettings } from '@/app/hooks/useSettings'
@@ -55,6 +55,25 @@ export function Deck({ deckId }: { deckId: DeckId }) {
   // deck still paused — without it, the panel stayed clickable and each
   // extra click saved another "Mix in" pad.
   const showTransitionPoints = loaded && !deck.loading && !deck.playing && otherPlaying && !activeTransition
+  // v0.9.15: both decks' voice for the handoff rows — his marks over the strip, as the vocal strip shows them. Re-read when a strip or a mark
+  // lands, or a grid moves; not on every frame.
+  const otherTrackVocal = useStore((s) => {
+    const id = s.decks[otherDeckId].track?.id
+    return id ? s.library.tracks.find((t) => t.id === id)?.vocal : undefined
+  })
+  const otherBeatGrid = useStore((s) => s.decks[otherDeckId].beatGrid)
+  const otherTrack = useStore((s) => s.decks[otherDeckId].track)
+  const manualTags = useStore((s) => s.vocalManual)
+  const vocalSide = useMemo(
+    () => (showTransitionPoints ? ctl.deckHandoffSide(deckId) : { missing: '' }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [showTransitionPoints, trackVocal, manualTags, deck.beatGrid, deck.durationSec, deck.track],
+  )
+  const otherVocalSide = useMemo(
+    () => (showTransitionPoints ? ctl.deckHandoffSide(otherDeckId) : { missing: '' }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [showTransitionPoints, otherTrackVocal, manualTags, otherBeatGrid, otherDurationSec, otherTrack],
+  )
   // v0.5.4: this deck's own suggested exit point, shown the moment it becomes
   // the outgoing side of a running transition — transparently, per the
   // owner's own request, not tucked away until the transition finishes.
@@ -240,6 +259,10 @@ export function Deck({ deckId }: { deckId: DeckId }) {
               otherDurationSec={otherDurationSec}
               otherPositionBucketSec={otherPositionBucketSec}
               otherAnalysisFailed={otherAnalysisFailed}
+              vocalSide={vocalSide}
+              otherVocalSide={otherVocalSide}
+              syncMult={ctl.handoffSyncMultiplier(otherDeckId, deckId)}
+              onHandoff={(voice) => ctl.startVocalHandoffAt(otherDeckId, deckId, voice)}
               onSelect={(sec) => {
                 // Starts on the other deck's next yellow line (v0.8.14). No
                 // "Mix in" pad here any more — it's saved only if the mix is

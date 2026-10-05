@@ -44,6 +44,7 @@ import {
   shiftGrid,
 } from '@/core/beatgrid'
 import { crossfadeProgress, exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
+import { HANDOFF_NEEDS_STRAIGHT_SYNC, handoffProgress, handoffSide, planHandoff, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
 import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
 import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
 import { MIN_REGION_SEC, closeOpenMark, drawnBarGrid, moveRegionEdge, undoLastEnd, type VocalManualTag } from '@/core/sound/vocal-manual'
@@ -3330,8 +3331,12 @@ function cancelTransitionIfOutgoingDeckTouched(deckId: DeckId) {
  */
 function cancelTransitionByHand(what: string) {
   const waitingUntilSec = useStore.getState().activeTransition?.waitingUntilSec
+  const handoffSec = useStore.getState().activeTransition?.handoffSec
   cancelTransition()
-  if (waitingUntilSec != null) {
+  if (handoffSec != null) {
+    // A handoff runs for many bars after its wait, so it is named whether it was still waiting or already mixing.
+    useStore.getState().setNotice({ text: `מסירת השירה בוטלה — ${what === 'the crossfader was moved' ? 'הזזת את הקרוספיידר' : what.replace(/^deck (\w) was touched$/, 'נגעת בדק $1')}.`, tone: 'info', source: 'sync' })
+  } else if (waitingUntilSec != null) {
     useStore.getState().setNotice({
       text: `Excellent-match mix cancelled — ${what} while it was waiting for ${formatMinSec(waitingUntilSec)}.`,
       tone: 'info',
@@ -3402,6 +3407,12 @@ export function startAutoTransition(
    * overwritten by it. Dropped only by a refusal, which matters more.
    */
   leadNote: string | null = null,
+  /**
+   * v0.9.15, Mix Assist by sound: a vocal handoff (`core/vocal-handoff.ts`). `waitUntilSec` is then the plan's join line; instead of the fixed
+   * fade from the join, the crossfader follows A's own play position — B up to the middle by the handoff (A's voice over, B's starting), A
+   * down to nothing by `fadeEndSec`.
+   */
+  handoff: { handoffSec: number; fadeEndSec: number } | null = null,
 ) {
   const { decks, setNotice } = useStore.getState()
   if (activeTransition) {
@@ -3442,8 +3453,9 @@ export function startAutoTransition(
   const fromEngine = engine.decks[fromDeckId]
   const toEngine = engine.decks[toDeckId]
 
+  const passedText = (sec: number) => (handoff ? passedHandoffText(fromDeckId, sec) : passedExitText(fromDeckId, sec))
   if (waitUntilSec != null && exitWaitStatus(fromEngine.position, waitUntilSec, barSecOf(from.beatGrid)) === 'passed') {
-    setNotice({ text: passedExitText(fromDeckId, waitUntilSec), tone: 'warn', source: 'sync' })
+    setNotice({ text: passedText(waitUntilSec), tone: 'warn', source: 'sync' })
     return
   }
   if (unconfirmedText) {
@@ -3491,6 +3503,13 @@ export function startAutoTransition(
     // `phaseAlignedEntrySec` is bar-phase math, so the incoming deck lands
     // exactly that same fraction past its own yellow line.
     const joinedFromSec = fromEngine.position
+    // The wait joins on the first yellow line crossed in a window up to a bar after `waitUntilSec` (`exitWaitStatus`). For a handoff that
+    // would be a bar late against a plan whose handoff and fade are fixed seconds of A — B's voice a bar after A starts going down, the
+    // runway a bar short. Not started instead, and said.
+    if (handoff && waitUntilSec != null && joinedFromSec > waitUntilSec + barSecOf(fromGrid) / 4) {
+      giveUp(`מסירת השירה לא התחילה — דק ${fromDeckId} עבר את ${formatMinSec(waitUntilSec)} לפני ש-${toDeckId} נכנס. בחר שוב בחלון של Mix Assist.`)
+      return
+    }
     const enterSec = phaseAlignedEntrySec(entrySec, toGrid, joinedFromSec, fromGrid)
     toEngine.seek(enterSec)
     toEngine.play()
@@ -3506,11 +3525,32 @@ export function startAutoTransition(
     if (useStore.getState().masterDeckId !== fromDeckId) {
       useStore.setState({ masterDeckId: fromDeckId })
     }
-    syncDeck(toDeckId)
+    // `syncDeck` is a toggle: on a deck whose SYNC was already on it would switch it OFF, and B would drift against A for the whole join —
+    // for a handoff, up to 16 bars of drift under bar maths that assume the two are locked.
+    if (!useStore.getState().decks[toDeckId].syncActive) syncDeck(toDeckId)
 
     const startedAtSec = engine.currentTime
+    let lastFromPos = joinedFromSec
     const unsubscribeFade = clock.subscribe((t) => {
-      const progress = crossfadeProgress(t - startedAtSec, TRANSITION_CROSSFADE_SEC)
+      // A handoff's crossfader follows A's position, so A must keep moving forward: a loop (or anything that sends A back) would hold the
+      // crossfader short of the handoff while B walks into its voice — a voice over a voice, and a transition that never finishes.
+      if (handoff) {
+        const pos = fromEngine.position
+        const looped = useStore.getState().decks[fromDeckId].loopActive
+        if (looped || pos < lastFromPos - 0.25) {
+          cancelTransition()
+          useStore.getState().setNotice({
+            text: `מסירת השירה בוטלה — דק ${fromDeckId} ${looped ? 'נכנס ללופ' : 'חזר אחורה'}, והמסירה תלויה בזה שהוא ממשיך קדימה.`,
+            tone: 'warn',
+            source: 'sync',
+          })
+          return
+        }
+        lastFromPos = pos
+      }
+      const progress = handoff
+        ? handoffProgress({ joinSec: joinedFromSec, ...handoff }, fromEngine.position)
+        : crossfadeProgress(t - startedAtSec, TRANSITION_CROSSFADE_SEC)
       // engine.setCrossfader's own domain is -1 (A only) .. +1 (B only); this
       // maps `progress` onto whichever half of that range moves *away* from
       // `fromDeckId`, in either direction.
@@ -3521,7 +3561,7 @@ export function startAutoTransition(
     })
     if (activeTransition) activeTransition.unsubscribe = unsubscribeFade
     useStore.setState({
-      activeTransition: { fromDeckId, toDeckId, exitPointSec, waitingForBar: false, waitingUntilSec: null },
+      activeTransition: { fromDeckId, toDeckId, exitPointSec, waitingForBar: false, waitingUntilSec: null, handoffSec: handoff?.handoffSec ?? null },
     })
   }
 
@@ -3553,7 +3593,7 @@ export function startAutoTransition(
     if (waitUntilSec != null) {
       const status = exitWaitStatus(pos, waitUntilSec, barSecOf(fromGrid))
       if (status === 'passed') {
-        giveUp(passedExitText(fromDeckId, waitUntilSec))
+        giveUp(passedText(waitUntilSec))
         return
       }
       if (status === 'early') {
@@ -3568,7 +3608,9 @@ export function startAutoTransition(
         if (loopHolds && !loopNoticeShown) {
           loopNoticeShown = true
           useStore.getState().setNotice({
-            text: `Deck ${fromDeckId} is looping before ${formatMinSec(waitUntilSec)} — the excellent mix waits until the loop is released.`,
+            text: handoff
+              ? `דק ${fromDeckId} בלופ לפני ${formatMinSec(waitUntilSec)} — מסירת השירה מחכה עד שהלופ ישוחרר.`
+              : `Deck ${fromDeckId} is looping before ${formatMinSec(waitUntilSec)} — the excellent mix waits until the loop is released.`,
             tone: 'info',
             source: 'sync',
           })
@@ -3601,13 +3643,68 @@ export function startAutoTransition(
     joinedFromSec: null,
   }
   useStore.setState({
-    activeTransition: { fromDeckId, toDeckId, exitPointSec, waitingForBar: true, waitingUntilSec: waitUntilSec },
+    activeTransition: { fromDeckId, toDeckId, exitPointSec, waitingForBar: true, waitingUntilSec: waitUntilSec, handoffSec: handoff?.handoffSec ?? null },
   })
+}
+
+/**
+ * Mix Assist by sound (v0.9.15): one click on a handoff row. B waits paused until the plan's join line on A, enters in its own stretch with no
+ * voice, rises under A, and takes over on the line where A's voice ends; A goes down while it is quiet. Everything else — refusals, the bar
+ * alignment, cancel, the rating — is `startAutoTransition`'s, unchanged.
+ */
+export function startVocalHandoff(fromDeckId: DeckId, toDeckId: DeckId, plan: HandoffPlan) {
+  startAutoTransition(fromDeckId, toDeckId, plan.entrySec, plan.joinSec, null, { handoffSec: plan.handoffSec, fadeEndSec: plan.fadeEndSec })
+}
+
+/**
+ * How SYNC will read the incoming deck against the playing one — straight (1), half- or double-time — computed exactly as `syncDeck` does,
+ * from the playing deck's playing BPM. A handoff is planned only for 1 (`core/vocal-handoff.ts`), and the plain transition's vocal line
+ * uses it to run B's seconds at the right speed.
+ */
+export function handoffSyncMultiplier(fromDeckId: DeckId, toDeckId: DeckId): 0.5 | 1 | 2 {
+  const { decks } = useStore.getState()
+  const from = decks[fromDeckId]
+  const to = decks[toDeckId]
+  if (!from.bpm || !to.bpm) return 1
+  return syncMultiplier(from.bpm * tempoToRate(from.tempo, settings.values.tempoRange), to.bpm, settings.values.tempoRange)
+}
+
+/** One deck's voice + grid for a handoff, read from the store the way the deck's vocal strip reads it. */
+export function deckHandoffSide(deckId: DeckId): HandoffSide | { missing: string } {
+  const s = useStore.getState()
+  const deck = s.decks[deckId]
+  if (!deck.track) return { missing: 'אין שיר בדק' }
+  const vocal = s.library.tracks.find((t) => t.id === deck.track?.id)?.vocal
+  const tag = deck.track.contentHash ? s.vocalManual[deck.track.contentHash] : undefined
+  return handoffSide(vocal, tag, deck.beatGrid, deck.durationSec)
+}
+
+/**
+ * The panel's handoff row was clicked. The panel planned on a position floored to the second; the plan that runs is made again here from the
+ * live position, so a join line the panel thought was still ahead is never already behind the playhead.
+ */
+export function startVocalHandoffAt(fromDeckId: DeckId, toDeckId: DeckId, voice: BVoiceStart) {
+  if (handoffSyncMultiplier(fromDeckId, toDeckId) !== 1) {
+    useStore.getState().setNotice({ text: HANDOFF_NEEDS_STRAIGHT_SYNC, tone: 'warn', source: 'sync' })
+    return
+  }
+  const a = deckHandoffSide(fromDeckId)
+  const b = deckHandoffSide(toDeckId)
+  const plan = 'missing' in a || 'missing' in b ? null : planHandoff(a, engine.decks[fromDeckId].position, b, voice)
+  if (!plan) {
+    useStore.getState().setNotice({ text: 'מסירת השירה כבר לא אפשרית מהמקום הזה — בחר שורה אחרת בחלון של Mix Assist.', tone: 'warn', source: 'sync' })
+    return
+  }
+  startVocalHandoff(fromDeckId, toDeckId, plan)
 }
 
 /** One bar in track seconds — the unit `exitWaitStatus` measures its window in. */
 function barSecOf(grid: BeatGrid): number {
   return BEATS_PER_BAR * (60 / grid.bpm)
+}
+
+function passedHandoffText(fromDeckId: DeckId, joinSec: number): string {
+  return `דק ${fromDeckId} כבר עבר את ${formatMinSec(joinSec)}, שם B היה צריך להיכנס — מסירת השירה לא התחילה. בחר שוב בחלון של Mix Assist.`
 }
 
 function passedExitText(fromDeckId: DeckId, exitSec: number): string {

@@ -230,6 +230,8 @@ export interface AppState {
      * transition.
      */
     waitingUntilSec: number | null
+    /** v0.9.15: a vocal handoff — the second (on the outgoing deck) where its voice ends and the incoming one's starts. `null` otherwise. */
+    handoffSec: number | null
   } | null
 
   /**

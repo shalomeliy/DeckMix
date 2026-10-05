@@ -237,7 +237,11 @@ export function Mixer() {
           className="w-full rounded-[var(--radius-md)] py-2.5 text-sm font-bold uppercase tracking-wide text-white shadow-[var(--shadow-control)] transition-transform active:translate-y-px"
           style={{ background: 'var(--color-danger)' }}
         >
-          {activeTransition.waitingUntilSec != null
+          {activeTransition.handoffSec != null
+            ? activeTransition.waitingForBar && activeTransition.waitingUntilSec != null
+              ? `דק ${activeTransition.toDeckId} נכנס כשדק ${activeTransition.fromDeckId} יגיע ל-${ctl.formatMinSec(activeTransition.waitingUntilSec)} · מסירה ב-${ctl.formatMinSec(activeTransition.handoffSec)} · ביטול`
+              : `מסירת שירה ב-${ctl.formatMinSec(activeTransition.handoffSec)} · ביטול`
+            : activeTransition.waitingUntilSec != null
             ? `Waiting for ${ctl.formatMinSec(activeTransition.waitingUntilSec)} · cancel`
             : activeTransition.waitingForBar
               ? 'Starting on next bar · cancel'

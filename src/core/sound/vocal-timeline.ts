@@ -151,11 +151,11 @@ export interface VocalCountdown {
 }
 
 /**
- * The two timers the owner asked for (03/10): when the voice starts and when it ends, counted from the play position.
- * "Voice" here is the careful guard's: a cell that is `vocal` OR `unsure` counts, so a timer never promises a quiet stretch the strip
- * only drew dashed. Pure.
+ * The voice stretches of a timeline as the owner reads them (03/10): `vocal` OR `unsure` counts as voice, and a gap of
+ * `COUNTDOWN_MERGE_GAP_SEC` or less is still the same voice. Shared by the countdown and the Mix Assist handoff (v0.9.15), so the two never
+ * disagree about where a voice ends.
  */
-export function vocalCountdown(t: VocalTimeline, positionSec: number, durationSec: number): VocalCountdown {
+export function voiceRuns(t: VocalTimeline, durationSec: number): { from: number; to: number }[] {
   const n = t.cells.length
   const runs: { from: number; to: number }[] = []
   let start = -1
@@ -171,6 +171,16 @@ export function vocalCountdown(t: VocalTimeline, positionSec: number, durationSe
       start = -1
     }
   }
+  return runs
+}
+
+/**
+ * The two timers the owner asked for (03/10): when the voice starts and when it ends, counted from the play position.
+ * "Voice" here is the careful guard's: a cell that is `vocal` OR `unsure` counts, so a timer never promises a quiet stretch the strip
+ * only drew dashed. Pure.
+ */
+export function vocalCountdown(t: VocalTimeline, positionSec: number, durationSec: number): VocalCountdown {
+  const runs = voiceRuns(t, durationSec)
   if (runs.length === 0) return { phase: 'none', startsInSec: null, endsInSec: null }
   const current = runs.find((r) => positionSec >= r.from && positionSec < r.to)
   if (current) return { phase: 'in', startsInSec: 0, endsInSec: current.to - positionSec }
