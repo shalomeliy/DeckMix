@@ -92,6 +92,21 @@ describe('detectVocalStrip', () => {
     expect(r.timeline).not.toBeNull()
     expect(r.note).toContain('לא מוכר')
   })
+  it('a Techno strip learned from his own marks says so on screen; other genres do not', () => {
+    const shipped = parseVocalModel(JSON.parse(readFileSync('src/core/sound/vocal-model.json', 'utf8')), JSON.parse(readFileSync('src/core/sound/vocal-genre-models.json', 'utf8')))
+    const t = detectVocalStrip(pcm(40, tone), 'Techno', shipped)
+    expect(t.timeline).not.toBeNull()
+    expect(t.note).toBe('נלמד מהסימונים שלך ב-Techno')
+    expect(detectVocalStrip(pcm(40, tone), 'House', shipped).note).toBeUndefined()
+  })
+  it('a Techno song where it finds no voice still says "no voice" on screen, not only where the strip came from', () => {
+    const g = JSON.parse(readFileSync('src/core/sound/vocal-genre-models.json', 'utf8'))
+    g.models.Techno.shift = -50 // every cell far below the threshold: the strip finds no voice at all
+    const silentTechno = parseVocalModel(JSON.parse(readFileSync('src/core/sound/vocal-model.json', 'utf8')), g)
+    const t = detectVocalStrip(pcm(40, tone), 'Techno', silentTechno)
+    expect(t.state).toBe('no-vocals')
+    expect(vocalStateText(t.state, t.note)).toBe('שירה: אין שירה — נלמד מהסימונים שלך ב-Techno')
+  })
   it('mono is reported as mono, not hidden', () => {
     expect(detectVocalStrip(pcm(40, tone, false), 'House', model).state).toBe('mono')
   })
@@ -114,12 +129,13 @@ describe('what the deck says when there is a note', () => {
 
 describe('the cache version is tied to what the answer depends on', () => {
   // A change to any of these needs VOCAL_STRIP_VERSION bumped (platform/vocal-strip-idb/store.ts), or strips computed before it are served as current.
-  it('pins the thresholds, the smoothing, the rule and the frozen model against the version', () => {
+  it('pins the thresholds, the smoothing, the rule, the frozen model and the genre models from his marks against the version', () => {
     const fingerprint = createHash('sha256')
       .update(JSON.stringify({ VOICE_ON_AT, VOICE_OFF_AT, SMOOTH_RADIUS_CELLS, MAX_GAP_SEC, MIN_VOICE_SEC, NO_STRIP_GENRES }))
       .update(readFileSync('src/core/sound/vocal-model.json'))
+      .update(readFileSync('src/core/sound/vocal-genre-models.json'))
       .digest('hex')
-    expect({ version: VOCAL_STRIP_VERSION, fingerprint }).toEqual({ version: 2, fingerprint: 'd5088edade3c50a3dd7b4476f31a95d6552d049a8bbc9fe4101bf7acef7babfc' })
+    expect({ version: VOCAL_STRIP_VERSION, fingerprint }).toEqual({ version: 3, fingerprint: 'eb0d18cbc0fb2166bc4e253edbf2221a7a0f3f4e26bc337adc576bffe0ef34b5' })
   })
 })
 

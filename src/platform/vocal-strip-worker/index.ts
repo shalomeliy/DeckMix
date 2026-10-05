@@ -3,6 +3,7 @@
  * A Worker-level failure is returned as a named `failed` result for that track (shown on screen), never thrown into the queue and never retried silently.
  */
 import modelJson from '@/core/sound/vocal-model.json'
+import genreModelsJson from '@/core/sound/vocal-genre-models.json'
 import { parseVocalModel } from '@/core/sound/vocal-model'
 import { detectVocalStrip } from '@/core/sound/vocal-strip'
 import type { PcmData } from '@/core/ports/analyzer'
@@ -35,7 +36,7 @@ function getWorker(): Worker {
 
 /** Takes the PCM over (its buffers are transferred): do not read it afterwards. */
 export async function analyseVocalStrip(pcm: PcmData, genre: string): Promise<VocalResult> {
-  if (!detectCapabilities().webWorker) return detectVocalStrip(pcm, genre, parseVocalModel(modelJson))
+  if (!detectCapabilities().webWorker) return detectVocalStrip(pcm, genre, parseVocalModel(modelJson, genreModelsJson))
   const id = nextId++
   const w = getWorker()
   const response = await new Promise<VocalStripResponse>((resolve) => {

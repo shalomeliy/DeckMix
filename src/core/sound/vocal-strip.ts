@@ -97,10 +97,14 @@ export function detectVocalStrip(pcm: PcmData, genre: string, model: VocalModel)
     if ('result' in r) return r.result
     const durationSec = pcm.channels[0].length / pcm.sampleRate
     const rows = cellFeatureRows(r.features, durationSec)
-    const { probs, genreKnown } = cellProbabilities(rows, genre, model)
+    const { probs, genreKnown, fromOwnerMarks } = cellProbabilities(rows, genre, model)
     const timeline = { cells: cellsFromProbabilities(probs), stereo: r.features.stereo }
-    const note = genreKnown ? undefined : "ז'אנר לא מוכר למודל — פחות בטוח"
-    return { state: stateOfTimeline(timeline), timeline, note }
+    // Named, so he can tell a strip learned from his own marks from the general one. A note replaces the "no vocals" text on screen
+    // (vocalStateText, for the Trance rule), so when this one finds no voice it has to say that itself — or the answer disappears.
+    const state = stateOfTimeline(timeline)
+    const learned = `נלמד מהסימונים שלך ב-${genre}`
+    const note = fromOwnerMarks ? (state === 'no-vocals' ? `אין שירה — ${learned}` : learned) : genreKnown ? undefined : "ז'אנר לא מוכר למודל — פחות בטוח"
+    return { state, timeline, note }
   } catch (err) {
     return { state: 'failed', timeline: null, note: err instanceof Error ? err.message : String(err) }
   }

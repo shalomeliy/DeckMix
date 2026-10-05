@@ -67,3 +67,34 @@ describe('vocal model', () => {
     expect(meanProbability([0.2, 0.4], 5, 9)).toBeNaN()
   })
 })
+
+describe('genre models from his own marks (04/10)', () => {
+  const gm = (over: Record<string, unknown> = {}) => ({
+    schema: VOCAL_MODEL_SCHEMA,
+    featureNames: [...FEATURE_NAMES],
+    models: {
+      Techno: { mean: new Array(NF).fill(0), scale: new Array(NF).fill(1), coef: [3, ...new Array(NF - 1).fill(0)], intercept: 1, blend: 0.5, shift: -0.5, provenance: {}, ...over },
+    },
+  })
+  it('averages the two log-odds by blend and adds the shift, only for that genre, and says so', () => {
+    const m = parseVocalModel(model(), gm())
+    const t = cellProbabilities([row(0.5)], 'Techno', m)
+    // frozen: 0.5 - 1 = -0.5; genre: 1 + 3*0.5 = 2.5; 0.5*-0.5 + 0.5*2.5 - 0.5 = 0.5
+    expect(t.probs[0]).toBeCloseTo(sigmoid(0.5), 5)
+    expect(t.fromOwnerMarks).toBe(true)
+    const h = cellProbabilities([row(0.5)], 'House', m)
+    expect(h.probs[0]).toBeCloseTo(sigmoid(0.5 + 2), 5)
+    expect(h.fromOwnerMarks).toBe(false)
+  })
+  it('without a genre file the frozen model is exactly as before', () => {
+    const t = cellProbabilities([row(0.5)], 'Techno', parseVocalModel(model()))
+    expect(t.probs[0]).toBeCloseTo(sigmoid(-0.5), 5)
+    expect(t.fromOwnerMarks).toBe(false)
+  })
+  it('a broken genre file fails loudly instead of falling back quietly', () => {
+    expect(() => parseVocalModel(model(), gm({ coef: [1] }))).toThrow(/Techno/)
+    expect(() => parseVocalModel(model(), gm({ blend: 2 }))).toThrow(/blend/)
+    expect(() => parseVocalModel(model(), { ...gm(), featureNames: ['x'] })).toThrow(/features/)
+    expect(() => parseVocalModel(model(), { ...gm(), schema: 9 })).toThrow(/schema/)
+  })
+})

@@ -4,13 +4,14 @@
  * `Worker` interface for the reason given in analyzer-worker/worker.ts.
  */
 import modelJson from '@/core/sound/vocal-model.json'
+import genreModelsJson from '@/core/sound/vocal-genre-models.json'
 import { parseVocalModel } from '@/core/sound/vocal-model'
 import { detectVocalStrip } from '@/core/sound/vocal-strip'
 import type { VocalStripRequest, VocalStripResponse } from '@/platform/vocal-strip-worker/protocol'
 
 declare const self: Worker
 
-const model = parseVocalModel(modelJson)
+const model = parseVocalModel(modelJson, genreModelsJson)
 
 self.onmessage = (e: MessageEvent<VocalStripRequest>) => {
   const { id, pcm, genre } = e.data

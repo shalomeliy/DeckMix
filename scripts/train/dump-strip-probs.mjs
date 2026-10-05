@@ -2,7 +2,9 @@
  * The frozen vocal model's per-half-second probabilities for every song in a vocal-marks file, next to the owner's marks for that song.
  *   node --import ./scripts/train/alias-register.mjs scripts/train/dump-strip-probs.mjs <marks.json> <music dir> <out.json> [--rows]
  * Decodes with ffmpeg (44.1 kHz stereo float), finds each marked song by its name in <music dir>. A song it cannot find or decode is
- * printed by name and counted — never dropped silently.
+ * printed by name and counted — never dropped silently. With --rows it also writes the 28 feature numbers and his labels per cell (manualLabels:
+ * his marks painted in the order he made them) — the input of fit-genre-marks.py. The probabilities are the FROZEN model's alone, without any
+ * genre model on top, so a genre model is always fitted against the same base.
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -10,6 +12,7 @@ import { execFileSync } from 'node:child_process'
 import { cellFeatureRows } from '../../src/core/sound/cell-features.ts'
 import { cellProbabilities, parseVocalModel } from '../../src/core/sound/vocal-model.ts'
 import { vocalFeatures } from '../../src/core/sound/vocal-presence.ts'
+import { manualLabels } from '../../src/core/sound/vocal-manual.ts'
 
 const [marksPath, musicDir, outPath, rowsFlag] = process.argv.slice(2)
 const withRows = rowsFlag === '--rows' // the 28 feature numbers per cell too, for fitting on his marks
@@ -34,7 +37,7 @@ for (const m of marks.marks) {
   const durationSec = n / SR
   const rows = cellFeatureRows(r.features, durationSec)
   const { probs, genreKnown } = cellProbabilities(rows, m.genre ?? "", model)
-  out.push({ name: m.name, genre: m.genre ?? '', durationSec, genreKnown, regions: m.regions, probs: Array.from(probs, (p) => +p.toFixed(4)), ...(withRows ? { rows: rows.map((r) => r.map((v) => +v.toFixed(5))) } : {}) })
+  out.push({ name: m.name, genre: m.genre ?? '', durationSec, genreKnown, regions: m.regions, probs: Array.from(probs, (p) => +p.toFixed(4)), ...(withRows ? { rows: rows.map((r) => r.map((v) => +v.toFixed(5))), labels: Array.from(manualLabels(m.regions, durationSec)).slice(0, probs.length) } : {}) })
   console.log(`${m.name}: ${durationSec.toFixed(1)} s, ${probs.length} cells`)
 }
 fs.writeFileSync(outPath, JSON.stringify(out))
