@@ -80,6 +80,7 @@ import type { ParsedKey } from '@/core/key-parse'
 import { hashBytes, hashFile } from '@/platform/source-fsaccess/hash'
 import { settings } from '@/platform/settings-idb/store'
 import { DEFAULTS, FIELD_BY_KEY, secPerRev, type Settings } from '@/core/settings'
+import { heardSemitones, planKeySync } from '@/core/key-sync'
 import { GLIDE_BACK_SEC, glideTempoAt, masterHasGone } from '@/core/tempo-glide'
 import {
   MARK_SCHEMA,
@@ -456,6 +457,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     excellentMixPoints,
     loopActive: false,
     loopRange: null,
+    keySyncShift: null,
   })
   void onTrackLoadedForVocalMarks(deckId, contentHash)
   // A (re)load can change this deck's bpm/tempo as much as touching the
@@ -1215,7 +1217,50 @@ export async function toggleKeyLock(deckId: DeckId) {
     useStore.getState().clearNotice('keylock')
   }
   engine.decks[deckId].setKeyLock(on)
-  useStore.getState().patchDeck(deckId, { keyLock: on })
+  // Key sync rides on the key lock: with the stretch out of the path the move is not heard, so a lit "Key +2" would be a lie.
+  if (!on) engine.decks[deckId].setKeyShift(0)
+  useStore.getState().patchDeck(deckId, on ? { keyLock: on } : { keyLock: on, keySyncShift: null })
+}
+
+/**
+ * v0.9.21: key sync. Moves this deck by whole semitones (`planKeySync`, ±6 at most) to the nearest key that fits the other deck as it is
+ * heard right now, turning the key lock on first — the move needs the stretch. Pressed again, it puts the deck back on its own key and
+ * leaves the key lock as it is. Either deck without a key: nothing moves and the notice names the deck.
+ */
+export async function toggleKeySync(deckId: DeckId) {
+  const { decks, setNotice } = useStore.getState()
+  if (decks[deckId].keySyncShift != null) {
+    engine.decks[deckId].setKeyShift(0)
+    useStore.getState().patchDeck(deckId, { keySyncShift: null })
+    useStore.getState().clearNotice('keylock')
+    return
+  }
+  const otherId: DeckId = deckId === 'A' ? 'B' : 'A'
+  const mine = decks[deckId].track
+  const other = decks[otherId].track
+  if (!mine || !other) {
+    setNotice({ text: `Key sync צריך שיר בשני הדקים — בדק ${!mine ? deckId : otherId} אין שיר.`, tone: 'warn', source: 'keylock' })
+    return
+  }
+  const otherDeck = engine.decks[otherId]
+  const otherRate = tempoToRate(decks[otherId].tempo, settings.values.tempoRange)
+  const plan = planKeySync(mine.camelot, other.camelot, heardSemitones(otherRate, otherDeck.keyLock, otherDeck.keyShift))
+  if (!plan) {
+    const missing = [!mine.camelot && deckId, !other.camelot && otherId].filter(Boolean).join(' ו-')
+    setNotice({ text: `Key sync לא זז: לשיר בדק ${missing} אין סולם.`, tone: 'warn', source: 'keylock' })
+    return
+  }
+  if (!engine.decks[deckId].keyLock) {
+    await toggleKeyLock(deckId)
+    if (!engine.decks[deckId].keyLock) return // the key lock could not load; its notice already says why
+  }
+  engine.decks[deckId].setKeyShift(plan.shift)
+  useStore.getState().patchDeck(deckId, { keySyncShift: plan.shift })
+  const moved = plan.shift === 0 ? `${plan.from} כבר מתאים` : `${plan.from} זז ${plan.shift > 0 ? '+' : ''}${plan.shift} ל-${plan.to}, מתאים`
+  const between = plan.targetOffBy != null
+    ? ` (דק ${otherId} מנגן בלי Key lock והטמפו שם אותו בין שני סולמות; נלקח הקרוב, ${plan.target})`
+    : ''
+  setNotice({ text: `דק ${deckId}: ${moved} לדק ${otherId} (${plan.target})${between}.`, tone: plan.targetOffBy != null ? 'warn' : 'info', source: 'keylock' })
 }
 
 export function toggleVinylMode(deckId: DeckId) {

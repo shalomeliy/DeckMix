@@ -98,6 +98,7 @@ function emptyDeck(id: DeckId): DeckState {
     cuePointSec: 0,
     vinylMode: true,
     keyLock: false,
+    keySyncShift: null,
     scratching: false,
     loopActive: false,
     loopRange: null,

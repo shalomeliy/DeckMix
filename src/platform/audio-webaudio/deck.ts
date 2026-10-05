@@ -63,6 +63,7 @@ export class Deck {
   private keyLockNode: StretchNode | null = null
   private keyLockLatencySec = 0
   private _keyLock = false
+  private _keyShift = 0
   /**
    * Track seconds the player runs AHEAD of what is heard, while the key lock is in the path. The stretch takes `keyLockLatencySec` to turn
    * input into output, so a deck that played from where it is heard would sound that late against the other deck, and every bar line,
@@ -267,7 +268,7 @@ export class Deck {
   setTempo(tempo: number) {
     this._tempo = tempo
     if (!this._scratching) this.player.setRate(this.rate)
-    if (this._keyLock && this.keyLockNode) void this.keyLockNode.schedule({ semitones: keyLockSemitones(this.rate) })
+    if (this._keyLock && this.keyLockNode) void this.keyLockNode.schedule({ semitones: this.stretchSemitones })
     // The stretch holds `latency` of wall time, which is `latency × rate` of track: a new rate changes what to subtract, not where the player
     // is — so no seek. Left alone it went stale by 5 ms at +8% and 34 ms on the ±50% range.
     if (this._playing && this.keyed) {
@@ -312,6 +313,24 @@ export class Deck {
     return true
   }
 
+  /**
+   * Key sync (v0.9.21): whole semitones to move this deck's key, on top of the key lock's undoing of the tempo. Only heard while the key lock
+   * is in the path — the caller turns it on first, and clears this when the owner turns the key lock off or loads another track.
+   */
+  setKeyShift(semitones: number) {
+    if (semitones === this._keyShift) return
+    this._keyShift = semitones
+    if (this._keyLock && this.keyLockNode) void this.keyLockNode.schedule({ semitones: this.stretchSemitones })
+  }
+
+  get keyShift() {
+    return this._keyShift
+  }
+
+  private get stretchSemitones() {
+    return keyLockSemitones(this.rate) + this._keyShift
+  }
+
   /** The stretch is in the path when the key lock is on and no hand is on the platter: a scratch has to sound like a record. */
   private get keyed() {
     return this._keyLock && !!this.keyLockNode && !this._scratching
@@ -340,7 +359,7 @@ export class Deck {
     this.dry.gain.setTargetAtTime(keyed ? 0 : 1, now, 0.005)
     this.wet.gain.setTargetAtTime(keyed ? 1 : 0, now, 0.005)
     if (this.keyLockNode) {
-      void this.keyLockNode.schedule(keyed ? { active: true, semitones: keyLockSemitones(this.rate) } : { active: false })
+      void this.keyLockNode.schedule(keyed ? { active: true, semitones: this.stretchSemitones } : { active: false })
     }
   }
 

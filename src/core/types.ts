@@ -201,6 +201,11 @@ export interface DeckState {
   vinylMode: boolean
   /** v0.9.20: key lock — the tempo fader changes the speed, the pitch stays the song's own. Off by default; kept across track loads. */
   keyLock: boolean
+  /**
+   * v0.9.21: key sync — the semitones this deck was moved to fit the other deck, or null when key sync is off. 0 is "on, and the key
+   * already fitted". Cleared by a track load and by turning the key lock off (without it the move cannot be heard).
+   */
+  keySyncShift: number | null
   /** a hand is on the platter right now */
   scratching: boolean
   loopActive: boolean

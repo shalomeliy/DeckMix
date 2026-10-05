@@ -26,6 +26,7 @@ src/
     vocal-handoff.ts     planHandoff — Mix Assist לפי צליל: איפה B נכנס בלי שירה כך שישיר בדיוק כש-A שותק, ומתי A יורד (v0.9.15)
     eq-mix.ts            eqMixFrame — המעבר עם ה-EQ כמו DJ: B בלי בס, החלפת בס, אחר כך MID ו-HIGH של A, ובסוף הקרוספיידר (v0.9.18)
     key-lock.ts          keyLockSemitones — בכמה חצאי טון להחזיר את הגובה כשהטמפו זז (v0.9.20)
+    key-sync.ts          planKeySync — בכמה חצאי טון להזיז דק לסולם הקרוב שמתאים לדק השני (v0.9.21)
     tempo-glide.ts       masterHasGone/glideTempoAt — מתי השיר הישן "נגמר" ואיך חוזרים לאט ל-BPM המקורי (v0.8.39)
     source-lookup.ts     beatportSearch — קישור חיפוש בלבד; האפליקציה אף פעם לא קוראת את Beatport (v0.8.38)
     ports/              ה‑interfaces: audio, source, transport, analyzer, clock,

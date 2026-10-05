@@ -552,6 +552,22 @@ export function Deck({ deckId }: { deckId: DeckId }) {
                 </Button>
                 <HintIcon id="deck.keylock" className="absolute -right-1.5 -top-1.5" />
               </span>
+              <span className="relative inline-flex">
+                <Button
+                  variant="toggle"
+                  active={deck.keySyncShift != null}
+                  tone={color}
+                  onClick={() => void ctl.toggleKeySync(deckId)}
+                  title={
+                    deck.keySyncShift != null
+                      ? `Key sync is on: moved ${deck.keySyncShift > 0 ? '+' : ''}${deck.keySyncShift} semitones to fit the other deck. Click to go back to the song's own key.`
+                      : "Key sync: move this deck's key, without changing its speed, to the nearest key that fits the other deck"
+                  }
+                >
+                  {deck.keySyncShift != null ? `Key ${deck.keySyncShift > 0 ? '+' : ''}${deck.keySyncShift}` : 'Key sync'}
+                </Button>
+                <HintIcon id="deck.keysync" className="absolute -right-1.5 -top-1.5" />
+              </span>
             </span>
           </div>
           <Fader

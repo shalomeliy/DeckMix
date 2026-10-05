@@ -135,3 +135,28 @@ describe('key lock latency compensation (v0.9.20)', () => {
     expect(d.position).toBeLessThan(10.5)
   })
 })
+
+describe('key sync shift on the deck (v0.9.21)', () => {
+  it('the stretch is told the tempo undo plus the shift, and keeps both through a tempo move', async () => {
+    const { Deck } = await import('@/platform/audio-webaudio/deck')
+    const { keyLockSemitones } = await import('@/core/key-lock')
+    const told: { active?: boolean; semitones?: number }[] = []
+    const d = new Deck(ctx, 'A' as never)
+    d.attachKeyLock({ connect: (x: unknown) => x, schedule: async (o: { semitones?: number }) => void told.push(o) } as never, LATENCY)
+    d.load({ duration: 300 } as AudioBuffer)
+    d.setKeyLock(true)
+    d.setKeyShift(2)
+    expect(told.at(-1)!.semitones).toBeCloseTo(2, 9)
+    d.setTempo(1) // +8%
+    expect(told.at(-1)!.semitones).toBeCloseTo(keyLockSemitones(1.08) + 2, 9)
+    d.setKeyShift(0)
+    expect(told.at(-1)!.semitones).toBeCloseTo(keyLockSemitones(1.08), 9)
+    // key lock off and on again at the deck: the shift is still there (clearing it is `controls.ts`'s job, with the button)
+    d.setKeyShift(-3)
+    d.setKeyLock(false)
+    expect(told.at(-1)!.active).toBe(false)
+    d.setKeyLock(true)
+    expect(told.at(-1)).toMatchObject({ active: true })
+    expect(told.at(-1)!.semitones).toBeCloseTo(keyLockSemitones(1.08) - 3, 9)
+  })
+})

@@ -70,6 +70,9 @@ const HINT_BASE = {
   'deck.keylock': {
     text: 'Key lock: the tempo fader changes the speed and the song keeps its own pitch. Off, faster also sounds higher, like a record. Scratching always sounds like a record.',
   },
+  'deck.keysync': {
+    text: 'Key sync: moves this song up or down a few notes, without changing its speed, until it fits the song on the other deck — like tuning your guitar to a friend’s. Click again to go back to the song’s own key.',
+  },
   'deck.tempo': {
     text: 'Pitch the track up or down, within the tempo range set in Settings.',
     action: 'tempo',
