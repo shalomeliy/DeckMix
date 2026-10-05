@@ -110,6 +110,11 @@ export interface Settings {
   vocalMarking: boolean
   /** v0.9.18: how Mix Assist swaps the two basses (`core/eq-mix.ts`). Instant by default (Shalom, 05/10), gradual by choice here. */
   bassSwap: BassSwapStyle
+  /**
+   * v0.9.22: how far Mix Assist may move the incoming song's key by itself (`autoKeySync` in `controls.ts`), in semitones. 0 = off. Two by
+   * default; the owner (05/10) asked for one and off as the other choices. The Key sync button is not bound by it.
+   */
+  mixAssistKeySync: 0 | 1 | 2
 }
 
 export const DEFAULTS: Settings = {
@@ -141,6 +146,7 @@ export const DEFAULTS: Settings = {
   taggingMode: false,
   vocalMarking: false,
   bassSwap: 'instant',
+  mixAssistKeySync: 2,
 }
 
 // ————————————————————————————————————————————————————————————————
@@ -356,6 +362,18 @@ export const FIELDS: Field[] = [
     options: [
       { value: 'instant', label: 'Instant — on the beat' },
       { value: 'gradual', label: 'Gradual — over one bar' },
+    ],
+  },
+  {
+    kind: 'choice',
+    key: 'mixAssistKeySync',
+    label: 'Mix Assist key sync',
+    help: 'Mix Assist moves the new song up or down a little, without changing its speed, so it is in a key that fits the playing one. A bigger gap than this leaves the song in its own key and says so. Small moves are not heard; bigger ones make a voice sound processed.',
+    group: 'feel',
+    options: [
+      { value: 2, label: 'Up to 2 semitones' },
+      { value: 1, label: 'Up to 1 semitone' },
+      { value: 0, label: 'Off' },
     ],
   },
   {

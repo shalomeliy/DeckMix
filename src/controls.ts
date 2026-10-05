@@ -80,7 +80,7 @@ import type { ParsedKey } from '@/core/key-parse'
 import { hashBytes, hashFile } from '@/platform/source-fsaccess/hash'
 import { settings } from '@/platform/settings-idb/store'
 import { DEFAULTS, FIELD_BY_KEY, secPerRev, type Settings } from '@/core/settings'
-import { heardSemitones, planKeySync, shiftCamelot } from '@/core/key-sync'
+import { heardSemitones, KEY_SYNC_AUTO_MAX_SEMITONES, KEY_SYNC_MAX_SEMITONES, planKeySync, shiftCamelot } from '@/core/key-sync'
 import { GLIDE_BACK_SEC, glideTempoAt, masterHasGone } from '@/core/tempo-glide'
 import {
   MARK_SCHEMA,
@@ -1233,19 +1233,47 @@ export async function toggleKeyLock(deckId: DeckId) {
  * leaves the key lock as it is. Either deck without a song or a key: nothing moves and the notice names the deck.
  */
 export async function toggleKeySync(deckId: DeckId) {
-  const { decks, setNotice } = useStore.getState()
-  if (decks[deckId].keySyncShift != null) {
+  if (useStore.getState().decks[deckId].keySyncShift != null) {
     clearKeySync(deckId)
     useStore.getState().clearNotice('keylock')
     return
   }
+  const said = await keySync(deckId, KEY_SYNC_MAX_SEMITONES)
+  if (said) useStore.getState().setNotice({ ...said, source: 'keylock' })
+}
+
+/**
+ * v0.9.22: Mix Assist keys the incoming deck itself (the owner, 05/10: "I want this to happen automatically when I press Mix Assist").
+ * Two semitones at most, or what Settings says (1, or off) — past that a voice starts to sound processed, and the owner asked first whether moving a key hurts the song;
+ * a bigger gap leaves the song in its own key and says so. A key sync the owner already set on that deck is his and is left alone.
+ * The key lock goes on even when no move is needed: SYNC is about to put B on A's tempo, and without it that alone moves B's pitch off
+ * the key it was just matched on. The result joins the transition's own notice rather than replacing it (`notice` has one slot).
+ */
+async function autoKeySync(deckId: DeckId) {
+  const max = Math.min(settings.values.mixAssistKeySync, KEY_SYNC_AUTO_MAX_SEMITONES)
+  // Off in Settings: nothing moves, and nothing is said — the owner turned it off himself, the transition's own notice is unchanged.
+  if (!(max > 0) || useStore.getState().decks[deckId].keySyncShift != null) return
+  const before = useStore.getState().notice
+  const said = await keySync(deckId, max)
+  if (!said) return
+  const { notice, setNotice } = useStore.getState()
+  if (notice && notice === before) {
+    setNotice({ text: `${notice.text} · ${said.text}`, tone: notice.tone === 'warn' || said.tone === 'warn' ? 'warn' : 'info', source: notice.source })
+  } else setNotice({ ...said, source: 'keylock' })
+}
+
+/**
+ * The move itself, for the button and for Mix Assist. The key lock goes on even at a move of 0, so the deck's own tempo — SYNC putting it
+ * on the other deck's — cannot pull it off the key it was matched on. Returns what to tell the owner; null only when a notice is already up.
+ */
+async function keySync(deckId: DeckId, maxShift: number): Promise<{ text: string; tone: 'info' | 'warn' } | null> {
+  const { decks } = useStore.getState()
   const otherId: DeckId = deckId === 'A' ? 'B' : 'A'
   const mine = decks[deckId].track
   const other = decks[otherId].track
   const empty = [!mine && deckId, !other && otherId].filter(Boolean)
   if (empty.length) {
-    setNotice({ text: `Key sync צריך שיר בשני הדקים — ${empty.length === 2 ? 'שני הדקים ריקים' : `בדק ${empty[0]} אין שיר`}.`, tone: 'warn', source: 'keylock' })
-    return
+    return { text: `Key sync צריך שיר בשני הדקים — ${empty.length === 2 ? 'שני הדקים ריקים' : `בדק ${empty[0]} אין שיר`}.`, tone: 'warn' }
   }
   const otherDeck = engine.decks[otherId]
   const otherRate = tempoToRate(decks[otherId].tempo, settings.values.tempoRange)
@@ -1253,22 +1281,25 @@ export async function toggleKeySync(deckId: DeckId) {
   if (!plan) {
     // a code that is there but is not Camelot counts as no key, and is named the same way
     const missing = [!shiftCamelot(mine!.camelot ?? '', 0) && deckId, !shiftCamelot(other!.camelot ?? '', 0) && otherId].filter(Boolean)
-    setNotice({ text: `Key sync לא זז: לשיר ב${missing.length === 2 ? 'שני הדקים' : `דק ${missing[0]}`} אין סולם.`, tone: 'warn', source: 'keylock' })
-    return
+    return { text: `Key sync לא זז: לשיר ב${missing.length === 2 ? 'שני הדקים' : `דק ${missing[0]}`} אין סולם.`, tone: 'warn' }
+  }
+  if (Math.abs(plan.shift) > maxShift) {
+    return {
+      text: `הסולמות לא מתאימים (${plan.from} מול ${plan.target}): צריך להזיז ${Math.abs(plan.shift)} חצאי טון, יותר מ-${maxShift}, אז השיר בדק ${deckId} נשאר בסולם שלו.`,
+      tone: 'warn',
+    }
   }
   if (!engine.decks[deckId].keyLock) {
     await toggleKeyLock(deckId)
     if (!engine.decks[deckId].keyLock) {
       // A failed load already put its reason up; a press while another key lock press is still loading returns with nothing on screen.
-      if (!engine.keyLockError) setNotice({ text: 'Key lock עדיין נטען — לחץ שוב על Key sync.', tone: 'info', source: 'keylock' })
-      return
+      return engine.keyLockError ? null : { text: 'Key lock עדיין נטען — לחץ שוב על Key sync.', tone: 'info' }
     }
   }
   // The first key lock load is awaited above: a song loaded onto either deck meanwhile makes this plan one for songs no longer there.
   const now = useStore.getState().decks
   if (now[deckId].track?.id !== mine!.id || now[otherId].track?.id !== other!.id) {
-    setNotice({ text: 'Key sync לא זז: שיר הוחלף באמצע. לחץ שוב.', tone: 'warn', source: 'keylock' })
-    return
+    return { text: 'Key sync לא זז: שיר הוחלף באמצע. לחץ שוב.', tone: 'warn' }
   }
   engine.decks[deckId].setKeyShift(plan.shift)
   useStore.getState().patchDeck(deckId, { keySyncShift: plan.shift })
@@ -1277,7 +1308,7 @@ export async function toggleKeySync(deckId: DeckId) {
   const between = plan.targetOffBy != null
     ? ` (דק ${otherId} מנגן בלי Key lock והטמפו שם אותו בין שני סולמות; נלקח הקרוב, ${plan.target})`
     : ''
-  setNotice({ text: `דק ${deckId}: ${moved} לדק ${otherId} (${plan.target})${between}.`, tone: plan.targetOffBy != null ? 'warn' : 'info', source: 'keylock' })
+  return { text: `דק ${deckId}: ${moved} לדק ${otherId} (${plan.target})${between}.`, tone: plan.targetOffBy != null ? 'warn' : 'info' }
 }
 
 function clearKeySync(deckId: DeckId) {
@@ -3633,6 +3664,9 @@ export function startAutoTransition(
   } else if (leadNote) {
     setNotice({ text: leadNote, tone: 'info', source: 'mixRating' })
   }
+  // v0.9.22: the incoming song moves to a key that fits A, while it is still silent — the key lock may still be loading for the first time
+  // when the join comes, and a switch then is heard by nobody: the crossfader sits fully on A.
+  void autoKeySync(toDeckId)
 
   // Establish the join point explicitly rather than trust whatever the live
   // crossfader already happens to read — ROADMAP.md requires the incoming

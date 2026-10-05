@@ -210,6 +210,49 @@ ok("the other deck's key changes after the press: key sync comes off and says so
 ok('eject takes key sync off with the song', r.eject.shift === null && r.eject.engine === 0, `store ${r.eject.shift}, engine ${r.eject.engine}`)
 ok('three buttons under each platter, inside the deck, clear of the tempo fader', r.rows.length === 2 && r.rows.every((x) => x.n === 3 && x.left >= x.colLeft - 0.5 && (x.faderLeft == null || x.right <= x.faderLeft)),
   JSON.stringify(r.rows.map((x) => ({ n: x.n, row: [Math.round(x.left), Math.round(x.right)], fader: x.faderLeft && Math.round(x.faderLeft) }))))
+// v0.9.22: Mix Assist keys the incoming deck itself, within the Settings limit (2 by default, 1, or off).
+const mx = await page.evaluate(async () => {
+  const ctl = await window.mod('/src/controls.ts')
+  const { useStore } = await window.mod('/src/app/state/store.ts')
+  const { settings } = await window.mod('/src/platform/settings-idb/store.ts')
+  const S = () => useStore.getState()
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+  if (!S().decks.A.track) await window.kl.load('KL Tone')
+  await window.kl.settled('A')
+  const grid = { offsetSec: 0, bpm: 120 }
+  const run = async (bKey, limit) => {
+    await settings.set('mixAssistKeySync', limit)
+    ctl.cancelTransition()
+    ctl.pause('B')
+    if (S().decks.B.keySyncShift != null) await ctl.toggleKeySync('B')
+    if (S().decks.B.keyLock) await ctl.toggleKeyLock('B')
+    window.kl.setKey('A', '8A')
+    window.kl.setKey('B', bKey)
+    for (const d of ['A', 'B']) S().patchDeck(d, { beatGrid: grid, beatGridConfirmed: true })
+    ctl.seekDeck('A', 5)
+    ctl.play('A')
+    S().setNotice(null)
+    ctl.startAutoTransition('A', 'B', 0)
+    await sleep(1500)
+    const out = { shift: S().decks.B.keySyncShift, keyLock: S().decks.B.keyLock, notice: S().notice?.text ?? null }
+    ctl.cancelTransition()
+    ctl.pause('A')
+    ctl.pause('B')
+    return out
+  }
+  const r = {}
+  r.minus1 = await run('3A', 2) // 3A → 8A is one semitone down
+  r.plus2 = await run('6A', 2) // 6A → 8A is two up
+  r.limit1 = await run('6A', 1) // the same, with Settings at one: left alone
+  r.off = await run('3A', 0)
+  await settings.set('mixAssistKeySync', 2)
+  return r
+})
+ok('Mix Assist keys the incoming deck: 3A against 8A moves -1, key lock on', mx.minus1.shift === -1 && mx.minus1.keyLock, JSON.stringify(mx.minus1))
+ok('Mix Assist: 6A against 8A moves +2 at the default limit', mx.plus2.shift === 2 && mx.plus2.keyLock, JSON.stringify(mx.plus2))
+ok('Settings at 1 semitone: a 2-semitone gap is left alone and the notice says so', mx.limit1.shift === null && /יותר מ-1/.test(mx.limit1.notice ?? ''), JSON.stringify(mx.limit1))
+ok('Settings off: nothing moves', mx.off.shift === null && !mx.off.keyLock, JSON.stringify(mx.off))
+
 const f = await page.evaluate(() => ({ scroll: document.documentElement.scrollHeight, inner: window.innerHeight, w: document.documentElement.scrollWidth, iw: window.innerWidth }))
 ok('page still fits 1536 x 710', f.scroll <= f.inner && f.w <= f.iw, `scrollHeight ${f.scroll} / ${f.inner}, scrollWidth ${f.w} / ${f.iw}`)
 ok('no errors in the console', errors.length === 0, errors.slice(0, 3).join(' | '))

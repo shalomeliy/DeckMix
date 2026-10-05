@@ -10,6 +10,13 @@ import { keysCompatible } from '@/core/recommend'
 export const KEY_SYNC_MAX_SEMITONES = 6
 
 /**
+ * The most Mix Assist moves the incoming song on its own (v0.9.22). One or two semitones go unheard on real music; past that a voice starts
+ * to sound processed. The owner asked, before anything was built, whether moving a key hurts the song — so the automatic path stops here,
+ * says so, and leaves bigger moves to the button.
+ */
+export const KEY_SYNC_AUTO_MAX_SEMITONES = 2
+
+/**
  * A Camelot code moved by `semitones`. One semitone up is seven steps round the wheel (C → C# is 8B → 3B), which is why a neighbour on the
  * wheel is five semitones away and not one. The letter stays: a shifted minor key is still minor.
  */
