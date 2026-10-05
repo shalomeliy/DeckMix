@@ -47,6 +47,7 @@ const NAMED: Record<string, Named[]> = {
     { token: 'onDoubleClick=', count: 3, exempt: 'stops a row double-click inside the genre/note cell editors and on the ↗ Beatport link' },
     { token: 'onKeyDown=', count: 1, gesture: 'library.rows' },
     { token: 'onKeyDown=', count: 1, gesture: 'library.search' }, // Esc: tag first, then text
+    { token: "addEventListener('keydown'", count: 1, exempt: `v0.9.24 Genre ▾ list: ${ESC_CLOSES}` },
   ],
   'src/app/components/SourceCheckPanel.tsx': [{ token: 'onKeyDown=', count: 1, gesture: 'library.checkSource' }],
   'src/app/components/Deck.tsx': [{ token: 'onDrop=', count: 1, gesture: 'library.rows' }],

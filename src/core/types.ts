@@ -13,7 +13,7 @@ export interface Track {
   bpm?: number
   durationSec?: number
   /**
-   * The file's size on disk (v0.12.11), read for free in the tag pass. With
+   * The file's size on disk (v0.9.24), read for free in the tag pass. With
    * `durationSec` it gives the average bitrate the duplicate notes compare
    * ("lower quality") — no header parsing per format needed.
    */

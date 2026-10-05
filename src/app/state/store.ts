@@ -309,6 +309,12 @@ export interface AppState {
      */
     queryColumn: SearchColumn | null
     /**
+     * v0.9.24: the genres the table is limited to (the ▾ in the Genre header),
+     * or `null` for every genre. `''` stands for "no genre", so a track with
+     * none can be picked out too instead of only ever being filtered away.
+     */
+    genreFilter: string[] | null
+    /**
      * v0.8.25: the ids of the rows the table actually draws, in order —
      * written by `Library.tsx`, read by `moveSelection`. Mix Only, "hide
      * played" and "more like this" narrow the table inside the component, so
@@ -467,6 +473,7 @@ export const useStore = create<AppState>((set) => ({
     sortDir: 'asc',
     activeCrateId: null,
     queryColumn: null,
+    genreFilter: null,
     visibleIds: null,
   },
   crates: new Map(),

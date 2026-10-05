@@ -4212,10 +4212,22 @@ export function setSearchColumn(column: SearchColumn | null) {
   useStore.getState().setLibrary({ queryColumn: column })
 }
 
+/**
+ * Limit the table to some genres (v0.9.24), or `null` for all of them. An
+ * empty pick is stored as `null`: "no genre ticked" showing an empty table
+ * would read as a broken library, not as a filter.
+ */
+export function setGenreFilter(genres: string[] | null) {
+  useStore.getState().setLibrary({ genreFilter: genres && genres.length > 0 ? genres : null })
+}
+
 export function filteredTracks(): Track[] {
   const { library, crates } = useStore.getState()
   const column = library.queryColumn
-  const base = library.tracks.filter((t) => matchesSearch(t, library.query, column))
+  const genres = library.genreFilter ? new Set(library.genreFilter) : null
+  const base = library.tracks.filter(
+    (t) => matchesSearch(t, library.query, column) && (!genres || genres.has(t.genre ?? '')),
+  )
   const crate = library.activeCrateId ? crates.get(library.activeCrateId) : undefined
   if (!crate) return base
   const members = new Set(crate.kind === 'manual' ? (crate.members ?? []) : (crate.materialized ?? []))

@@ -29,7 +29,7 @@
 | **branch** | `main` (בדיקה: `git fetch && git log origin/main..HEAD --oneline` ריק). כמה commits מקומיים שלא נדחפו. |
 | **גרסה נוכחית** | `v0.12.10` (`package.json`). |
 | **`check`** | ירוק ב-v0.9.24 (`npm run check`, 05/10). |
-| **הבא בתור** | **v0.9.21–22 Key sync — 05/10** ([`v0.9.21.md`](docs/handoff/v0.9.21.md), [`v0.9.22.md`](docs/handoff/v0.9.22.md)): כפתור (±6), Mix Assist לבד עד 2. **ממתין לאוזן.** [v0.9.24](docs/handoff/v0.9.24.md): כפולים גמיש, לבדיקה. v0.9.23 ([`v0.9.23.md`](docs/handoff/v0.9.23.md)): 24 תיבות אחרי מיקס; פתוח: `verify-mix-entry-energy` 9/11. Key lock (v0.9.20) אושר 05/10. v0.9.15–18 (מיקס EQ, [`v0.9.15.md`](docs/handoff/v0.9.15.md)) **אושרו באוזן 05/10**; עדיין פתוחה התשובה בכרטיס (המחשב מבצע / רק מציע). הפס: [`v0.9.10b.md`](docs/handoff/v0.9.10b.md); Stems: [`v0.12.15.md`](docs/handoff/v0.12.15.md). אחריה: מזרחי כשיסומן · v0.8.26 רק ליד הקונטרולר. |
+| **הבא בתור** | **v0.9.21–22 Key sync — 05/10** ([`v0.9.21.md`](docs/handoff/v0.9.21.md), [`v0.9.22.md`](docs/handoff/v0.9.22.md)): כפתור (±6), Mix Assist לבד עד 2. **ממתין לאוזן.** [v0.9.24](docs/handoff/v0.9.24.md): כפולים, ז'אנר. v0.9.23 ([`v0.9.23.md`](docs/handoff/v0.9.23.md)): 24 תיבות אחרי מיקס; פתוח: `verify-mix-entry-energy` 9/11. Key lock (v0.9.20) אושר 05/10. v0.9.15–18 (מיקס EQ, [`v0.9.15.md`](docs/handoff/v0.9.15.md)) **אושרו באוזן 05/10**; עדיין פתוחה התשובה בכרטיס (המחשב מבצע / רק מציע). הפס: [`v0.9.10b.md`](docs/handoff/v0.9.10b.md); Stems: [`v0.12.15.md`](docs/handoff/v0.12.15.md). אחריה: מזרחי כשיסומן · v0.8.26 רק ליד הקונטרולר. |
 
 ---
 

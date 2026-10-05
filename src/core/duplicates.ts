@@ -40,7 +40,7 @@ const FUZZY_RATIO = 0.88
  * the candidate search uses it — two names that do meet are still compared
  * on all their words.
  */
-const COMMON_TOKEN = 200
+const COMMON_TOKEN = 40
 
 export type DuplicateKind = 'identical' | 'probable' | 'version'
 
@@ -111,6 +111,8 @@ interface NameParts {
   version: string
   /** the version tags as the owner wrote them, for the notes */
   versionLabel: string
+  /** words after the first " - " (the title, when the name is "Artist - Title"); all words when there is no dash */
+  titleWords: number
 }
 
 /**
@@ -126,7 +128,8 @@ export function songName(raw: string): NameParts {
     if (!/^(feat|ft|featuring)\b/i.test(t) && !isYoutubeId(t) && !/^\d*$/.test(t)) tags.push(t)
     return ' '
   })
-  s = s.replace(/\b(feat|ft|featuring)\b\.?[^-–—]*/gi, ' ')
+  // up to the next " - ", not the next hyphen: "feat. Jay-Z - Title" must not leave "z" behind
+  s = s.replace(/\b(feat|ft|featuring)\b\.?(?:(?!\s[-–—]\s).)*/gi, ' ')
   // "Artist - Title - Extended Mix": a trailing dash part made of version words is a tag too
   // — but with only two parts the last one is usually the title ("Artist - Live Your Life"),
   // so there it must be made of nothing but version and noise words ("Radio Edit").
@@ -148,16 +151,26 @@ export function songName(raw: string): NameParts {
   if (loose.length > 0) tags.push(loose.join(' '))
   let versionWords = normalizeName(tags.join(' ')).split(' ').filter((w) => w && !NOISE_WORDS.has(w) && !/^\d+$/.test(w))
   if (versionWords.length === 1 && versionWords[0] === 'mix') versionWords = []
+  const title = parts.length >= 2 ? normalizeName(parts.slice(1).join(' ')).split(' ').filter((w) => w && !LOOSE_VERSION_WORDS.has(w)) : songWords
   return {
     song: songWords.join(' '),
     version: [...new Set(versionWords)].sort().join(' '),
     versionLabel: tags.filter((t) => normalizeName(t)).join(' · '),
+    titleWords: title.length,
   }
+}
+
+interface SongKey {
+  name: string
+  words: ReadonlySet<string>
+  titleWords: number
+  /** this name carried a version tag — "Song Shimon Elbaz Extended Remix" is a remix credit, not a longer title */
+  versioned: boolean
 }
 
 interface Keyed {
   /** the names this track can be known by: from its tags, and from its file name */
-  songs: string[]
+  songs: SongKey[]
   version: string
   versionLabel: string
 }
@@ -174,12 +187,16 @@ function keyed(t: Track): Keyed {
   if (hit) return hit
   const fromName = songName(t.name)
   const fromTags = t.artist && t.title ? songName(`${t.artist} - ${t.title}`) : null
-  const songs = [fromTags?.song, fromName.song].filter(
-    (s, i, all): s is string => !!s && s.length >= MIN_KEY_LENGTH && all.indexOf(s) === i,
-  )
+  const songs: SongKey[] = []
+  for (const p of [fromTags, fromName]) {
+    if (!p || p.song.length < MIN_KEY_LENGTH || songs.some((k) => k.name === p.song)) continue
+    songs.push({ name: p.song, words: new Set(p.song.split(' ')), titleWords: p.titleWords, versioned: p.version !== '' })
+  }
   // the tags win, but a title tag without the remix in it must not hide the one in the file name
   const v = fromTags?.version ? fromTags : fromName
   const k = { songs, version: v.version, versionLabel: v.versionLabel }
+  // a folder switch or a tag edit leaves old entries behind; a bound keeps that from growing forever
+  if (keyedCache.size > 50_000) keyedCache.clear()
   keyedCache.set(cacheKey, k)
   return k
 }
@@ -200,21 +217,41 @@ function levenshtein(a: string, b: string): number {
 /**
  * Two song names (already through `songName`) are one song when:
  *  - they hold the same words in any order ("A & B" / "B & A"),
- *  - one is the other plus at most two words, and the shorter still has three
- *    words to be sure of (a two-word "Avicii Wake" must not swallow "Avicii
- *    Wake Me Up"),
+ *  - one is the other plus one word, or plus two words when the shorter has two
+ *    title words or the longer one carried a remix tag — and the shorter still
+ *    has three words to be sure of (a two-word "Avicii Wake" must not swallow
+ *    "Avicii Wake Me Up"). "Daft Punk - One" is not "Daft Punk - One More Time"
+ *    (review, v0.9.24), but "Peer Tasi - Melody Shimon Elbaz Extended Remix" is
+ *    "Peer Tasi - Melody", and "Nightshapes - Korolova and MotherEarth" is
+ *    "Korolova, MotherEarth - Nightshapes" (both from the owner's library; the
+ *    second names the title first, so "title words" can't be trusted alone),
  *  - or they are a letter or two apart (`FUZZY_RATIO`) — spelling, a typo.
+ * Never when both carry numbers and the numbers differ: "Part 1" / "Part 2",
+ * "Loop 01" … "Loop 120" — a letter apart, a whole song apart (review, v0.9.24:
+ * 120 loops became one group). One side with no number at all ("Song 2", a
+ * second copy) still meets.
  */
 export function sameSong(a: string, b: string): boolean {
-  return sameWords(a, new Set(a.split(' ')), b, new Set(b.split(' ')))
+  const k = (s: string): SongKey => ({ name: s, words: new Set(s.split(' ')), titleWords: s.split(' ').length, versioned: false })
+  return sameWords(k(a), k(b))
 }
 
-function sameWords(a: string, sa: ReadonlySet<string>, b: string, sb: ReadonlySet<string>): boolean {
+const numbers = (w: ReadonlySet<string>) => [...w].filter((x) => /^\d+$/.test(x)).map(Number)
+
+function sameWords(ka: SongKey, kb: SongKey): boolean {
+  const a = ka.name
+  const b = kb.name
   if (a === b) return true
-  const [small, large] = sa.size <= sb.size ? [sa, sb] : [sb, sa]
+  const na = numbers(ka.words)
+  const nb = numbers(kb.words)
+  if (na.length > 0 && nb.length > 0 && (na.length !== nb.length || na.some((n) => !nb.includes(n)))) return false
+  const [ks, kl] = ka.words.size <= kb.words.size ? [ka, kb] : [kb, ka]
+  const small = ks.words
+  const large = kl.words
   const contained = [...small].every((w) => large.has(w))
   if (contained && small.size === large.size) return true
-  if (contained && small.size >= 3 && large.size - small.size <= 2) return true
+  const extra = large.size - small.size
+  if (contained && small.size >= 3 && (extra <= 1 || (extra <= 2 && (ks.titleWords >= 2 || kl.versioned)))) return true
   const longest = Math.max(a.length, b.length)
   if (Math.min(a.length, b.length) < 8) return false
   // the edit distance is at least the length difference — skip the O(n·m) when that alone fails
@@ -224,6 +261,23 @@ function sameWords(a: string, sa: ReadonlySet<string>, b: string, sb: ReadonlySe
   let missing = 0
   for (const w of small) if (!large.has(w) && ++missing > maxEdits) return false
   return 1 - levenshtein(a, b) / longest >= FUZZY_RATIO
+}
+
+/**
+ * Verdicts kept across calls: the table recomputes on every tag batch and every
+ * analysed track, and the names rarely change between them. The review measured
+ * ~100ms per call at 1,000 tracks without it.
+ */
+const pairCache = new Map<string, boolean>()
+function samePair(a: SongKey, b: SongKey): boolean {
+  const key = a.name < b.name ? `${a.name}\u0001${b.name}` : `${b.name}\u0001${a.name}`
+  let v = pairCache.get(key)
+  if (v === undefined) {
+    if (pairCache.size > 200_000) pairCache.clear()
+    v = sameWords(a, b)
+    pairCache.set(key, v)
+  }
+  return v
 }
 
 export function findDuplicates(tracks: readonly Track[]): DuplicateReport {
@@ -246,11 +300,10 @@ export function findDuplicates(tracks: readonly Track[]): DuplicateReport {
   // Comparing every pair is ~n²/2 edit distances on every library change; only
   // names that share a word can be one song, so only those are compared.
   const keys = tracks.map((t) => (t.durationSec === undefined ? null : keyed(t)))
-  const words = keys.map((k) => k?.songs.map((s) => new Set(s.split(' '))) ?? [])
   const postings = new Map<string, number[]>()
   keys.forEach((k, i) => {
     if (!k) return
-    for (const w of new Set(words[i].flatMap((set) => [...set]))) {
+    for (const w of new Set(k.songs.flatMap((s) => [...s.words]))) {
       const list = postings.get(w)
       if (list) list.push(i)
       else postings.set(w, [i])
@@ -269,7 +322,7 @@ export function findDuplicates(tracks: readonly Track[]): DuplicateReport {
         if (find(i) === find(j)) continue
         const a = keys[i]!
         const b = keys[j]!
-        if (a.songs.some((s, si) => b.songs.some((r, ri) => sameWords(s, words[i][si], r, words[j][ri])))) union(i, j)
+        if (a.songs.some((s) => b.songs.some((r) => samePair(s, r)))) union(i, j)
       }
     }
   }
@@ -354,9 +407,12 @@ export function describeDuplicate(track: Track, group: DuplicateGroup, all: Read
   const ts = group.trackIds.map((id) => all.get(id)).filter((t): t is Track => !!t)
   const others = ts.filter((t) => t.id !== track.id)
   const short: string[] = []
-  if (group.kind === 'identical') {
-    short.push('same file')
-  } else {
+  // A group can hold two byte-identical files *and* a remix (review, v0.9.24):
+  // the copies must still say so, or the one thing worth cleaning up reads as
+  // "not a copy".
+  const twins = track.contentHash ? others.filter((o) => o.contentHash === track.contentHash) : []
+  if (group.kind === 'identical' || twins.length > 0) short.push('same file')
+  if (group.kind !== 'identical') {
     const mine = keyed(track)
     if (others.some((o) => keyed(o).version !== mine.version)) short.push(mine.versionLabel ? 'other mix' : 'plain version')
 
@@ -383,7 +439,11 @@ export function describeDuplicate(track: Track, group: DuplicateGroup, all: Read
       ? `Identical file content: ${ts.length} copies in the library.`
       : group.kind === 'probable'
         ? `Probably the same song, same version: ${ts.length} files whose audio differs (e.g. MP3 and WAV).`
-        : `The same song in ${ts.length} versions — a different mix or length. Not a copy; listed so you can compare.`
+        : `The same song in ${ts.length} versions — a different mix or length; listed so you can compare.`
+  const copies = group.kind === 'identical' ? [] : identicalSets(ts)
+  const copyLine = copies.length
+    ? `Byte-for-byte copies among them: ${copies.map((c) => c.map((t) => t.name).join(' = ')).join('; ')}.`
+    : ''
   const lines = ts.map((t) => {
     const facts = [
       t.durationSec !== undefined ? formatLength(t.durationSec) : 'length unknown yet',
@@ -392,5 +452,15 @@ export function describeDuplicate(track: Track, group: DuplicateGroup, all: Read
     ]
     return `${t.id === track.id ? '▶ ' : '• '}${t.name} — ${facts.join(' · ')}`
   })
-  return { short, detail: [head, ...lines].join('\n') }
+  const qualityNote = ts.some((t) => !LOSSLESS.has(t.kind) && qualityOf(t) !== null)
+    ? 'kbps is estimated from file size and length; cover art inside the file adds to it.'
+    : ''
+  return { short, detail: [head, copyLine, ...lines, qualityNote].filter(Boolean).join('\n') }
+}
+
+/** Sets of two or more files in `ts` with the same content hash. */
+export function identicalSets(ts: readonly Track[]): Track[][] {
+  const by = new Map<string, Track[]>()
+  for (const t of ts) if (t.contentHash) by.set(t.contentHash, [...(by.get(t.contentHash) ?? []), t])
+  return [...by.values()].filter((g) => g.length > 1)
 }

@@ -149,9 +149,9 @@ const TRACKS = {
 }
 
 await scenario('two remixes of one song', TRACKS, async (page) => {
-  const button = page.getByRole('button', { name: /repeated song/ })
+  const button = page.getByRole('button', { name: /repeated song|other version/ })
   await button.waitFor({ timeout: 15000 })
-  ok('header counts one repeated song', /1 repeated song/.test((await button.textContent()) ?? ''), await button.textContent())
+  ok('header counts one song in another version', /1 in other version/.test((await button.textContent()) ?? ''), await button.textContent())
   await button.click()
   await page.waitForTimeout(300)
   const rows = await page.locator('tbody tr[aria-selected]').allTextContents()

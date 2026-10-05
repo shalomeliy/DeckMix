@@ -16,6 +16,7 @@ import {
   restoreLibraryFolder,
   scanLibrary,
 } from '@/platform/source-fsaccess/library'
+import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import { bootCopy, bootFor, bootForScanError } from '@/core/library-boot'
 import { findSimilarTracks, orderBySimilarMatches } from '@/core/embedding-search'
@@ -801,6 +802,14 @@ export function Library() {
     ...(mixOnly && !similarTo && tempoDirection && library.sortKey == null && anyPlaying && recs.size > 0
       ? [{ label: `Tempo: ${tempoDirection}`, clear: () => setTempoDirection(null) }]
       : []),
+    ...(library.genreFilter
+      ? [
+          {
+            label: `Genre: ${library.genreFilter.map((g) => g || 'No genre').join(', ')}`,
+            clear: () => ctl.setGenreFilter(null),
+          },
+        ]
+      : []),
     ...(dupOnly ? [{ label: 'Duplicates only', clear: () => setDupOnly(false) }] : []),
     ...(activeCrate ? [{ label: `Crate: ${activeCrate.name}`, clear: () => ctl.setActiveCrate(null) }] : []),
     ...(similarToTrack
@@ -1187,7 +1196,7 @@ export function Library() {
                 onClick={() => setDupOnly((v) => !v)}
                 title={duplicatesTitle(dupReport.groups, dupReport.unchecked)}
               >
-                ⧉ {dupReport.groups.length} repeated song{dupReport.groups.length === 1 ? '' : 's'}
+                {duplicatesButtonText(dupReport.groups)}
               </Button>
             ) : (
               <span
@@ -1437,7 +1446,8 @@ export function Library() {
                     v0.8.0 reclaimed 5% more (Title/Artist/BPM/Key/Time each
                     shrank a bit further) to make room for Note + Last played. */}
                 <Th className="w-[5%] text-left" sortKey="genre" activeSort={activeSort} onSort={handleSort}
-                  searchColumn="genre" searchActive={searchColumn === 'genre'} onSearch={pickSearchColumn}>
+                  searchColumn="genre" searchActive={searchColumn === 'genre'} onSearch={pickSearchColumn}
+                  extra={<GenreFilterButton tracks={library.tracks} picked={library.genreFilter} />}>
                   Genre
                 </Th>
                 <Th className="w-[3%] text-left">Type</Th>
@@ -1580,8 +1590,11 @@ function Th({
   searchColumn,
   searchActive = false,
   onSearch,
+  extra,
 }: {
   children: React.ReactNode
+  /** v0.9.24: one more header control after the ⌕ (the Genre ▾ filter). */
+  extra?: React.ReactNode
   className?: string
   sortKey?: SortKey
   activeSort?: { key: SortKey; dir: SortDir } | null
@@ -1613,7 +1626,123 @@ function Th({
         )}
       </button>
       {searchColumn && onSearch && <SearchColumnButton column={searchColumn} active={searchActive} onSearch={onSearch} />}
+      {extra}
     </th>
+  )
+}
+
+const NO_GENRE = ''
+
+/**
+ * The ▾ in the Genre header (v0.9.24, Shalom 05/10): tick the genres to keep,
+ * like a spreadsheet column filter. Only genres the library actually holds are
+ * listed, each with its count, and "No genre" is its own line — the tracks
+ * without one are named, not silently left out of every pick.
+ *
+ * The list is portalled to `<body>` and placed `fixed` from the button's
+ * rectangle: the table sits in a scrolling, sticky-header box that clipped it
+ * when placed under the 5%-wide header, and inside that box `fixed` was not
+ * relative to the window (the first browser run lost the list off-screen).
+ */
+function GenreFilterButton({ tracks, picked }: { tracks: readonly Track[]; picked: string[] | null }) {
+  const [open, setOpen] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number } | null>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const counts = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const t of tracks) m.set(t.genre ?? NO_GENRE, (m.get(t.genre ?? NO_GENRE) ?? 0) + 1)
+    return [...m.entries()].sort((a, b) => (a[0] === NO_GENRE ? 1 : b[0] === NO_GENRE ? -1 : a[0].localeCompare(b[0])))
+  }, [tracks])
+  // a genre still ticked after the last track of it left the library stays listed, at 0, so it can be unticked
+  const rows = [...counts, ...(picked ?? []).filter((g) => !counts.some(([c]) => c === g)).map((g) => [g, 0] as [string, number])]
+  const set = new Set(picked ?? [])
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (!boxRef.current?.contains(e.target as Node) && !btnRef.current?.contains(e.target as Node)) setOpen(null)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        setOpen(null)
+        btnRef.current?.focus()
+      }
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey, true)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey, true)
+    }
+  }, [open])
+
+  const toggle = (g: string) => {
+    const next = new Set(set)
+    if (next.has(g)) next.delete(g)
+    else next.add(g)
+    ctl.setGenreFilter([...next])
+  }
+  const label = (g: string) => (g === NO_GENRE ? 'No genre' : g)
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => {
+          if (open) return setOpen(null)
+          // The library sits low on the owner's 710px screen — its header was at
+          // y≈620 in the browser check — so the list opens upward when there is
+          // more room above, and is never taller than the room it has.
+          const r = btnRef.current!.getBoundingClientRect()
+          const left = Math.max(8, Math.min(r.left, window.innerWidth - 216))
+          const below = window.innerHeight - r.bottom - 12
+          const above = r.top - 12
+          setOpen(
+            below >= 240 || below >= above
+              ? { left, top: r.bottom + 4, maxHeight: below }
+              : { left, bottom: window.innerHeight - r.top + 4, maxHeight: above },
+          )
+        }}
+        aria-label={picked ? `Genre filter: ${picked.map(label).join(', ')}` : 'Filter by genre'}
+        aria-expanded={open != null}
+        aria-haspopup="true"
+        title={picked ? `Showing only: ${picked.map(label).join(', ')}` : 'Filter by genre'}
+        className={`ml-0.5 rounded-[var(--radius-xs)] px-0.5 text-2xs transition-colors hover:bg-surface-2 hover:text-grid-text ${
+          picked ? 'text-accent' : 'text-grid-dim'
+        }`}
+      >
+        {picked ? `▾${picked.length}` : '▾'}
+      </button>
+      {open && createPortal(
+        <div
+          ref={boxRef}
+          role="group"
+          aria-label="Genres to show"
+          className="fixed z-50 w-52 overflow-y-auto rounded-[var(--radius-sm)] border border-hairline bg-surface-1 p-1 text-left text-xs font-normal normal-case tracking-normal text-grid-text shadow-lg"
+          style={{ left: open.left, top: open.top, bottom: open.bottom, maxHeight: open.maxHeight }}
+        >
+          <button
+            type="button"
+            onClick={() => ctl.setGenreFilter(null)}
+            disabled={!picked}
+            className="mb-1 w-full rounded-[var(--radius-xs)] px-2 py-1 text-left hover:bg-surface-2 disabled:opacity-50"
+          >
+            {picked ? 'Show all genres' : 'All genres shown — tick to narrow'}
+          </button>
+          {rows.map(([g, n]) => (
+            <label key={g || '(none)'} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-xs)] px-2 py-0.5 hover:bg-surface-2">
+              <input type="checkbox" checked={set.has(g)} onChange={() => toggle(g)} />
+              <span className={`min-w-0 flex-1 truncate ${g === NO_GENRE ? 'italic text-grid-muted' : ''}`}>{label(g)}</span>
+              <span className="tnum text-grid-dim">{n}</span>
+            </label>
+          ))}
+          <p className="mt-1 px-2 text-2xs text-grid-dim">Esc to close</p>
+        </div>,
+        document.body,
+      )}
+    </>
   )
 }
 
@@ -1710,6 +1839,21 @@ function duplicatesView(
     if (!order.has(g)) order.set(g, order.size)
   }
   return [...dups].sort((a, b) => order.get(byTrack.get(a.id)!.id)! - order.get(byTrack.get(b.id)!.id)!)
+}
+
+/**
+ * v0.9.24 review: a remix is not a copy, so the button counts them apart —
+ * "12 repeated songs" that were mostly remixes overstated what there is to clean up.
+ */
+function duplicatesButtonText(groups: DuplicateGroup[]): string {
+  const versions = groups.filter((g) => g.kind === 'version').length
+  const copies = groups.length - versions
+  return [
+    copies > 0 ? `⧉ ${copies} repeated song${copies === 1 ? '' : 's'}` : '',
+    versions > 0 ? `${copies > 0 ? '' : '⧉ '}${versions} in other version${versions === 1 ? '' : 's'}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 /** `=` same bytes, `≈` same song and version, `V` same song in another mix or length. */
@@ -1882,7 +2026,7 @@ function Row({
           {duplicate && (
             <span
               role="img"
-              aria-label={duplicateNote?.detail ?? `${DUP_GLYPH[duplicate.kind]} ${duplicate.trackIds.length} files`}
+              aria-label={`${DUP_GLYPH[duplicate.kind]} ${duplicate.trackIds.length} files${duplicateNote?.short.length ? `: ${duplicateNote.short.join(', ')}` : ''}. ${duplicateNote?.detail ?? ''}`}
               title={duplicateNote?.detail}
               className={`shrink-0 whitespace-nowrap rounded-[var(--radius-xs)] bg-surface-2 px-1 text-[10px] font-bold leading-4 ${duplicate.kind === 'version' ? 'text-grid-muted' : 'text-warn'}`}
             >

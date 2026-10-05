@@ -159,4 +159,46 @@ describe('wider matching (v0.9.24)', () => {
     const b = t({ name: 'YouTube [kivuDS-6HbQ].mp3', durationSec: 200 })
     expect(findDuplicates([a, b]).groups).toHaveLength(0)
   })
+
+  // The independent review of v0.9.24, each a probe that failed before the fix.
+  it('byte-identical copies inside a group with a remix still say "same file"', () => {
+    const a = t({ name: 'Artist - Song.mp3', contentHash: 'h', durationSec: 200 })
+    const b = t({ name: 'Artist - Song (1).mp3', contentHash: 'h', durationSec: 200 })
+    const c = t({ name: 'Artist - Song (Club Remix).mp3', contentHash: 'z', durationSec: 360 })
+    const r = findDuplicates([a, b, c])
+    expect(r.groups[0].kind).toBe('version')
+    const note = describeDuplicate(a, r.groups[0], byId([a, b, c]))
+    expect(note.short[0]).toBe('same file')
+    expect(note.detail).toContain('Byte-for-byte copies')
+    expect(describeDuplicate(c, r.groups[0], byId([a, b, c])).short).not.toContain('same file')
+  })
+
+  it('names that differ only in a number are different songs', () => {
+    expect(sameSong('some artist big song part 1', 'some artist big song part 2')).toBe(false)
+    expect(sameSong('beethoven symphony no 5', 'beethoven symphony no 9')).toBe(false)
+    const loops = Array.from({ length: 20 }, (_, i) => t({ name: `Kick Loop ${String(i + 1).padStart(2, '0')}.wav`, durationSec: 4 }))
+    expect(findDuplicates(loops).groups).toHaveLength(0)
+    // a number on one side only is still a second copy
+    expect(sameSong('massari miss fatty 2', 'massari miss fatty')).toBe(true)
+  })
+
+  it('a one-word title plus extra words is another song, unless the extra came with a remix tag', () => {
+    const a = t({ name: 'Daft Punk - One.mp3', durationSec: 200 })
+    const b = t({ name: 'Daft Punk - One More Time.mp3', durationSec: 320 })
+    expect(findDuplicates([a, b]).groups).toHaveLength(0)
+    const c = t({ name: 'פאר טסי - מלודי (Buskilaz Remix).wav', durationSec: 200 })
+    const d = t({ name: 'פאר טסי - מלודי Shimon Elbaz Extended Remix.wav', durationSec: 300 })
+    expect(findDuplicates([c, d]).groups).toHaveLength(1)
+  })
+
+  it('a name that puts the title first still meets its twin (owner\'s library)', () => {
+    const a = t({ name: 'Korolova, MotherEarth - Nightshapes ft. Tyoz.mp3', durationSec: 200 })
+    const b = t({ name: 'Nightshapes (feat. Tyoz) - Korolova and MotherEarth.m4a', durationSec: 200.3 })
+    expect(findDuplicates([a, b]).groups).toHaveLength(1)
+  })
+
+  it('feat. stops at " - ", not at a hyphen inside a name', () => {
+    expect(songName('Artist feat. Jay-Z - Title').song).toBe('artist title')
+  })
 })
+
