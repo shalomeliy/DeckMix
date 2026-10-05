@@ -12,6 +12,8 @@
  *  - today's plain transition from B's 30 s point is flagged "שירה על שירה" in the panel;
  *  - v0.9.17: neither kind of row comes in right away — a handoff joins a whole phrase before A's voice end, an energy point on A's next
  *    phrase start (counted from where A's voice starts), and the row says when; a Mix-in pad the same; in A's last bars, the next bar, said;
+ *  - v0.9.18: the EQ mix — B under A has its LOW killed, the lows swap on the handoff line, never both open, A's HIGH leaves before the
+ *    crossfader takes A out, every knob is back at the end; a plain transition does the same inside its 8 s, instant and gradual;
  *  - nothing throws.
  * Content of a real strip is not judged here; the planner's numbers on his real marks are scripts/train/measure-handoff-marks.mjs.
  */
@@ -141,13 +143,13 @@ if (setup.error) {
         const gA = Math.cos((p * Math.PI) / 2), gB = Math.sin((p * Math.PI) / 2)
         const a = s.decks.A, b = s.decks.B
         const ch = s.mixer.channels
-        samples.push({ a: a.positionSec, b: b.positionSec, x, bPlaying: b.playing, aPlaying: a.playing, active: !!s.activeTransition, aMid: ch.A.eqMid, bMid: ch.B.eqMid })
+        samples.push({ a: a.positionSec, b: b.positionSec, x, bPlaying: b.playing, aPlaying: a.playing, active: !!s.activeTransition, aMid: ch.A.eqMid, bMid: ch.B.eqMid, aLow: ch.A.eqLow, bLow: ch.B.eqLow, aHigh: ch.A.eqHigh, bHigh: ch.B.eqHigh })
         if (a.playing && b.playing && gA > 0.05 && gB > 0.05 && voiced(A_VOICE, a.positionSec) && voiced(B_VOICE, b.positionSec) && !clash) clash = { a: a.positionSec, b: b.positionSec, x }
         if (!s.activeTransition && samples.length > 5) break
         await new Promise((r) => setTimeout(r, 50))
       }
       const ch = useStore.getState().mixer.channels
-      return { at0, samples, clash, final: { aPlaying: useStore.getState().decks.A.playing, bPlaying: useStore.getState().decks.B.playing, x: useStore.getState().mixer.crossfader, aMid: ch.A.eqMid, bMid: ch.B.eqMid } }
+      return { at0, samples, clash, final: { aPlaying: useStore.getState().decks.A.playing, bPlaying: useStore.getState().decks.B.playing, x: useStore.getState().mixer.crossfader, aMid: ch.A.eqMid, bMid: ch.B.eqMid, eq: [ch.A.eqLow, ch.A.eqMid, ch.A.eqHigh, ch.B.eqLow, ch.B.eqMid, ch.B.eqHigh] } }
     }, { A_VOICE, B_VOICE })
     const t = run.at0
     ok('one click starts a handoff that names its handoff second', !!t && t.handoffSec != null && t.waitingUntilSec != null, t ? `B joins at A ${t.waitingUntilSec?.toFixed(2)} s, handoff at A ${t.handoffSec?.toFixed(2)} s` : 'no transition')
@@ -174,6 +176,24 @@ if (setup.error) {
       const swapped = run.samples.filter((s) => s.active && s.a > t.handoffSec + bar + 0.2)
       ok('v0.9.16: a bar after the handoff the MIDs have swapped (A down, B back)', swapped.length > 5 && swapped.every((s) => Math.abs(s.aMid + 0.4) < 0.01 && Math.abs(s.bMid) < 0.01), `${swapped.length} samples, A mid ${swapped[0]?.aMid}, B mid ${swapped[0]?.bMid}`)
       ok("v0.9.16: when it finishes, A's MID is back where it was", run.final.aMid === 0 && run.final.bMid === 0, `A ${run.final.aMid}, B ${run.final.bMid}`)
+      // v0.9.18: the bass swap. B under A has no LOW; on the handoff line the lows trade places; never both open; A's HIGH is gone before the
+      // crossfader takes A out; after the end every knob is back where it was.
+      ok("v0.9.18: while B plays under A, B's LOW is killed and A's untouched", runway.length > 5 && runway.every((s) => s.bLow === -1 && s.aLow === 0), `${runway.length} samples, B low ${runway[0]?.bLow}, A low ${runway[0]?.aLow}`)
+      const bothOpen = run.samples.filter((s) => s.bPlaying && s.aPlaying && s.aLow > -1 && s.bLow > -1)
+      ok('v0.9.18: never both LOWs open (instant swap, the default)', bothOpen.length === 0, bothOpen.length ? JSON.stringify(bothOpen[0]) : `${run.samples.length} samples`)
+      const afterSwap = run.samples.filter((s) => s.active && s.a > t.handoffSec + 0.1)
+      const lastBefore = run.samples.filter((s) => s.a < t.handoffSec - 0.05).pop()
+      ok('v0.9.18: the lows swap on the handoff line (A killed, B back)', afterSwap.length > 5 && afterSwap.every((s) => s.aLow === -1 && s.bLow === 0) && lastBefore?.aLow === 0 && lastBefore?.bLow === -1,
+        `last sample before at A ${lastBefore?.a.toFixed(2)} (A ${lastBefore?.aLow}, B ${lastBefore?.bLow}); first after at A ${afterSwap[0]?.a.toFixed(2)} (A ${afterSwap[0]?.aLow}, B ${afterSwap[0]?.bLow}); handoff ${t.handoffSec.toFixed(2)}`)
+      const goingOut = run.samples.filter((s) => s.active && s.x > 0.05)
+      ok("v0.9.18: A's HIGH is gone before the crossfader takes A out, B's HIGH never touched", goingOut.length > 5 && goingOut.every((s) => s.aHigh === -1) && run.samples.every((s) => s.bHigh === 0),
+        `${goingOut.length} samples past the middle, A high ${goingOut[0]?.aHigh}`)
+      // The fade here is 8 bars, so A goes out from 4 bars after the handoff: two bars after the join through two bars after the handoff is
+      // well inside the hold.
+      const hold = run.samples.filter((s) => s.active && s.bPlaying && s.a > t.waitingUntilSec + 2 * barA + 0.2 && s.a < t.handoffSec + 2 * barA)
+      const off = hold.filter((s) => Math.abs(s.x) >= 0.01)
+      ok('v0.9.18: the crossfader holds the middle from two bars after the join through the swap', hold.length > 10 && off.length === 0, `${hold.length} samples${off.length ? `, off: ${JSON.stringify(off[0])}` : ', all at the middle'}`)
+      ok('v0.9.18: when it finishes, all six knobs are back where they were', run.final.eq.every((v) => v === 0), JSON.stringify(run.final.eq))
     }
     ok('the transition finished: B playing, A paused, crossfader fully on B', run.final.bPlaying && !run.final.aPlaying && run.final.x > 0.99, JSON.stringify(run.final))
   }
@@ -353,6 +373,62 @@ if (!setup.error) {
   ok('v0.9.17: moving the crossfader during the phrase wait cancels it and says so in Hebrew — not "excellent mix"', !pad.error && p.cancelled && /תחילת הקטע/.test(p.cancelNotice ?? '') && !/Excellent/.test(p.cancelNotice ?? ''), p?.cancelNotice)
   const e = pad.endResult
   ok("v0.9.17: in A's last bars, with no phrase start left, B comes in on the next bar and the notice says why", !pad.error && e && e.nextBar.by === 'end' && e.bIn != null && e.bIn - e.clickEnd < barA + 0.3 && /אין עוד תחילת קטע/.test(e.notice ?? ''), JSON.stringify(e))
+}
+
+// v0.9.18: a plain transition (energy point) mixes with the EQ too, inside its same 8 seconds — once with the instant swap, once gradual.
+if (!setup.error) {
+  for (const style of ['instant', 'gradual']) {
+    const plain = await page.evaluate(async (style) => {
+      const { useStore } = await window.mod('/src/app/state/store.ts')
+      const ctl = await window.mod('/src/controls.ts')
+      const { settings } = await window.mod('/src/platform/settings-idb/store.ts')
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+      await settings.set('bassSwap', style)
+      const s = useStore.getState()
+      const ta = s.library.tracks.find((t) => t.name.startsWith('Handoff A'))
+      const tb = s.library.tracks.find((t) => t.name.startsWith('Handoff B'))
+      ctl.cancelTransition(); ctl.pause('A'); ctl.pause('B')
+      await ctl.loadTrackToDeck('A', ta)
+      await ctl.loadTrackToDeck('B', tb)
+      const deadline = Date.now() + 30000
+      while (Date.now() < deadline && !(useStore.getState().decks.A.beatGrid && useStore.getState().decks.B.beatGrid && !useStore.getState().decks.A.loading && !useStore.getState().decks.B.loading)) await sleep(200)
+      // Knobs flat first: the run above left B's MID where "his hand" put it (0.2), and that is his to keep — this run starts from flat.
+      for (const d of ['A', 'B']) for (const band of ['low', 'mid', 'high']) ctl.setEq(d, band, 0)
+      ctl.seekDeck('A', 40); ctl.play('A')
+      await sleep(300)
+      ctl.startAutoTransition('A', 'B', 2)
+      const samples = []
+      const end = Date.now() + 20000
+      while (Date.now() < end) {
+        const st = useStore.getState(), ch = st.mixer.channels
+        samples.push({ a: st.decks.A.positionSec, bPlaying: st.decks.B.playing, active: !!st.activeTransition, x: st.mixer.crossfader, aLow: ch.A.eqLow, bLow: ch.B.eqLow, aHigh: ch.A.eqHigh, bMid: ch.B.eqMid })
+        if (!st.activeTransition && samples.length > 5) break
+        await sleep(20)
+      }
+      const ch = useStore.getState().mixer.channels
+      await settings.set('bassSwap', 'instant')
+      return { samples, final: [ch.A.eqLow, ch.A.eqMid, ch.A.eqHigh, ch.B.eqLow, ch.B.eqMid, ch.B.eqHigh], bPlaying: useStore.getState().decks.B.playing }
+    }, style)
+    const live = plain.samples.filter((s) => s.active && s.bPlaying)
+    const amp = (k) => 10 ** ((k * 70) / 20)
+    const both = live.filter((s) => s.aLow > -1 && s.bLow > -1)
+    const maxPower = Math.max(...live.map((s) => amp(s.aLow) ** 2 + amp(s.bLow) ** 2))
+    const firstB = live[0]
+    ok(`v0.9.18: plain transition, ${style} swap — B enters with LOW killed and MID cut`, !!firstB && firstB.bLow === -1 && Math.abs(firstB.bMid + 0.4) < 0.01, JSON.stringify(firstB))
+    ok(style === 'instant' ? 'v0.9.18: plain, instant — never both LOWs open' : 'v0.9.18: plain, gradual — both LOWs open only for a while, their power never above one bass',
+      style === 'instant' ? both.length === 0 : both.length > 0 && both.length < live.length / 2 && maxPower <= 1.01,
+      `${live.length} samples, ${both.length} with both open, max summed power ${maxPower.toFixed(3)}`)
+    if (style === 'instant') {
+      // The swap counts whole bars from the join; it must fall in the frame that crosses one of A's yellow lines, not tens of ms after it.
+      const i = plain.samples.findIndex((s) => s.active && s.aLow === -1)
+      const bar = (60 / setup.gridA.bpm) * 4
+      const lineOf = (sec) => setup.gridA.offsetSec + Math.floor((sec - setup.gridA.offsetSec) / bar + 1e-9) * bar
+      const line = i > 0 ? lineOf(plain.samples[i].a) : NaN
+      ok('v0.9.18: plain, instant — A\'s bass shuts on one of A\'s yellow lines', i > 0 && plain.samples[i - 1].a < line && plain.samples[i].a - line < 0.06,
+        i > 0 ? `before ${plain.samples[i - 1].a.toFixed(3)} (low ${plain.samples[i - 1].aLow}), after ${plain.samples[i].a.toFixed(3)}, line ${line.toFixed(3)}` : 'never shut')
+    }
+    ok(`v0.9.18: plain, ${style} — finishes on B with every knob back`, plain.bPlaying && plain.final.every((v) => v === 0), JSON.stringify(plain.final))
+  }
 }
 
 const resp = await page.evaluate(() => {

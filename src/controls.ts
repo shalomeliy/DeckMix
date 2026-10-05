@@ -43,11 +43,12 @@ import {
   setDownbeatAt,
   shiftGrid,
 } from '@/core/beatgrid'
-import { crossfadeProgress, exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
-import { HANDOFF_NEEDS_STRAIGHT_SYNC, handoffMidKnobs, handoffProgress, handoffSide, nextPhraseStartSec, planHandoff, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
+import { exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
+import { eqMixFrame, incomingUnderA, plainEqMixPlan, type BassSwapStyle, type EqBand, type EqBands, type EqMixPlan } from '@/core/eq-mix'
+import { HANDOFF_NEEDS_STRAIGHT_SYNC, handoffSide, nextPhraseStartSec, planHandoff, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
 import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
 import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
-import { MIN_REGION_SEC, closeOpenMark, drawnBarGrid, moveRegionEdge, undoLastEnd, type VocalManualTag } from '@/core/sound/vocal-manual'
+import { MIN_REGION_SEC, barLineAtOrBeforeSec, closeOpenMark, drawnBarGrid, moveRegionEdge, undoLastEnd, type VocalManualTag } from '@/core/sound/vocal-manual'
 import { deleteVocalManual, getAllVocalManual, getVocalManual, putVocalManual } from '@/platform/vocal-manual-idb/store'
 import { deleteVocalStrip } from '@/platform/vocal-strip-idb/store'
 import { parseVocalMarksFile, vocalMarksExportText } from '@/core/sound/vocal-manual-file'
@@ -2576,11 +2577,11 @@ export function setChannelVolume(deckId: DeckId, v: number) {
 }
 
 export function setEq(deckId: DeckId, band: 'low' | 'mid' | 'high', v: number) {
-  // v0.9.16: a MID knob turned by hand during a handoff is his from then on — the handoff stops moving it and will not put it back.
-  const m = activeTransition?.midEq
-  if (m && band === 'mid') {
-    if (deckId === activeTransition!.fromDeckId) m.fromByHand = true
-    if (deckId === activeTransition!.toDeckId) m.toByHand = true
+  // v0.9.16/v0.9.18: a knob turned by hand during a transition is his from then on — the transition stops moving it and will not put it back.
+  const e = activeTransition?.eq
+  if (e) {
+    if (deckId === activeTransition!.fromDeckId) e.byHand.from.add(band)
+    if (deckId === activeTransition!.toDeckId) e.byHand.to.add(band)
   }
   engine.decks[deckId].setEq(band, v)
   const key = band === 'low' ? 'eqLow' : band === 'mid' ? 'eqMid' : 'eqHigh'
@@ -3314,25 +3315,41 @@ interface ActiveTransition {
   /** v0.8.16: the outgoing deck's position at the join, set by `join` — `null` until then. What `markExcellentPair` saves as the pair's exit second. */
   joinedFromSec: number | null
   /**
-   * v0.9.16: a handoff turns both MID knobs (`handoffMidKnobs`). Where the owner had them before — put back on finish (A) and on cancel
-   * (both) — and whether he has since turned one by hand: from that moment that knob is his, never moved or put back by the handoff.
+   * v0.9.18 (v0.9.16 did the MID alone): every transition mixes with the EQ (`core/eq-mix.ts`) — all three knobs on both decks. Where the
+   * owner had them at the join — put back on finish and on cancel — and which one he has since turned by hand: from that moment that knob
+   * is his, never moved or put back by the transition. `style` is read once at the join, so a change in Settings mid-mix cannot flip it.
    */
-  midEq?: { fromOwn: number; toOwn: number; fromByHand: boolean; toByHand: boolean }
+  eq?: { own: { from: EqBands; to: EqBands }; byHand: { from: Set<EqBand>; to: Set<EqBand> }; style: BassSwapStyle }
 }
 
-/** Sets one deck's MID knob for the handoff — engine and the knob on screen together, so the owner sees it turn. */
-function setHandoffMid(deckId: DeckId, v: number) {
-  if (useStore.getState().mixer.channels[deckId].eqMid === v) return
-  engine.decks[deckId].setEq('mid', v)
-  useStore.getState().patchChannel(deckId, { eqMid: v })
+const EQ_KEY = { low: 'eqLow', mid: 'eqMid', high: 'eqHigh' } as const
+const EQ_BANDS: EqBand[] = ['low', 'mid', 'high']
+
+/** Sets one knob for the transition — engine and the knob on screen together, so the owner sees it turn. */
+function setMixEq(deckId: DeckId, band: EqBand, v: number) {
+  if (useStore.getState().mixer.channels[deckId][EQ_KEY[band]] === v) return
+  engine.decks[deckId].setEq(band, v)
+  useStore.getState().patchChannel(deckId, { [EQ_KEY[band]]: v })
 }
 
-/** Puts the MID knobs a handoff turned back where the owner had them, except one he turned himself since. */
-function restoreHandoffMid(t: ActiveTransition, which: 'from' | 'both') {
-  const m = t.midEq
-  if (!m) return
-  if (!m.fromByHand) setHandoffMid(t.fromDeckId, m.fromOwn)
-  if (which === 'both' && !m.toByHand) setHandoffMid(t.toDeckId, m.toOwn)
+/** Sets every knob the transition still owns to `knobs` (one deck's three). */
+function applyMixEq(t: ActiveTransition, side: 'from' | 'to', knobs: EqBands) {
+  const e = t.eq
+  if (!e) return
+  const deckId = side === 'from' ? t.fromDeckId : t.toDeckId
+  for (const band of EQ_BANDS) if (!e.byHand[side].has(band)) setMixEq(deckId, band, knobs[band])
+}
+
+/** Puts the knobs a transition turned back where the owner had them, except one he turned himself since. */
+function restoreMixEq(t: ActiveTransition) {
+  if (!t.eq) return
+  applyMixEq(t, 'from', t.eq.own.from)
+  applyMixEq(t, 'to', t.eq.own.to)
+}
+
+const channelEq = (deckId: DeckId): EqBands => {
+  const c = useStore.getState().mixer.channels[deckId]
+  return { low: c.eqLow, mid: c.eqMid, high: c.eqHigh }
 }
 
 let activeTransition: ActiveTransition | null = null
@@ -3402,8 +3419,9 @@ function cancelTransitionIfEitherDeckTouched(deckId: DeckId) {
  * join is inaudible), then handed to the existing `syncDeck`/`ensureSyncLoop`
  * for continuous correction exactly like a manually-pressed SYNC would be.
  * From there a `clock`-driven loop (the same shared rAF source
- * `ensureSyncLoop` itself subscribes to) drives the crossfader through
- * `core/transition.ts`'s `crossfadeProgress` over `TRANSITION_CROSSFADE_SEC`,
+ * `ensureSyncLoop` itself subscribes to) drives the EQ and the crossfader
+ * through `core/eq-mix.ts`'s `eqMixFrame` (v0.9.18 — a plain transition on
+ * `plainEqMixPlan` over `TRANSITION_CROSSFADE_SEC`, a handoff on its plan),
  * via `engine.setCrossfader` — the exact equal-power law
  * `core/transition.ts`'s own `crossfadeGains` documents and
  * `tests/core/transition.test.ts` pins, so the autonomous fade sounds like
@@ -3539,7 +3557,15 @@ export function startAutoTransition(
     // it lands. The frame this runs on is a few ms past the bar line;
     // `phaseAlignedEntrySec` is bar-phase math, so the incoming deck lands
     // exactly that same fraction past its own yellow line.
+    // v0.9.18: B's knobs go to their "under A" places (LOW killed, MID cut) before it makes a sound. Here, before the position is read:
+    // these are store writes, and nothing may sit between that read and the seek (above). A refusal below puts them back (`cancelTransition`).
+    if (activeTransition) {
+      const own = { from: channelEq(fromDeckId), to: channelEq(toDeckId) }
+      activeTransition.eq = { own, byHand: { from: new Set(), to: new Set() }, style: cfg.bassSwap }
+      applyMixEq(activeTransition, 'to', incomingUnderA(own.to))
+    }
     const joinedFromSec = fromEngine.position
+    const joinedAtTime = engine.currentTime
     // The wait joins on the first yellow line crossed in a window up to a bar after `waitUntilSec` (`exitWaitStatus`). For a handoff that
     // would be a bar late against a plan whose handoff and fade are fixed seconds of A — B's voice a bar after A starts going down, the
     // runway a bar short. Not started instead, and said.
@@ -3565,13 +3591,19 @@ export function startAutoTransition(
     // `syncDeck` is a toggle: on a deck whose SYNC was already on it would switch it OFF, and B would drift against A for the whole join —
     // for a handoff, up to 16 bars of drift under bar maths that assume the two are locked.
     if (!useStore.getState().decks[toDeckId].syncActive) syncDeck(toDeckId)
-    if (handoff && activeTransition) {
-      const ch = useStore.getState().mixer.channels
-      activeTransition.midEq = { fromOwn: ch[fromDeckId].eqMid, toOwn: ch[toDeckId].eqMid, fromByHand: false, toByHand: false }
-    }
     const barSecFrom = barSecOf(fromGrid)
+    // A handoff runs on A's own seconds, from the join to the plan's fade end, the bass swap on the handoff. A plain transition runs on the
+    // wall clock (as before v0.9.18: `TRANSITION_CROSSFADE_SEC`), so its bar is A's bar at A's current tempo.
+    const barWallFrom = barSecFrom / tempoToRate(useStore.getState().decks[fromDeckId].tempo, cfg.tempoRange)
+    const mixPlan: EqMixPlan = handoff
+      ? { joinSec: joinedFromSec, swapSec: handoff.handoffSec, fadeEndSec: handoff.fadeEndSec }
+      : plainEqMixPlan(TRANSITION_CROSSFADE_SEC, barWallFrom)
 
-    const startedAtSec = engine.currentTime
+    // v0.9.18: the plain transition's clock starts on A's yellow line, not here — the seek, the store writes and `syncDeck` above take tens of
+    // ms on a full UI (v0.4.6 measured up to 280), and the bass swap counts whole bars from this moment, so it would land that late.
+    // More than half a bar past a line is not a late frame (the wait joins on the frame that crosses one): then no correction at all.
+    const pastLineSec = joinedFromSec - barLineAtOrBeforeSec(joinedFromSec, fromGrid)
+    const startedAtSec = joinedAtTime - (pastLineSec >= 0 && pastLineSec < barSecFrom / 2 ? pastLineSec * (barWallFrom / barSecFrom) : 0)
     let lastFromPos = joinedFromSec
     const unsubscribeFade = clock.subscribe((t) => {
       // A handoff's crossfader follows A's position, so A must keep moving forward: a loop (or anything that sends A back) would hold the
@@ -3589,16 +3621,20 @@ export function startAutoTransition(
           return
         }
         lastFromPos = pos
-        const m = activeTransition?.midEq
-        if (m) {
-          const k = handoffMidKnobs({ joinSec: joinedFromSec, handoffSec: handoff.handoffSec }, pos, barSecFrom, m.fromOwn, m.toOwn)
-          if (!m.fromByHand) setHandoffMid(fromDeckId, k.a)
-          if (!m.toByHand) setHandoffMid(toDeckId, k.b)
-        }
       }
-      const progress = handoff
-        ? handoffProgress({ joinSec: joinedFromSec, ...handoff }, fromEngine.position)
-        : crossfadeProgress(t - startedAtSec, TRANSITION_CROSSFADE_SEC)
+      const tr = activeTransition
+      if (!tr?.eq) return
+      const frame = eqMixFrame(
+        mixPlan,
+        handoff ? fromEngine.position : t - startedAtSec,
+        handoff ? barSecFrom : barWallFrom,
+        { a: tr.eq.own.from, b: tr.eq.own.to },
+        tr.eq.style,
+        cfg.eqDb,
+      )
+      applyMixEq(tr, 'from', frame.a)
+      applyMixEq(tr, 'to', frame.b)
+      const progress = frame.progress
       // engine.setCrossfader's own domain is -1 (A only) .. +1 (B only); this
       // maps `progress` onto whichever half of that range moves *away* from
       // `fromDeckId`, in either direction.
@@ -3824,8 +3860,9 @@ function finishTransition() {
   if (!t) return
   activeTransition = null
   t.unsubscribe()
-  // A is paused below; its MID goes back to where he had it, so the next song on that deck does not start with its middle cut.
-  restoreHandoffMid(t, 'from')
+  // A is paused below; its knobs go back to where he had them, so the next song on that deck does not start with its bass killed. B's are
+  // there already (the swaps end before the fade does); restored too, so a frame skipped at the very end cannot leave one short.
+  restoreMixEq(t)
   useStore.setState({ activeTransition: null })
   setMasterDeck(t.toDeckId)
   pause(t.fromDeckId)
@@ -3854,8 +3891,9 @@ function finishTransition() {
 /**
  * The cancel button (Mixer.tsx): fixed, prominent, no confirmation dialog.
  * Both decks return to exactly their pre-transition state — the outgoing
- * deck was never touched by this code, so only the crossfader (back to
- * fully on it) and the incoming deck (paused, seeked back) need restoring —
+ * deck's playback was never touched by this code, so only the EQ knobs the
+ * mix turned (v0.9.18: on both decks), the crossfader (back to fully on
+ * it) and the incoming deck (paused, seeked back) need restoring —
  * and no further automatic correction fires afterward: clearing
  * `syncActive` here is what keeps `runSyncCorrection`'s loop from touching
  * the incoming deck again once it is silent and paused.
@@ -3865,7 +3903,7 @@ export function cancelTransition() {
   if (!t) return
   activeTransition = null
   t.unsubscribe()
-  restoreHandoffMid(t, 'both')
+  restoreMixEq(t)
   useStore.setState({ activeTransition: null })
 
   const toEngine = engine.decks[t.toDeckId]

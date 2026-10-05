@@ -26,6 +26,7 @@ import {
   TEMPO_RANGE,
   WAVEFORM_PX_PER_SEC,
 } from '@/core/constants'
+import type { BassSwapStyle } from '@/core/eq-mix'
 
 /**
  * Bumped whenever a stored value changes meaning. Adding a field does **not**
@@ -107,6 +108,8 @@ export interface Settings {
   taggingMode: boolean
   /** v0.9.10b: the "vocal started / ended" buttons under each deck's vocal strip. Off by default: a live set has no use for them. */
   vocalMarking: boolean
+  /** v0.9.18: how Mix Assist swaps the two basses (`core/eq-mix.ts`). Instant by default (Shalom, 05/10), gradual by choice here. */
+  bassSwap: BassSwapStyle
 }
 
 export const DEFAULTS: Settings = {
@@ -137,6 +140,7 @@ export const DEFAULTS: Settings = {
   sourceCheck: false,
   taggingMode: false,
   vocalMarking: false,
+  bassSwap: 'instant',
 }
 
 // ————————————————————————————————————————————————————————————————
@@ -342,6 +346,17 @@ export const FIELDS: Field[] = [
     label: 'Auto SYNC in, glide back out',
     help: 'Play on one deck while the other is playing turns SYNC on by itself. When the other track is gone — stopped, its fader down, or the crossfader fully away — this track slides back to its own BPM over 30 seconds.',
     group: 'feel',
+  },
+  {
+    kind: 'choice',
+    key: 'bassSwap',
+    label: 'Mix Assist bass swap',
+    help: 'Mix Assist brings the new song in with its bass off, and swaps the two basses where the new part starts. Instant: one shuts and the other opens on the same beat. Gradual: over one bar, both at half power in the middle of it.',
+    group: 'feel',
+    options: [
+      { value: 'instant', label: 'Instant — on the beat' },
+      { value: 'gradual', label: 'Gradual — over one bar' },
+    ],
   },
   {
     kind: 'toggle',

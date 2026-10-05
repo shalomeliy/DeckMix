@@ -8,9 +8,10 @@ import type { BeatGrid } from '@/core/types'
  * under it with only its drums; the moment A's voice ends, B's voice comes in; then A goes down slowly. The rule: **a voice never over a
  * voice; drums together are fine.**
  *
- * "Only drums" is done by WHERE B enters — in a stretch of B that has no voice — not by an EQ cut or by separated channels: the app has no
+ * "Only drums" is done first by WHERE B enters — in a stretch of B that has no voice — and not by separated channels: the app has no
  * stems, and fading separated channels one by one is the method the patent in ROADMAP.md v0.9.15 covers. Choosing the moment by the voice
- * timeline is a different method, and this file stays on that side.
+ * timeline is a different method, and this file stays on that side. On top of that the mixer's own EQ does what a DJ's hands do on any
+ * mixer (v0.9.16 MID, v0.9.18 the whole bass swap): `core/eq-mix.ts`, driven along this file's plan.
  *
  * Everything is counted in bars. With SYNC on, B's beats follow A's, so N bars of A and N bars of B take the same time, whatever the two
  * BPMs are; each side converts bars to its own track seconds with its own grid. That holds only when SYNC plays B straight: since v0.8.36 it
@@ -205,18 +206,6 @@ export function planHandoff(a: HandoffSide, aPositionSec: number, b: HandoffSide
 }
 
 /**
- * The crossfader along a handoff, as a 0..1 progress (0 = only A, 1 = only B) read from A's own play position — not from a wall clock, so the
- * handoff stays on A's voice end even if A's tempo is bent on the way. During the runway B rises to the middle (both full, on the same
- * equal-power law as the hand crossfader); from the handoff A goes down to nothing over the fade.
- */
-export function handoffProgress(plan: Pick<HandoffPlan, 'joinSec' | 'handoffSec' | 'fadeEndSec'>, aPositionSec: number): number {
-  if (aPositionSec <= plan.joinSec) return 0
-  if (aPositionSec < plan.handoffSec) return (0.5 * (aPositionSec - plan.joinSec)) / Math.max(EPS, plan.handoffSec - plan.joinSec)
-  if (aPositionSec < plan.fadeEndSec) return 0.5 + (0.5 * (aPositionSec - plan.handoffSec)) / Math.max(EPS, plan.fadeEndSec - plan.handoffSec)
-  return 1
-}
-
-/**
  * The second signal next to each energy point (v0.9.15, the spec: "drums similar · voices clash" as SEPARATE marks, never one merged score):
  * would the plain transition — B from `entrySec`, starting at `joinSec` (A's next yellow line when not given), `fadeSec` of crossfade — put a voice over a voice? Returns
  * the first A second where both sing, or null when it is clean. B's seconds advance by beats, as with SYNC on; `syncMult` is SYNC's own
@@ -255,37 +244,4 @@ export function plainTransitionClashSec(
     }
   }
   return first
-}
-
-/**
- * v0.9.16, the owner's "yes" (05/10) to doing with the mixer's own EQ what stems would do: the MID knob, where most of a voice sits (the
- * mid band is a bell at `EQ_MID_HZ`), is turned down on B while it plays under A, and swapped at the handoff — B's comes back, A's goes
- * down. It is not separation: a synth or a guitar in the same band goes down with the voice. It is an extra margin on top of the plan,
- * which is already clean by where B enters; a DJ does the same by hand on any mixer, with no separated channels (the patent note in
- * ROADMAP.md v0.9.15 is about those).
- *
- * The knob value, on the mixer's own scale (−1 = full cut, 0 = flat). Chosen, not measured: about −28 dB at the band's centre — deep
- * enough to take a voice back, short of the full kill, which leaves a hole a listener notices.
- */
-export const HANDOFF_MID_CUT = -0.4
-/** The swap at the handoff takes one bar of A — a turn of the knob, not a cut on a single beat. */
-export const HANDOFF_MID_SWAP_BARS = 1
-
-/**
- * Both MID knobs at A's play position. `aOwn`/`bOwn` are where the owner had them before the handoff: a knob he had already turned lower
- * than the cut is never turned UP by this. Before the join nothing is touched (B is not heard yet); after the swap A stays down until the
- * transition ends, and the caller puts it back then (A is paused by then).
- */
-export function handoffMidKnobs(
-  plan: Pick<HandoffPlan, 'joinSec' | 'handoffSec'>,
-  aPositionSec: number,
-  barSecA: number,
-  aOwn: number,
-  bOwn: number,
-): { a: number; b: number } {
-  const aCut = Math.min(aOwn, HANDOFF_MID_CUT)
-  const bCut = Math.min(bOwn, HANDOFF_MID_CUT)
-  if (aPositionSec < plan.handoffSec) return { a: aOwn, b: bCut }
-  const t = Math.min(1, (aPositionSec - plan.handoffSec) / Math.max(EPS, HANDOFF_MID_SWAP_BARS * barSecA))
-  return { a: aOwn + (aCut - aOwn) * t, b: bCut + (bOwn - bCut) * t }
 }

@@ -1,4 +1,4 @@
-import { EQ_HIGH_HZ, EQ_LOW_HZ, EQ_MID_HZ, tempoToRate } from '@/core/constants'
+import { EQ_CUT_DB, EQ_HIGH_HZ, EQ_LOW_HZ, EQ_MID_HZ, tempoToRate } from '@/core/constants'
 import { BufferSourcePlayer, WorkletPlayer, type SourcePlayer } from '@/platform/audio-webaudio/players'
 import type { FxRack } from '@/platform/audio-webaudio/fx'
 import { settings } from '@/platform/settings-idb/store'
@@ -398,7 +398,7 @@ export class Deck {
 
   setEq(band: 'low' | 'mid' | 'high', knob: number) {
     const node = band === 'low' ? this.eqLow : band === 'mid' ? this.eqMid : this.eqHigh
-    const db = knob >= 0 ? knob * settings.values.eqDb : knob * 70 // full cut at -1
+    const db = knob >= 0 ? knob * settings.values.eqDb : knob * EQ_CUT_DB // full cut at -1
     node.gain.setTargetAtTime(db, this.ctx.currentTime, 0.01)
   }
 

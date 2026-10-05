@@ -27,6 +27,12 @@ export const PLATTER_SIZE = 142
 
 /** EQ gain in dB at the extremes of each band knob. */
 export const EQ_DB = 26
+/**
+ * dB per unit of knob on the CUT side: −1 is −70 dB, a full kill, while the boost side stops at `EQ_DB`. One number shared by the engine
+ * (`deck.ts`) and the automatic EQ mix (`core/eq-mix.ts`), whose gradual bass swap computes its curve in dB — two copies would let the
+ * curve drift from what the knob really does.
+ */
+export const EQ_CUT_DB = 70
 
 /** Kill-ish behaviour: below this knob value the band is fully cut. */
 export const EQ_LOW_HZ = 100
