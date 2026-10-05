@@ -220,7 +220,7 @@ const mx = await page.evaluate(async () => {
   if (!S().decks.A.track) await window.kl.load('KL Tone')
   await window.kl.settled('A')
   const grid = { offsetSec: 0, bpm: 120 }
-  const run = async (bKey, limit) => {
+  const run = async (bKey, limit, confirmed = true) => {
     await settings.set('mixAssistKeySync', limit)
     ctl.cancelTransition()
     ctl.pause('B')
@@ -228,7 +228,7 @@ const mx = await page.evaluate(async () => {
     if (S().decks.B.keyLock) await ctl.toggleKeyLock('B')
     window.kl.setKey('A', '8A')
     window.kl.setKey('B', bKey)
-    for (const d of ['A', 'B']) S().patchDeck(d, { beatGrid: grid, beatGridConfirmed: true })
+    for (const d of ['A', 'B']) S().patchDeck(d, { beatGrid: grid, beatGridConfirmed: d === 'A' || confirmed })
     ctl.seekDeck('A', 5)
     ctl.play('A')
     S().setNotice(null)
@@ -236,6 +236,7 @@ const mx = await page.evaluate(async () => {
     await sleep(1500)
     const out = { shift: S().decks.B.keySyncShift, keyLock: S().decks.B.keyLock, notice: S().notice?.text ?? null }
     ctl.cancelTransition()
+    out.afterCancel = { shift: S().decks.B.keySyncShift, keyLock: S().decks.B.keyLock }
     ctl.pause('A')
     ctl.pause('B')
     return out
@@ -245,12 +246,26 @@ const mx = await page.evaluate(async () => {
   r.plus2 = await run('6A', 2) // 6A → 8A is two up
   r.limit1 = await run('6A', 1) // the same, with Settings at one: left alone
   r.off = await run('3A', 0)
+  // the transition's own warning (an unconfirmed grid on B) stays, with the key result added to it
+  r.joined = await run('3A', 2, false)
+  // B1 of the review: a deck on air keeps its move when the other deck loads its next song
+  for (const d of ['A', 'B']) S().patchDeck(d, { beatGridConfirmed: true })
+  await ctl.toggleKeySync('B')
+  const bShift = S().decks.B.keySyncShift
+  ctl.play('B')
+  await window.kl.load('KL Click')
+  const { engine } = await window.mod('/src/platform/audio-webaudio/engine.ts')
+  r.onAir = { before: bShift, after: S().decks.B.keySyncShift, engine: engine.decks.B.keyShift }
+  ctl.pause('B')
   await settings.set('mixAssistKeySync', 2)
   return r
 })
 ok('Mix Assist keys the incoming deck: 3A against 8A moves -1, key lock on', mx.minus1.shift === -1 && mx.minus1.keyLock, JSON.stringify(mx.minus1))
 ok('Mix Assist: 6A against 8A moves +2 at the default limit', mx.plus2.shift === 2 && mx.plus2.keyLock, JSON.stringify(mx.plus2))
 ok('Settings at 1 semitone: a 2-semitone gap is left alone and the notice says so', mx.limit1.shift === null && /יותר מ-1/.test(mx.limit1.notice ?? ''), JSON.stringify(mx.limit1))
+ok('a cancelled Mix Assist puts the key back, and the key lock as it was', mx.minus1.afterCancel.shift === null && !mx.minus1.afterCancel.keyLock, JSON.stringify(mx.minus1.afterCancel))
+ok("the transition's own warning stays, with the key result added to it", /unconfirmed/.test(mx.joined.notice ?? '') && /זז -1/.test(mx.joined.notice ?? ''), JSON.stringify(mx.joined.notice))
+ok('a song on air keeps its move when the other deck loads its next song (no pitch jump mid-play)', mx.onAir.before != null && mx.onAir.after === mx.onAir.before && mx.onAir.engine === mx.onAir.before, JSON.stringify(mx.onAir))
 ok('Settings off: nothing moves', mx.off.shift === null && !mx.off.keyLock, JSON.stringify(mx.off))
 
 const f = await page.evaluate(() => ({ scroll: document.documentElement.scrollHeight, inner: window.innerHeight, w: document.documentElement.scrollWidth, iw: window.innerWidth }))

@@ -1249,15 +1249,26 @@ export async function toggleKeySync(deckId: DeckId) {
  * The key lock goes on even when no move is needed: SYNC is about to put B on A's tempo, and without it that alone moves B's pitch off
  * the key it was just matched on. The result joins the transition's own notice rather than replacing it (`notice` has one slot).
  */
-async function autoKeySync(deckId: DeckId) {
+async function autoKeySync(t: ActiveTransition, noticeBefore: AppState['notice']) {
+  const deckId = t.toDeckId
   const max = Math.min(settings.values.mixAssistKeySync, KEY_SYNC_AUTO_MAX_SEMITONES)
   // Off in Settings: nothing moves, and nothing is said — the owner turned it off himself, the transition's own notice is unchanged.
   if (!(max > 0) || useStore.getState().decks[deckId].keySyncShift != null) return
-  const before = useStore.getState().notice
-  const said = await keySync(deckId, max)
+  const lockWasOn = engine.decks[deckId].keyLock
+  const said = await keySync(deckId, max, () =>
+    activeTransition !== t
+      ? 'המעבר לא רץ יותר, אז הסולם לא הותאם.'
+      // The first key lock load finished after B came in: switching the stretch in now is a jump in a song already fading up.
+      : engine.decks[deckId].playing
+        ? 'Key lock נטען רק אחרי שהשיר נכנס, אז הסולם לא הותאם הפעם. במעבר הבא זה כבר יעבוד.'
+        : null,
+  )
+  if (activeTransition === t && useStore.getState().decks[deckId].keySyncShift != null) t.autoKey = { lockWasOn }
   if (!said) return
+  // Anything put up since the transition started is this transition's — its own warning, a cancel, a give-up — and gets the key result
+  // added to it. What was up before is someone else's, and is replaced rather than mixed into.
   const { notice, setNotice } = useStore.getState()
-  if (notice && notice === before) {
+  if (notice && notice !== noticeBefore) {
     setNotice({ text: `${notice.text} · ${said.text}`, tone: notice.tone === 'warn' || said.tone === 'warn' ? 'warn' : 'info', source: notice.source })
   } else setNotice({ ...said, source: 'keylock' })
 }
@@ -1266,7 +1277,7 @@ async function autoKeySync(deckId: DeckId) {
  * The move itself, for the button and for Mix Assist. The key lock goes on even at a move of 0, so the deck's own tempo — SYNC putting it
  * on the other deck's — cannot pull it off the key it was matched on. Returns what to tell the owner; null only when a notice is already up.
  */
-async function keySync(deckId: DeckId, maxShift: number): Promise<{ text: string; tone: 'info' | 'warn' } | null> {
+async function keySync(deckId: DeckId, maxShift: number, stillWanted: () => string | null = () => null): Promise<{ text: string; tone: 'info' | 'warn' } | null> {
   const { decks } = useStore.getState()
   const otherId: DeckId = deckId === 'A' ? 'B' : 'A'
   const mine = decks[deckId].track
@@ -1290,11 +1301,17 @@ async function keySync(deckId: DeckId, maxShift: number): Promise<{ text: string
     }
   }
   if (!engine.decks[deckId].keyLock) {
-    await toggleKeyLock(deckId)
-    if (!engine.decks[deckId].keyLock) {
-      // A failed load already put its reason up; a press while another key lock press is still loading returns with nothing on screen.
-      return engine.keyLockError ? null : { text: 'Key lock עדיין נטען — לחץ שוב על Key sync.', tone: 'info' }
+    // Loaded here rather than through `toggleKeyLock`, whose failure notice would replace a transition's own; the reason comes back as text.
+    if (!(await engine.ensureKeyLock())) {
+      return { text: `Key sync לא זז: Key lock לא זמין (${engine.keyLockError ?? 'סיבה לא ידועה'}).`, tone: 'warn' }
     }
+  }
+  // Checked after the only wait and before anything is switched: the key lock goes into the path only for a move that is still wanted.
+  const unwanted = stillWanted()
+  if (unwanted) return { text: unwanted, tone: 'warn' }
+  if (!engine.decks[deckId].keyLock) {
+    await toggleKeyLock(deckId)
+    if (!engine.decks[deckId].keyLock) return { text: 'Key lock עדיין נטען — לחץ שוב על Key sync.', tone: 'info' }
   }
   // The first key lock load is awaited above: a song loaded onto either deck meanwhile makes this plan one for songs no longer there.
   const now = useStore.getState().decks
@@ -1337,6 +1354,13 @@ useStore.subscribe((s) => {
             : (other?.camelot ?? null) !== basis.otherKey ? `הסולם של השיר בדק ${otherId} השתנה`
               : undefined
     if (why === undefined) continue
+    // A deck on air keeps its move: after a Mix Assist A→B, B is the song playing and loading the next one on A is the very next step —
+    // clearing it then jumped the live song up to two semitones mid-play (independent review, 05/10). The button still says how far it
+    // was moved; it just no longer claims to fit a song that is gone. Only a deck that is not playing is put back on its own key.
+    if (s.decks[deckId].playing) {
+      keySyncBasis[deckId] = null
+      continue
+    }
     clearKeySync(deckId)
     if (why) s.setNotice({ text: `Key sync בדק ${deckId} כובה: ${why}. לחץ שוב כדי להתאים מחדש.`, tone: 'info', source: 'keylock' })
   }
@@ -3452,6 +3476,8 @@ interface ActiveTransition {
   toDeckId: DeckId
   /** what the incoming deck looked like right before this transition touched it — what `cancelTransition` restores. */
   toPreState: { positionSec: number; playing: boolean }
+  /** v0.9.22: Mix Assist moved B's key itself (`autoKeySync`); a cancel puts it back, and the key lock as it found it. */
+  autoKey?: { lockWasOn: boolean }
   /** The one live clock subscription — the bar-line wait before the join, then the crossfade after it. Swapped at the join, so `cancelTransition` always stops whichever is running. */
   unsubscribe: () => void
   /** v0.5.4: the outgoing deck's own exit point — see `AppState.activeTransition`'s own doc comment. Carried here too so `finishTransition` can raise the rating prompt without recomputing it. Always a number (23/09) — see the fallback at its computation site. */
@@ -3610,7 +3636,7 @@ export function startAutoTransition(
   /** v0.9.17: `waitUntilSec` is a phrase start of A (`startAutoTransitionOnPhrase`), not a saved exit second — only the "passed" text differs. */
   waitIsPhrase = false,
 ) {
-  const { decks, setNotice } = useStore.getState()
+  const { decks, setNotice, notice: noticeBefore } = useStore.getState()
   if (activeTransition) {
     setNotice({ text: 'A transition is already running — cancel it before starting another.', tone: 'warn', source: 'sync' })
     return
@@ -3664,9 +3690,6 @@ export function startAutoTransition(
   } else if (leadNote) {
     setNotice({ text: leadNote, tone: 'info', source: 'mixRating' })
   }
-  // v0.9.22: the incoming song moves to a key that fits A, while it is still silent — the key lock may still be loading for the first time
-  // when the join comes, and a switch then is heard by nobody: the crossfader sits fully on A.
-  void autoKeySync(toDeckId)
 
   // Establish the join point explicitly rather than trust whatever the live
   // crossfader already happens to read — ROADMAP.md requires the incoming
@@ -3877,6 +3900,9 @@ export function startAutoTransition(
     entrySec,
     joinedFromSec: null,
   }
+  // v0.9.22: the incoming song moves to a key that fits A while it is still silent. If the key lock's first load outlasts the wait for the
+  // bar line, B is already in and fading up — then nothing is switched, and the notice says so (`autoKeySync`).
+  void autoKeySync(activeTransition, noticeBefore)
   useStore.setState({
     activeTransition: { fromDeckId, toDeckId, exitPointSec, waitingForBar: true, waitingUntilSec: waitUntilSec, handoffSec: handoff?.handoffSec ?? null, onPhrase: waitIsPhrase },
   })
@@ -4057,6 +4083,10 @@ export function cancelTransition() {
 
   const toEngine = engine.decks[t.toDeckId]
   toEngine.pause()
+  if (t.autoKey) {
+    clearKeySync(t.toDeckId)
+    if (!t.autoKey.lockWasOn) void toggleKeyLock(t.toDeckId)
+  }
   toEngine.seek(t.toPreState.positionSec)
   useStore.getState().patchDeck(t.toDeckId, {
     playing: t.toPreState.playing,
