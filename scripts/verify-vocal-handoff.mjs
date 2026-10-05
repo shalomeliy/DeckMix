@@ -47,7 +47,9 @@ await page.evaluate(async () => {
   const root = await navigator.storage.getDirectory()
   const lib = await root.getDirectoryHandle('Tracks', { create: true })
   const house = await lib.getDirectoryHandle('House', { create: true })
-  const sr = 22050, dur = 70, n = sr * dur, bpm = 124
+  // 100 s, not 70 (v0.9.23): Mix Assist now leaves out a point whose mix ends with less than 24 bars of B still to play, and at 70 s every
+  // point here ended too close to B's end. The voices and the lift are where they were; only the quiet tail is longer.
+  const sr = 22050, dur = 100, n = sr * dur, bpm = 124
   for (const [name, f] of [['Handoff A', 220], ['Handoff B', 330]]) {
     const pcm = new Int16Array(n * 2)
     for (let i = 0; i < n; i++) {
@@ -355,7 +357,7 @@ if (!setup.error) {
     padResult.cancelNotice = useStore.getState().notice?.text
     padResult.cancelled = !useStore.getState().activeTransition
 
-    await reset(64) // a 70 s song: no phrase start with 4 bars of A after it
+    await reset(94) // a 100 s song: no phrase start with 4 bars of A after it
     const clickEnd = useStore.getState().decks.A.positionSec
     ctl.startAutoTransitionOnPhrase('A', 'B', 30)
     const te = useStore.getState().activeTransition

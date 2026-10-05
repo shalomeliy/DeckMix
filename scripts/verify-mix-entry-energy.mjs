@@ -73,7 +73,9 @@ const CANDIDATE_WAV = makeWav(
     { sec: 5, amplitude: 800 }, // quiet intro — "energy-builds" candidate lands here (sec 5)
     { sec: 25, amplitude: 8000 }, // loud body — builds the local baseline the breakdown below is judged against
     { sec: 6, amplitude: 5200 }, // mid-track breakdown (65% of the loud body) — "quiet-passage" candidate lands here (sec 30)
-    { sec: 20, amplitude: 8000 }, // loud tail — clears the last-20s guard so the breakdown isn't suppressed as trivial
+    // loud tail — clears the last-20s guard so the breakdown isn't suppressed as trivial. 60 s, not 20 (v0.9.23): an entry point now
+    // needs 24 bars of the song left after its crossfade, or it is counted on screen instead of offered — at 20 the breakdown fell short.
+    { sec: 60, amplitude: 8000 },
   ],
   SAMPLE_RATE,
 )

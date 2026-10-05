@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { CELL_NONE, CELL_UNSURE, CELL_VOCAL, VOCAL_CELL_SEC, type VocalTimeline } from '@/core/sound/vocal-timeline'
 import {
+  MIN_BARS_AFTER_MIX,
   MIN_FADE_BARS,
   MIN_RUNWAY_BARS,
   bVoiceStarts,
+  enoughSongAfterMix,
+  handoffEndInB,
   nextPhraseStartSec,
   PHRASE_BARS,
   planHandoff,
@@ -201,5 +204,29 @@ describe('plainTransitionClashSec, joined at a phrase start (v0.9.17)', () => {
 describe('plainTransitionClashSec, A side', () => {
   it('clean when A is quiet through the whole fade', () => {
     expect(plainTransitionClashSec(A, 61, B, 40, 8)).toBeNull()
+  })
+})
+
+describe('enough of B left after the mix (v0.9.23)', () => {
+  it("the owner's case: a 2:24 song whose last voice starts at 2:18 is over before the handoff's fade is", () => {
+    // 128 BPM like his Rihanna rework; B quiet for 16 bars before 2:18, then sings to the end
+    const bpm = 128
+    const bar = (60 / bpm) * 4
+    const b = side(144, [[20, 100], [138, 144]], bpm)
+    const a = side(240, [[30, 80], [140, 200]], bpm)
+    const late = bVoiceStarts(b).find((v) => v.voiceSec > 130)!
+    expect(late).toBeTruthy()
+    const plan = planHandoff(a, 0, b, late)!
+    expect(plan).toBeTruthy() // the planner alone offers it — that was the bug
+    expect(enoughSongAfterMix(b.durationSec, b.grid, handoffEndInB(plan, b.grid))).toBe(false)
+    expect(handoffEndInB(plan, b.grid)).toBeCloseTo(plan.bVoiceSec + plan.fadeBars * bar, 9)
+  })
+  it(`needs ${MIN_BARS_AFTER_MIX} of B's own bars after the mix, no fewer`, () => {
+    const grid = { bpm: 120, offsetSec: 0 } // 2 s a bar
+    expect(enoughSongAfterMix(200, grid, 200 - MIN_BARS_AFTER_MIX * 2)).toBe(true)
+    expect(enoughSongAfterMix(200, grid, 200 - MIN_BARS_AFTER_MIX * 2 + 0.01)).toBe(false)
+    // no grid yet: 120 BPM is assumed
+    expect(enoughSongAfterMix(200, null, 100)).toBe(true)
+    expect(enoughSongAfterMix(200, null, 160)).toBe(false)
   })
 })

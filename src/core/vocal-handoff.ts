@@ -79,6 +79,27 @@ export function handoffSide(
 }
 
 const barSec = (grid: BeatGrid) => (60 / grid.bpm) * BEATS_PER_BAR
+
+/**
+ * v0.9.23: how much of the incoming song must still be left once a Mix Assist transition is over. The owner (05/10, a screenshot): a
+ * handoff row offered a 2:24 song's last voice, at 2:18 — B came in, took over, and was over before A had even finished going down. The
+ * row was "clean" by every rule here; none asked whether B would still be playing. 24 bars is the next mix's own room (a whole runway and
+ * the longest fade, 8 + 8) and 8 more to hear the song on its own. Chosen, not measured.
+ */
+export const MIN_BARS_AFTER_MIX = 24
+/** The bar length assumed when the incoming song has no grid yet: 120 BPM, a common floor for this library's dance music. */
+const FALLBACK_BAR_SEC = 2
+
+/** The incoming song still has `MIN_BARS_AFTER_MIX` of its own bars after `mixEndSec` (its own track seconds). */
+export function enoughSongAfterMix(durationSec: number, grid: BeatGrid | null, mixEndSec: number): boolean {
+  const bar = grid ? barSec(grid) : FALLBACK_BAR_SEC
+  return durationSec - mixEndSec >= MIN_BARS_AFTER_MIX * bar - EPS
+}
+
+/** Where a handoff is over, in B's own seconds: B's voice comes in on the handoff, and A goes down over `fadeBars` bars after it. */
+export function handoffEndInB(plan: HandoffPlan, bGrid: BeatGrid): number {
+  return plan.bVoiceSec + plan.fadeBars * barSec(bGrid)
+}
 const EPS = 1e-6
 
 /** A's stretches with no voice that are not over yet at `fromSec`, each as [from, to) in A seconds. */
