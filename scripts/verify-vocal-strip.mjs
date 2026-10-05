@@ -141,6 +141,19 @@ if (ov) {
   await at(0.3); await btn('התחילה שירה').click(); await at(0.5); await btn('נגמרה שירה').click()
   await page.waitForTimeout(400)
   ok('marking: start + end draws a manual mark', (await page.locator('[data-vocal-strip="A"] [data-vocal-manual]').count()) >= 1)
+  // the owner, 05/10: "when I press 'vocal ended' I expect the black line to start" — a black opens exactly at the voice's end and grows
+  await at(0.7)
+  const edges = await page.evaluate(() => [...document.querySelectorAll('[data-vocal-strip="A"] [data-vocal-manual]')].map((e) => ({ kind: e.dataset.vocalManualKind, l: parseFloat(e.style.left), w: parseFloat(e.style.width) })))
+  const v = edges.find((e) => e.kind === 'voice'), b = edges.find((e) => e.kind === 'none')
+  ok('"vocal ended" starts a black right at the voice end, and it grows with the play position', !!v && !!b && Math.abs(v.l + v.w - b.l) < 0.01 && b.l + b.w > 60, JSON.stringify(edges))
+  ok('while that black grows, "vocal started" is offered (it closes the black where the voice begins)', (await btn('התחילה שירה').count()) === 1 && !(await btn('התחילה שירה').isDisabled()))
+  await btn('התחילה שירה').click(); await page.waitForTimeout(400)
+  const stored = await page.evaluate(async () => (await (await window.mod('/src/platform/vocal-manual-idb/store.ts')).getAllVocalManual()).flatMap((t) => t.regions))
+  ok('"vocal started" saved the black, from the voice end to the yellow line before the press, and opened the next voice', stored.length === 2 && stored[1].kind === 'none' && stored[1].fromSec === stored[0].toSec && stored[1].toSec <= 0.7 * 45 && (await btn('נגמרה שירה').count()) === 1, JSON.stringify(stored))
+  await btn('ביטול התחלה').click(); await page.waitForTimeout(300)
+  await btn('ביטול סיום').click(); await page.waitForTimeout(300)
+  await btn('ביטול התחלה').click(); await page.waitForTimeout(300)
+  await at(0.5)
   await btn('ביטול סיום').click(); await page.waitForTimeout(300)
   ok('undo of the end puts the mark back to open ("ended" is offered again)', (await btn('נגמרה שירה').count()) === 1)
   await btn('ביטול התחלה').click(); await page.waitForTimeout(300)
@@ -185,7 +198,7 @@ if (ov) {
 if (ov) {
   const at = async (fr) => { await page.mouse.click(ov.x + ov.width * fr, ov.y + ov.height / 2); await page.waitForTimeout(500) }
   await at(0.7); await btn('התחיל שקט (אין שירה)').click()
-  ok('while a black mark is open the purple button is off (one open mark at a time)', await btn('התחילה שירה').isDisabled())
+  ok('while a black mark is open the purple button stays on (pressing it would close the black where the voice begins)', !(await btn('התחילה שירה').isDisabled()))
   await at(0.9); await btn('נגמר השקט').click(); await page.waitForTimeout(400)
   ok('a black mark is drawn as a black bar', (await page.locator('[data-vocal-strip="A"] [data-vocal-manual-kind="none"]').count()) === 1)
   {
@@ -234,8 +247,9 @@ if (ov) {
 // Teaching: after "finished", the button offers to teach the computer from this song; it then reads as taught and the library counts it.
 if (ov) {
   const at = async (fr) => { await page.mouse.click(ov.x + ov.width * fr, ov.y + ov.height / 2); await page.waitForTimeout(500) }
-  await at(0.3); await btn('התחילה שירה').click(); await at(0.5); await btn('נגמרה שירה').click()
+  await at(0.3); await btn('התחילה שירה').click(); await at(0.5)
   await btn('סיימתי לסמן את השיר').click(); await page.waitForTimeout(400)
+  ok('finishing with a voice still open closes it and leaves no black open on the finished song', (await btn('התחיל שקט (אין שירה)').count()) === 1 && (await btn('נגמר השקט').count()) === 0)
   ok('a finished song offers "teach the computer from this song"', (await btn('למד את המחשב מהשיר הזה').count()) === 1)
   await btn('למד את המחשב מהשיר הזה').click(); await page.waitForTimeout(800)
   ok('after teaching, the song reads as taught and offers to take it back out', (await page.locator('[data-vocal-marking="A"]').innerText()).includes('המחשב למד מהשיר הזה') && (await btn('הסר מהלימוד').count()) === 1)

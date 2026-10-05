@@ -46,7 +46,7 @@ import {
 import { crossfadeProgress, exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
 import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
 import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
-import { addMarkedRegion, drawnBarGrid, moveRegionEdge, undoLastEnd, type VocalManualTag } from '@/core/sound/vocal-manual'
+import { MIN_REGION_SEC, closeOpenMark, drawnBarGrid, moveRegionEdge, undoLastEnd, type VocalManualTag } from '@/core/sound/vocal-manual'
 import { deleteVocalManual, getAllVocalManual, getVocalManual, putVocalManual } from '@/platform/vocal-manual-idb/store'
 import { deleteVocalStrip } from '@/platform/vocal-strip-idb/store'
 import { parseVocalMarksFile, vocalMarksExportText } from '@/core/sound/vocal-manual-file'
@@ -3916,12 +3916,18 @@ export function setVocalRegionEdge(deckId: DeckId, index: number, edge: 'from' |
   const tag = manualTagFor(deckId)
   const moved = tag ? moveRegionEdge(tag.regions, index, edge, sec, s.decks[deckId].durationSec) : null
   if (!tag || !moved) return
+  // the black "vocal ended" opened sits on the old edge; once he moves edges by hand it would paint over the new one
+  if (s.vocalMarkOpen[deckId]?.afterVoice) cancelOpenVocalMark(deckId)
   const next = { ...tag, regions: moved, updatedAt: Date.now() }
   if (persist) void saveVocalManual(next)
   else s.setVocalManual(tag.contentHash, next)
 }
 
-/** Pressed "vocal started" → opens a mark at the play position; pressed again "vocal ended" → closes it. */
+/**
+ * Pressed "vocal started" → opens a mark at the play position; pressed again "vocal ended" → closes it, and the black (no voice) starts right there
+ * (the owner, 05/10: "when I press 'vocal ended' I expect the black line to start"). That black stays open until the next "vocal started", which
+ * closes it where the new voice begins; so marking a song is one press per change, voice and black taking turns.
+ */
 export async function toggleVocalMark(deckId: DeckId, kind: 'voice' | 'none' = 'voice'): Promise<void> {
   const s = useStore.getState()
   const deck = s.decks[deckId]
@@ -3937,15 +3943,28 @@ export async function toggleVocalMark(deckId: DeckId, kind: 'voice' | 'none' = '
   }
   s.setVocalMarkOpen(deckId, null)
   if (open.contentHash !== tag.contentHash) {
+    // another song's black that "vocal ended" opened is not his: dropped, and this press does what it says on this song
+    if (open.afterVoice) return toggleVocalMark(deckId, kind)
     vocalNotice('סימון השירה שהיה פתוח היה של שיר אחר ולא נשמר.')
     return
   }
-  const added = addMarkedRegion(tag.regions, open.startSec, deck.positionSec, deck.durationSec, open.kind ?? 'voice', drawnBarGrid(deck))
-  if (!added.ok) {
+  const grid = drawnBarGrid(deck)
+  const voiceStarts = (open.kind ?? 'voice') === 'none' && kind === 'voice'
+  const added = closeOpenMark(tag.regions, open, deck.positionSec, deck.durationSec, grid, voiceStarts)
+  let regions = tag.regions
+  if (added.ok) regions = added.regions
+  // A black that "vocal ended" opened and that has no length left is not his mark: nothing he pressed is lost (his "ended" is in the voice mark).
+  else if (!(open.afterVoice && added.reason === 'too-short')) {
     vocalNotice(added.reason === 'too-short' ? 'הסימון קצר מחצי שנייה ולא נשמר.' : 'הסימון לא נשמר: זמן לא תקין.')
-    return
+    if (!voiceStarts) return
   }
-  await saveVocalManual({ ...tag, regions: added.regions, updatedAt: Date.now() })
+  if (regions !== tag.regions) await saveVocalManual({ ...tag, regions, updatedAt: Date.now() })
+  if (voiceStarts) {
+    s.setVocalMarkOpen(deckId, { contentHash: tag.contentHash, startSec: deck.positionSec, kind: 'voice' })
+  } else if (added.ok && (open.kind ?? 'voice') === 'voice') {
+    const endSec = regions[regions.length - 1].toSec
+    if (deck.durationSec - endSec >= MIN_REGION_SEC) s.setVocalMarkOpen(deckId, { contentHash: tag.contentHash, startSec: endSec, kind: 'none', afterVoice: true })
+  }
 }
 
 /** Cancels a mark that was opened and not yet closed, without saving anything. */
@@ -3955,7 +3974,10 @@ export function cancelOpenVocalMark(deckId: DeckId) {
 
 export async function undoVocalMark(deckId: DeckId): Promise<void> {
   const s = useStore.getState()
-  if (s.vocalMarkOpen[deckId]) return cancelOpenVocalMark(deckId)
+  const open = s.vocalMarkOpen[deckId]
+  // The black that "vocal ended" opened is not a press of his: undo means undoing that "ended", so it goes and the voice mark reopens.
+  if (open && !open.afterVoice) return cancelOpenVocalMark(deckId)
+  if (open) cancelOpenVocalMark(deckId)
   const tag = manualTagFor(deckId)
   if (!tag || tag.regions.length === 0) {
     vocalNotice('אין סימון לבטל בשיר הזה.', 'info')
@@ -3976,11 +3998,15 @@ export async function undoVocalMark(deckId: DeckId): Promise<void> {
  */
 export async function finishVocalMarks(deckId: DeckId): Promise<void> {
   const open = useStore.getState().vocalMarkOpen[deckId]
-  if (open) {
+  // the black "vocal ended" opened: finishing makes the rest black anyway, so it is simply dropped (closing it could be refused as too short)
+  if (open?.afterVoice) cancelOpenVocalMark(deckId)
+  else if (open) {
     const before = manualTagFor(deckId)?.regions.length ?? 0
     await toggleVocalMark(deckId, open.kind ?? 'voice')
     // refused (too short, another song's mark): its notice says why, and finishing now would replace that notice — he presses again
     if ((manualTagFor(deckId)?.regions.length ?? 0) === before) return
+    // closing a voice opens the black after it; on a finished song the rest is black already
+    if (useStore.getState().vocalMarkOpen[deckId]?.afterVoice) cancelOpenVocalMark(deckId)
   }
   const tag = manualTagFor(deckId)
   if (!tag) return
@@ -4087,9 +4113,10 @@ export async function importVocalMarks(): Promise<void> {
 /** On every load: drop a mark the old track left open (said so), and bring this song's saved marks into memory. */
 async function onTrackLoadedForVocalMarks(deckId: DeckId, contentHash: string | undefined) {
   const s = useStore.getState()
-  if (s.vocalMarkOpen[deckId]) {
+  const open = s.vocalMarkOpen[deckId]
+  if (open) {
     s.setVocalMarkOpen(deckId, null)
-    vocalNotice('סימון שירה שהיה פתוח בדק לא נשמר: נטען שיר אחר.')
+    if (!open.afterVoice) vocalNotice('סימון שירה שהיה פתוח בדק לא נשמר: נטען שיר אחר.')
   }
   if (!contentHash || s.vocalManual[contentHash]) return
   try {

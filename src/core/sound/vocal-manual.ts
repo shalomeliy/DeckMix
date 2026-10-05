@@ -96,11 +96,14 @@ export function effectiveTimeline(
   return { cells, stereo: base?.stereo ?? true }
 }
 
-/** Paints his marks onto `cells` in the order he made them — voice as VOCAL, none as NONE, the later one on top. A mark's edge is rounded OUT to the cell. */
+/** Paints his marks onto `cells` in the order he made them — voice as VOCAL, none as NONE, the later one on top. */
 export function paintRegions(cells: Uint8Array, regions: readonly VocalRegion[]): void {
   for (const r of regions) {
-    const a = Math.max(0, Math.floor(r.fromSec / VOCAL_CELL_SEC))
-    const b = Math.min(cells.length, Math.ceil(r.toSec / VOCAL_CELL_SEC))
+    // Voice rounds OUT to the cell, black rounds IN: a cell shared by the end of a voice and the black that follows it (a yellow line is rarely on
+    // a half second) is partly voice, and stays voice, not lost to the black painted after it.
+    const none = r.kind === 'none'
+    const a = Math.max(0, (none ? Math.ceil : Math.floor)(r.fromSec / VOCAL_CELL_SEC - (none ? 1e-9 : -1e-9)))
+    const b = Math.min(cells.length, (none ? Math.floor : Math.ceil)(r.toSec / VOCAL_CELL_SEC + (none ? 1e-9 : -1e-9)))
     const v = r.kind === 'none' ? CELL_NONE : CELL_VOCAL
     for (let i = a; i < b; i++) cells[i] = v
   }
@@ -160,6 +163,52 @@ export function markedSpan(startPressSec: number, endPressSec: number, grid: Bea
   const fromSec = Math.max(0, barLineAtOrBeforeSec(lo, grid))
   const toSec = barLineAtOrAfterSec(hi, grid)
   return { fromSec, toSec: toSec - fromSec < MIN_REGION_SEC ? nextBarLineSec(hi, grid) : toSec }
+}
+
+/**
+ * The mark still open — pressed "started", not yet "ended". `afterVoice`: a black (no voice) mark opened BY a "vocal ended" press, not by
+ * his "silence started" button (the owner, 05/10: "when I press 'vocal ended' I expect the black line to start"). It starts exactly where that voice
+ * mark ended, not snapped again: without a grid a second half-second lead would paint black over the last half second of his voice.
+ */
+export interface OpenVocalMark {
+  startSec: number
+  kind?: 'voice' | 'none'
+  afterVoice?: boolean
+}
+
+/** Where a voice that starts with a press at `pressSec` begins: the yellow line before it, or the half-second lead with no grid. */
+export function voiceStartSec(pressSec: number, grid: BeatGrid | null): number {
+  return Math.max(0, usableGrid(grid) ? barLineAtOrBeforeSec(pressSec, grid) : pressSec - MARK_LEAD_SEC)
+}
+
+/**
+ * Where the open mark would sit if it were closed by a press now. `byVoice`: a black mark closed by "vocal started" ends where that voice begins,
+ * so the two meet on the same yellow line instead of overlapping by a bar.
+ */
+export function openMarkSpan(open: OpenVocalMark, pressSec: number, grid: BeatGrid | null, byVoice = false): { fromSec: number; toSec: number } {
+  const span = markedSpan(open.startSec, pressSec, grid)
+  const fromSec = open.afterVoice ? open.startSec : span.fromSec
+  const toSec = byVoice ? voiceStartSec(pressSec, grid) : open.afterVoice ? (usableGrid(grid) ? barLineAtOrAfterSec(pressSec, grid) : pressSec + MARK_TAIL_SEC) : span.toSec
+  // seeked back before the black's start (or the half-second draft just after "ended"): it is empty, never drawn backwards over his voice
+  return { fromSec, toSec: open.afterVoice ? Math.max(fromSec, toSec) : toSec }
+}
+
+/** Closes the open mark with a press at `pressSec`. A plain pair of presses is exactly `addMarkedRegion`. */
+export function closeOpenMark(
+  regions: readonly VocalRegion[],
+  open: OpenVocalMark,
+  pressSec: number,
+  durationSec: number,
+  grid: BeatGrid | null = null,
+  byVoice = false,
+): AddRegionResult {
+  const kind = open.kind ?? 'voice'
+  if (!open.afterVoice && !byVoice) return addMarkedRegion(regions, open.startSec, pressSec, durationSec, kind, grid)
+  if (![open.startSec, pressSec].every(Number.isFinite)) return { ok: false, reason: 'bad-time' }
+  const span = openMarkSpan(open, pressSec, grid, byVoice)
+  // seeked back before the black's start, or a voice that starts on the same line: there is no stretch of black to keep
+  if (span.toSec - span.fromSec < MIN_REGION_SEC) return { ok: false, reason: 'too-short' }
+  return addRegion(regions, span.fromSec, span.toSec, durationSec, kind)
 }
 
 /**

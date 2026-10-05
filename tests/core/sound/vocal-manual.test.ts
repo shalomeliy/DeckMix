@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MARK_LEAD_SEC, MARK_TAIL_SEC, MIN_REGION_SEC, addMarkedRegion, barLineAtOrAfterSec, barLineAtOrBeforeSec, drawnBarGrid, markedSpan, addRegion, effectiveTimeline, manualLabels, moveRegionEdge, removeLastRegion, undoLastEnd } from '@/core/sound/vocal-manual.ts'
+import { MARK_LEAD_SEC, MARK_TAIL_SEC, MIN_REGION_SEC, addMarkedRegion, closeOpenMark, openMarkSpan, voiceStartSec, barLineAtOrAfterSec, barLineAtOrBeforeSec, drawnBarGrid, markedSpan, addRegion, effectiveTimeline, manualLabels, moveRegionEdge, removeLastRegion, undoLastEnd } from '@/core/sound/vocal-manual.ts'
 import { CELL_NONE, CELL_UNSURE, CELL_VOCAL, type VocalTimeline } from '@/core/sound/vocal-timeline.ts'
 
 const base = (s: string): VocalTimeline => ({ cells: Uint8Array.from([...s].map(Number)), stereo: true })
@@ -220,5 +220,52 @@ describe('black marks ("no voice")', () => {
   it('a purple mark is stored exactly as before (no kind), so older files and exports are unchanged', () => {
     const made = addMarkedRegion([], 10, 15, 60)
     expect(made.ok && 'kind' in made.regions[0]).toBe(false)
+  })
+})
+
+describe('"vocal ended" starts the black (the owner, 05/10)', () => {
+  const GRID = { bpm: 120, offsetSec: 0.3 } // bars at 0.3, 2.3, 4.3 …
+  it('the black opened by "ended" starts exactly at the voice end and grows to the line after the play position', () => {
+    const open = { startSec: 12.3, kind: 'none' as const, afterVoice: true }
+    expect(openMarkSpan(open, 15.1, GRID)).toEqual({ fromSec: 12.3, toSec: expect.closeTo(16.3, 9) })
+  })
+  it('"vocal started" closes the black on the yellow line where the new voice begins: they meet, no overlap', () => {
+    const open = { startSec: 12.3, kind: 'none' as const, afterVoice: true }
+    const r = closeOpenMark([], open, 19.1, 60, GRID, true)
+    const m = r.ok ? r.regions[0]! : null
+    expect(m?.kind).toBe('none')
+    expect(m?.fromSec).toBe(12.3)
+    expect(m?.toSec).toBeCloseTo(18.3, 9)
+    expect(voiceStartSec(19.1, GRID)).toBeCloseTo(18.3, 9)
+  })
+  it('with no grid the black starts at the voice end, not half a second earlier (that would paint over his voice)', () => {
+    const open = { startSec: 12.5, kind: 'none' as const, afterVoice: true }
+    const r = closeOpenMark([], open, 20, 60, null, true)
+    const m = r.ok ? r.regions[0]! : null
+    expect(m?.fromSec).toBe(12.5)
+    expect(m?.toSec).toBe(20 - MARK_LEAD_SEC)
+  })
+  it('a voice that starts again in the same bar leaves no black, and that is refused as too short (nothing to keep)', () => {
+    const open = { startSec: 12.3, kind: 'none' as const, afterVoice: true }
+    expect(closeOpenMark([], open, 13.9, 60, GRID, true)).toEqual({ ok: false, reason: 'too-short' })
+  })
+  it('his own "silence started" closed by "vocal started" also ends where the voice begins', () => {
+    const r = closeOpenMark([], { startSec: 5.1, kind: 'none' }, 11.9, 60, GRID, true)
+    const m = r.ok ? r.regions[0]! : null
+    expect(m?.fromSec).toBeCloseTo(4.3, 9)
+    expect(m?.toSec).toBeCloseTo(10.3, 9)
+  })
+  it('seeked back before the black starts: the black is empty, never drawn backwards over his voice', () => {
+    expect(openMarkSpan({ startSec: 12, kind: 'none', afterVoice: true }, 9.1, { bpm: 120, offsetSec: 0 })).toEqual({ fromSec: 12, toSec: 12 })
+    expect(openMarkSpan({ startSec: 11.4, kind: 'none', afterVoice: true }, 10, null)).toEqual({ fromSec: 11.4, toSec: 11.4 })
+  })
+  it('the half second shared by a voice end and the black after it stays voice (black rounds in, voice rounds out)', () => {
+    const labels = manualLabels([{ fromSec: 4.3, toSec: 12.3 }, { fromSec: 12.3, toSec: 18.3, kind: 'none' }], 30)
+    expect(labels[24]).toBe(1) // 12.0-12.5: partly voice
+    expect(labels[25]).toBe(0)
+    expect(labels[36]).toBe(0) // 18.0-18.5 is not inside the black, it was never painted
+  })
+  it('a plain pair of presses is unchanged (same as addMarkedRegion)', () => {
+    expect(closeOpenMark([], { startSec: 5.1, kind: 'voice' }, 11.9, 60, GRID)).toEqual(addMarkedRegion([], 5.1, 11.9, 60, 'voice', GRID))
   })
 })

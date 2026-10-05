@@ -4,7 +4,7 @@ import { useSettings } from '@/app/hooks/useSettings'
 import { useStore } from '@/app/state/store'
 import { useShallow } from 'zustand/react/shallow'
 import * as ctl from '@/controls'
-import { MIN_REGION_SEC, drawnBarGrid, effectiveTimeline, markedSpan } from '@/core/sound/vocal-manual'
+import { MIN_REGION_SEC, drawnBarGrid, effectiveTimeline, openMarkSpan } from '@/core/sound/vocal-manual'
 import {
   CELL_NONE,
   CELL_VOCAL,
@@ -73,7 +73,8 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
   // Under MIN_REGION_SEC "ended" would be refused, so until then only the stretch between the press and the playhead is drawn, not a whole bar.
   const grid = useStore(useShallow((s) => drawnBarGrid(s.decks[deckId])))
   const draftEnd = grid ? positionSec : secBucket
-  const draft = !open ? null : Math.abs(draftEnd - open.startSec) < MIN_REGION_SEC ? { fromSec: Math.min(open.startSec, draftEnd), toSec: Math.max(open.startSec, draftEnd) } : markedSpan(open.startSec, draftEnd, grid)
+  // The black that "vocal ended" opened starts exactly at that voice's end and grows the same way (core: `openMarkSpan`).
+  const draft = !open ? null : Math.abs(draftEnd - open.startSec) < MIN_REGION_SEC ? (open.afterVoice ? { fromSec: open.startSec, toSec: Math.max(open.startSec, draftEnd) } : { fromSec: Math.min(open.startSec, draftEnd), toSec: Math.max(open.startSec, draftEnd) }) : openMarkSpan(open, draftEnd, grid)
   const draftFrom = draft?.fromSec ?? 0
   const draftTo = draft?.toSec ?? 0
   // The timers read the half-second cells of everything together: his marks over the guess, or only his marks once the song is finished.
@@ -96,7 +97,8 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
   const laneRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ index: number; edge: 'from' | 'to'; lastX: number; sec: number } | null>(null)
   const [dragInfo, setDragInfo] = useState<{ edge: 'from' | 'to'; sec: number } | null>(null)
-  const editable = vocalMarking && !!tag && !open && durationSec > 0
+  // The black that "vocal ended" opened does not block it: dragging drops that black (controls: `setVocalRegionEdge`).
+  const editable = vocalMarking && !!tag && (!open || !!open.afterVoice) && durationSec > 0
   const startDrag = (e: React.PointerEvent<HTMLDivElement>, index: number, edge: 'from' | 'to', sec: number) => {
     e.currentTarget.setPointerCapture(e.pointerId)
     drag.current = { index, edge, lastX: e.clientX, sec }
@@ -199,7 +201,6 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
         <div className="flex flex-wrap items-center gap-1 text-xs" data-vocal-marking={deckId}>
           <button
             type="button"
-            disabled={open?.kind === 'none'}
             onClick={() => void ctl.toggleVocalMark(deckId, 'voice')}
             className={`rounded-[var(--radius-sm)] px-2 py-1 font-semibold disabled:opacity-30 ${open?.kind !== 'none' && open ? 'bg-white text-black' : 'bg-surface-2 text-white'}`}
             style={open ? undefined : { boxShadow: `inset 0 0 0 1px ${VOICE}` }}
@@ -216,8 +217,8 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
           >
             {open?.kind === 'none' ? 'נגמר השקט' : 'התחיל שקט (אין שירה)'}
           </button>
-          <button type="button" disabled={!open && !(tag && tag.regions.length > 0)} onClick={() => void ctl.undoVocalMark(deckId)} title="לחצת בטעות? 'ביטול התחלה' מבטל סימון פתוח. 'ביטול סיום' מחזיר את הסימון האחרון למצב פתוח כדי ללחוץ 'נגמרה שירה' שוב במקום הנכון." className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted disabled:opacity-40">
-            {open ? 'ביטול התחלה' : 'ביטול סיום'}
+          <button type="button" disabled={(!open || !!open.afterVoice) && !(tag && tag.regions.length > 0)} onClick={() => void ctl.undoVocalMark(deckId)} title="לחצת בטעות? 'ביטול התחלה' מבטל סימון פתוח. 'ביטול סיום' מחזיר את הסימון האחרון למצב פתוח כדי ללחוץ 'נגמרה שירה' שוב במקום הנכון." className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted disabled:opacity-40">
+            {open && !open.afterVoice ? 'ביטול התחלה' : 'ביטול סיום'}
           </button>
           {!tag?.finished ? (
             <>
