@@ -30,8 +30,6 @@ import type { Track } from '@/core/types'
 export const DURATION_TOLERANCE_SEC = 1.5
 /** A normalized name this short ("a", "01") would match unrelated files. */
 const MIN_KEY_LENGTH = 4
-/** Below this ratio two average bitrates are the same quality (VBR wobble, tag/artwork bytes). */
-const QUALITY_RATIO = 1.2
 /** Edit-distance similarity for "a letter or two apart" — צוחקת / צוחקות. */
 const FUZZY_RATIO = 0.88
 /**
@@ -369,29 +367,13 @@ function groupKind(ts: readonly Track[]): DuplicateKind {
 
 // ------------------------------------------------------------------- notes
 
-const LOSSLESS = new Set(['wav', 'flac', 'aif', 'aiff'])
-
-/** Average bitrate from size and length, or Infinity for a lossless file; null when unknown. */
-function qualityOf(t: Track): number | null {
-  if (LOSSLESS.has(t.kind)) return Infinity
-  if (!t.sizeBytes || !t.durationSec) return null
-  return (t.sizeBytes * 8) / t.durationSec / 1000
-}
-
-export function formatQuality(t: Track): string | null {
-  const q = qualityOf(t)
-  if (q === null) return null
-  const fmt = t.kind.toUpperCase()
-  return q === Infinity ? `${fmt} (lossless)` : `${fmt} ~${Math.round(q)} kbps`
-}
-
 function formatLength(sec: number): string {
   const s = Math.round(sec)
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
 export interface DuplicateNote {
-  /** two or three words for the row chip: "other mix · longer · lower quality" */
+  /** a few words for the row chip: "other mix · 6:12 · MP3" */
   short: string[]
   /** the whole comparison, one line per file, for the tooltip */
   detail: string
@@ -399,9 +381,11 @@ export interface DuplicateNote {
 
 /**
  * What sets this track apart from the rest of its group — the "why is this
- * listed" the owner asked for (05/10). Relative to the group, so a pair reads
- * "longer" on one row and "shorter" on the other. A fact that is not known yet
- * (no size read, no length) says nothing rather than guessing.
+ * listed" the owner asked for (05/10). Length and file type are plain facts on
+ * every row, not "longer"/"lower quality": Shalom, same day — "just show each
+ * song's length, and for quality just write the file type, wav/mp3". The
+ * earlier quality verdict came from size ÷ length, which cover art inside the
+ * file skews; a format name can't be wrong. A length not read yet is left out.
  */
 export function describeDuplicate(track: Track, group: DuplicateGroup, all: ReadonlyMap<string, Track>): DuplicateNote {
   const ts = group.trackIds.map((id) => all.get(id)).filter((t): t is Track => !!t)
@@ -415,24 +399,9 @@ export function describeDuplicate(track: Track, group: DuplicateGroup, all: Read
   if (group.kind !== 'identical') {
     const mine = keyed(track)
     if (others.some((o) => keyed(o).version !== mine.version)) short.push(mine.versionLabel ? 'other mix' : 'plain version')
-
-    const lens = ts.map((t) => t.durationSec).filter((d): d is number => d !== undefined)
-    if (track.durationSec !== undefined && lens.length > 1 && Math.max(...lens) - Math.min(...lens) > DURATION_TOLERANCE_SEC) {
-      if (track.durationSec === Math.max(...lens)) short.push(ts.length === 2 ? 'longer' : 'longest')
-      else if (track.durationSec === Math.min(...lens)) short.push(ts.length === 2 ? 'shorter' : 'shortest')
-    }
-
-    const q = qualityOf(track)
-    const qs = ts.map(qualityOf).filter((v): v is number => v !== null)
-    if (q !== null && qs.length > 1) {
-      const best = Math.max(...qs)
-      const worst = Math.min(...qs)
-      if (best === Infinity ? worst !== Infinity : best / worst >= QUALITY_RATIO) {
-        if (q === best) short.push('best quality')
-        else if (q === Infinity ? false : best === Infinity || best / q >= QUALITY_RATIO) short.push('lower quality')
-      }
-    }
   }
+  if (track.durationSec !== undefined) short.push(formatLength(track.durationSec))
+  short.push(track.kind.toUpperCase())
 
   const head =
     group.kind === 'identical'
@@ -447,15 +416,12 @@ export function describeDuplicate(track: Track, group: DuplicateGroup, all: Read
   const lines = ts.map((t) => {
     const facts = [
       t.durationSec !== undefined ? formatLength(t.durationSec) : 'length unknown yet',
-      formatQuality(t) ?? `${t.kind.toUpperCase()}, quality unknown yet`,
+      t.kind.toUpperCase(),
       keyed(t).versionLabel || 'no mix tag',
     ]
     return `${t.id === track.id ? '▶ ' : '• '}${t.name} — ${facts.join(' · ')}`
   })
-  const qualityNote = ts.some((t) => !LOSSLESS.has(t.kind) && qualityOf(t) !== null)
-    ? 'kbps is estimated from file size and length; cover art inside the file adds to it.'
-    : ''
-  return { short, detail: [head, copyLine, ...lines, qualityNote].filter(Boolean).join('\n') }
+  return { short, detail: [head, copyLine, ...lines].filter(Boolean).join('\n') }
 }
 
 /** Sets of two or more files in `ts` with the same content hash. */

@@ -89,17 +89,18 @@ describe('wider matching (v0.9.24)', () => {
   const byId = (ts: Track[]) => new Map(ts.map((x) => [x.id, x]))
 
   it('two remixes of one song meet, as a different version', () => {
-    const a = t({ name: 'עדן חסון - צוחקת ובוכה (Dj Camelion Extended Remix) V2.mp3', durationSec: 372, sizeBytes: 372 * 40_000 })
-    const b = t({ name: 'עדן חסון - צוחקת ובוכה (Hasod Remix).mp3', durationSec: 220, sizeBytes: 220 * 24_000 })
+    const a = t({ name: 'עדן חסון - צוחקת ובוכה (Dj Camelion Extended Remix) V2.mp3', durationSec: 372 })
+    const b = t({ name: 'עדן חסון - צוחקת ובוכה (Hasod Remix).mp3', durationSec: 220 })
     const r = findDuplicates([a, b])
     expect(r.groups).toHaveLength(1)
     expect(r.groups[0].kind).toBe('version')
     const na = describeDuplicate(a, r.groups[0], byId([a, b]))
     const nb = describeDuplicate(b, r.groups[0], byId([a, b]))
-    expect(na.short).toEqual(['other mix', 'longer', 'best quality'])
-    expect(nb.short).toEqual(['other mix', 'shorter', 'lower quality'])
-    expect(na.detail).toContain('6:12')
-    expect(na.detail).toContain('~320 kbps')
+    // Shalom, 05/10: each row's own length and file type, not "longer" / "lower quality"
+    expect(na.short).toEqual(['other mix', '6:12', 'MP3'])
+    expect(nb.short).toEqual(['other mix', '3:40', 'MP3'])
+    expect(na.detail).toContain('3:40')
+    expect(na.detail).not.toMatch(/kbps|quality/)
     expect(nb.detail).toContain('Hasod Remix')
   })
 
@@ -109,21 +110,22 @@ describe('wider matching (v0.9.24)', () => {
     expect(findDuplicates([a, b]).groups[0].kind).toBe('probable')
   })
 
-  it('a word added to the name still matches; a lossless twin is the better one', () => {
-    const a = t({ name: 'Eden Hason - Tzocheket Uvocha.mp3', kind: 'mp3', durationSec: 200, sizeBytes: 200 * 16_000 })
+  it('a word added to the name still matches; each row names its own file type', () => {
+    const a = t({ name: 'Eden Hason - Tzocheket Uvocha.mp3', kind: 'mp3', durationSec: 200 })
     const b = t({ name: 'Eden Hason - Tzocheket Uvocha Extended.wav', kind: 'wav', durationSec: 290 })
     const r = findDuplicates([a, b])
     expect(r.groups[0].kind).toBe('version')
-    expect(describeDuplicate(b, r.groups[0], byId([a, b])).short).toEqual(['other mix', 'longer', 'best quality'])
-    expect(describeDuplicate(a, r.groups[0], byId([a, b])).short).toEqual(['plain version', 'shorter', 'lower quality'])
+    expect(describeDuplicate(b, r.groups[0], byId([a, b])).short).toEqual(['other mix', '4:50', 'WAV'])
+    expect(describeDuplicate(a, r.groups[0], byId([a, b])).short).toEqual(['plain version', '3:20', 'MP3'])
   })
 
-  it('same version, different quality only: says quality, not mix or length', () => {
-    const a = t({ artist: 'X', title: 'Long Song Name', durationSec: 200, sizeBytes: 200 * 40_000 })
-    const b = t({ artist: 'X', title: 'Long Song Name', durationSec: 200.5, sizeBytes: 200.5 * 16_000 })
+  it('same version in two formats: no mix note, just length and type', () => {
+    const a = t({ artist: 'X', title: 'Long Song Name', kind: 'wav', durationSec: 200 })
+    const b = t({ artist: 'X', title: 'Long Song Name', durationSec: 200.5 })
     const r = findDuplicates([a, b])
     expect(r.groups[0].kind).toBe('probable')
-    expect(describeDuplicate(b, r.groups[0], byId([a, b])).short).toEqual(['lower quality'])
+    expect(describeDuplicate(b, r.groups[0], byId([a, b])).short).toEqual(['3:21', 'MP3'])
+    expect(describeDuplicate(a, r.groups[0], byId([a, b])).short).toEqual(['3:20', 'WAV'])
   })
 
   it('sameSong: word order, a spelling letter, a featured artist', () => {

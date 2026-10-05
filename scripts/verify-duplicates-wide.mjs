@@ -7,7 +7,7 @@
  * that v0.8.45's exact name+length match never put together.
  * 1. The header says there is a repeated song.
  * 2. "Duplicates only" lists both remixes, and not the unrelated track.
- * 3. Each row's chip says what differs: "other mix", and which is longer.
+ * 3. Each row's chip says what differs: "other mix", its own length and file type.
  * 4. The chip's tooltip names both files with their lengths.
  * Harness (tagged WAVs, in-memory IndexedDB) is `verify-deck-pin.mjs`'s.
  */
@@ -158,8 +158,8 @@ await scenario('two remixes of one song', TRACKS, async (page) => {
   ok('Duplicates only lists the two remixes and nothing else', rows.length === 2 && rows.every((r) => /צוחקת ובוכה/.test(r)), rows.join(' | '))
   const longChip = (await chip(page, 'Camelion').textContent()) ?? ''
   const shortChip = (await chip(page, 'Hasod').textContent()) ?? ''
-  ok('the long remix says V, other mix, longer', /^V×2/.test(longChip) && /other mix/.test(longChip) && /longer/.test(longChip), longChip)
-  ok('the short remix says other mix, shorter', /other mix/.test(shortChip) && /shorter/.test(shortChip), shortChip)
+  ok('the long remix says V, other mix, its own length and type', /^V×2/.test(longChip) && /other mix/.test(longChip) && /0:10/.test(longChip) && /WAV/.test(longChip), longChip)
+  ok('the short remix says other mix, its own length and type', /other mix/.test(shortChip) && /0:06/.test(shortChip) && /WAV/.test(shortChip) && !/shorter|quality/.test(shortChip), shortChip)
   const tip = (await chip(page, 'Hasod').getAttribute('title')) ?? ''
   ok('tooltip names both files with their lengths', /0:10/.test(tip) && /0:06/.test(tip) && /Hasod Remix/.test(tip) && /Camelion/.test(tip), tip.replace(/\n/g, ' / '))
 })

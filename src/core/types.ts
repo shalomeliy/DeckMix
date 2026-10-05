@@ -12,12 +12,6 @@ export interface Track {
   handle: FileSystemFileHandle
   bpm?: number
   durationSec?: number
-  /**
-   * The file's size on disk (v0.9.24), read for free in the tag pass. With
-   * `durationSec` it gives the average bitrate the duplicate notes compare
-   * ("lower quality") — no header parsing per format needed.
-   */
-  sizeBytes?: number
   /** from the file's tags (v0.1.7) — analysis overrides these when it runs */
   artist?: string
   title?: string

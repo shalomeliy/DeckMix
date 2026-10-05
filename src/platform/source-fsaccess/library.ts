@@ -342,7 +342,6 @@ export async function readLibraryTags(
         if (tags.unreadable) unreadable++
         if (tags.bpm != null) tagged++
         const patch: Partial<Track> = {}
-        if (!tags.unreadable && file.size > 0) patch.sizeBytes = file.size
         if (tags.bpm != null) patch.bpm = tags.bpm
         if (tags.durationSec != null) patch.durationSec = tags.durationSec
         if (tags.key) patch.key = tags.key
