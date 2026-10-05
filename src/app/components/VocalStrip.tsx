@@ -130,7 +130,11 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
     <div className="flex shrink-0 flex-col gap-0.5" data-vocal-strip={deckId} data-vocal-state={vocal?.state ?? 'none'}>
       <div className="flex items-center gap-1">
         <div ref={laneRef} className="relative h-2 flex-1" role="img" aria-label={timeline ? 'פס שירה: מלא = יש שירה, מקווקו = לא בטוח, ריק = אין שירה' : (note ?? 'אין פס שירה')}>
-          <div className="absolute inset-0 overflow-hidden rounded-[2px] bg-white/10">
+          {/* "No voice" is ONE look (the owner, 05/10: the black he paints and the black the strip leaves empty are the same thing to him, and
+              two blacks — one with a white top line — read as two answers). So once there is anything to draw, the lane itself is that black,
+              and his black marks are drawn in exactly the same black with no edge line. Before anything is drawn the lane stays grey: an
+              un-analysed song must not look like "no voice". */}
+          <div className={`absolute inset-0 overflow-hidden rounded-[2px] ${(timeline || bars.length > 0) && durationSec > 0 ? 'bg-black' : 'bg-white/10'}`}>
             {segs.map((sg, i) =>
               sg.cell === CELL_NONE ? null : (
                 <div
@@ -151,8 +155,8 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
                   key={`m${i}`}
                   data-vocal-manual
                   data-vocal-manual-kind={m.kind === 'none' ? 'none' : 'voice'}
-                  className={`absolute inset-y-0 border-t-2 ${m.kind === 'none' ? 'border-white/50' : 'border-white'}`}
-                  style={{ left: `${(m.fromSec / durationSec) * 100}%`, width: `${((m.toSec - m.fromSec) / durationSec) * 100}%`, background: m.kind === 'none' ? '#000' : VOICE }}
+                  className={`absolute inset-y-0 ${m.kind === 'none' ? 'bg-black' : 'border-t-2 border-white'}`}
+                  style={{ left: `${(m.fromSec / durationSec) * 100}%`, width: `${((m.toSec - m.fromSec) / durationSec) * 100}%`, ...(m.kind === 'none' ? {} : { background: VOICE }) }}
                 />
               ))}
             {(timeline || bars.length > 0) && durationSec > 0 && (

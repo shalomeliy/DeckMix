@@ -188,6 +188,16 @@ if (ov) {
   ok('while a black mark is open the purple button is off (one open mark at a time)', await btn('התחילה שירה').isDisabled())
   await at(0.9); await btn('נגמר השקט').click(); await page.waitForTimeout(400)
   ok('a black mark is drawn as a black bar', (await page.locator('[data-vocal-strip="A"] [data-vocal-manual-kind="none"]').count()) === 1)
+  {
+    // the owner, 05/10: his black and the strip's empty "no voice" must be ONE black — same colour, no edge line on his
+    const looks = await page.evaluate(() => {
+      const mark = document.querySelector('[data-vocal-strip="A"] [data-vocal-manual-kind="none"]')
+      const lane = mark?.parentElement
+      const cs = (el) => { const c = getComputedStyle(el); return { bg: c.backgroundColor, top: c.borderTopWidth } }
+      return mark && lane ? { mark: cs(mark), lane: cs(lane) } : null
+    })
+    ok('his black mark looks exactly like the empty "no voice" lane (same black, no top line)', !!looks && looks.mark.bg === looks.lane.bg && looks.mark.top === '0px', JSON.stringify(looks))
+  }
   await btn('ביטול סיום').click(); await page.waitForTimeout(300)
   ok('undoing the end of a black mark reopens it as black', await btn('נגמר השקט').count() === 1)
   await btn('ביטול התחלה').click(); await page.waitForTimeout(300)
