@@ -1,7 +1,9 @@
 """
 v0.9.10b (04/10): a genre's vocal strip learns from the owner's hand marks in that genre ("I marked every Techno song in my library — make
 the Techno analysis follow my marks").
-    python scripts/train/fit-genre-marks.py <probs.json> <genre> [out.json] [--pool=<other probs.json>:<other genre>]
+    python scripts/train/fit-genre-marks.py <probs.json> <genre> [out.json] [--pool=<other probs.json>:<other genre>] [--review=<list.json>]
+--review (v0.9.37, 06/10): also writes the places where a model that never saw the song is sure of the opposite of his mark — see
+review_marks.py. Only the held-out models are used: one that saw the song would copy his mark and find nothing.
 <probs.json> comes from dump-strip-probs.mjs with --rows (the frozen model's probabilities, the 28 features and his labels per cell).
 Needs numpy + scikit-learn.
 
@@ -28,7 +30,8 @@ STRIP = (2, 0.5, 0.25, 4)  # vocal-strip.ts: SMOOTH_RADIUS_CELLS, VOICE_ON_AT, V
 BLEND, C, EDGE = 0.5, 0.1, 2
 SHIFTS = np.arange(-3, 3.01, 0.25)
 
-args = [a for a in sys.argv[1:] if not a.startswith("--pool=")]
+REVIEW = next((a[len("--review="):] for a in sys.argv[1:] if a.startswith("--review=")), None)
+args = [a for a in sys.argv[1:] if not a.startswith(("--pool=", "--review="))]
 pools = [a[len("--pool="):].rsplit(":", 1) for a in sys.argv[1:] if a.startswith("--pool=")]
 sys.argv = [sys.argv[0], *args]
 songs = [s for s in json.load(open(sys.argv[1], encoding="utf-8")) if s["genre"] == sys.argv[2]]
@@ -122,16 +125,22 @@ def choose_shift(idx):
 
 
 ok_b = ok_n = n = better = worse = 0
+held = {}  # song -> the held-out model's probabilities (with its shift): what --review reads, never a model that saw the song
 for h in range(N):
     tr = [j for j in range(N) if j != h]
     b = choose_shift(tr)
-    x = strip(sig(z_of(fit(tr), h) + b), *STRIP)
+    held[h] = sig(z_of(fit(tr), h) + b)
+    x = strip(held[h], *STRIP)
     xb = strip(sig(ZB[h]), *STRIP)
     a, ab = (x == T[h]).mean(), (xb == T[h]).mean()
     better += a > ab + 0.02; worse += a < ab - 0.02
     ok_n += (x == T[h]).sum(); ok_b += (xb == T[h]).sum(); n += len(x)
     print(f"{songs[h]['name'][:44]:44s} frozen {ab:4.0%}  with his {sys.argv[2]} marks {a:4.0%}  (shift {b:+.2f})", flush=True)
 print(f"\nleave-one-song-out, {N} songs: frozen model {ok_b / n:.1%} -> with the genre model {ok_n / n:.1%}; {better} songs better, {worse} worse (by >2 points)")
+
+if REVIEW:
+    import review_marks  # scripts/train/review_marks.py: the "maybe you marked this wrong" list, from the held-out probabilities above
+    review_marks.write(REVIEW, sys.argv[2], songs[:N], Y[:N], T[:N], held, STRIP[0], EDGE, CELL)
 
 m = fit(list(range(N)))
 shift = choose_shift(list(range(N)))

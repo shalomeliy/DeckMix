@@ -1,14 +1,17 @@
 /**
  * The frozen vocal model's per-half-second probabilities for every song in a vocal-marks file, next to the owner's marks for that song.
  *   node --import ./scripts/train/alias-register.mjs scripts/train/dump-strip-probs.mjs <marks.json> <music dir> <out.json> [--rows]
- * Decodes with ffmpeg (44.1 kHz stereo float), finds each marked song by its name in <music dir>. A song it cannot find or decode is
- * printed by name and counted — never dropped silently. With --rows it also writes the 28 feature numbers and his labels per cell (manualLabels:
+ * Decodes with ffmpeg (44.1 kHz stereo float), finds each marked song in <music dir> by its contentHash (the SHA-256 of the whole file,
+ * as the app keys it), else by its name. A song it cannot find or decode is printed by name and counted — never dropped silently.
+ * 06/10 (v0.9.37): the name in the export is the song's tag title ("... (Dj Camelion Extended Mix) - 128 BPM"), and 62 of his Mizrahi
+ * files are named otherwise on disk, so name-only matching found none of them. A song he has not finished marking is skipped by name. With --rows it also writes the 28 feature numbers and his labels per cell (manualLabels:
  * his marks painted in the order he made them) — the input of fit-genre-marks.py. The probabilities are the FROZEN model's alone, without any
  * genre model on top, so a genre model is always fitted against the same base.
  */
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
+import crypto from 'node:crypto'
 import { cellFeatureRows } from '../../src/core/sound/cell-features.ts'
 import { cellProbabilities, parseVocalModel } from '../../src/core/sound/vocal-model.ts'
 import { vocalFeatures } from '../../src/core/sound/vocal-presence.ts'
@@ -24,8 +27,16 @@ walk(musicDir)
 const SR = 44100
 const out = []
 const missing = []
+const unfinished = []
+let byHash = null // contentHash -> path, built on the first song a name does not find
 for (const m of marks.marks) {
-  const f = files.find((p) => path.parse(p).name === m.name)
+  if (m.finished === false) { unfinished.push(m.name); continue }
+  let f = null
+  if (m.contentHash) {
+    byHash ??= new Map(files.map((p) => [crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex'), p]))
+    f = byHash.get(m.contentHash) ?? null
+  }
+  f ??= files.find((p) => path.parse(p).name === m.name)
   if (!f) { missing.push(m.name); continue }
   let raw
   try {
@@ -49,4 +60,4 @@ for (const m of marks.marks) {
   console.log(`${m.name}: ${durationSec.toFixed(1)} s, ${probs.length} cells`)
 }
 fs.writeFileSync(outPath, JSON.stringify(out))
-console.log(`${out.length} of ${marks.marks.length} songs written${missing.length ? `; not found or not analysed: ${missing.join(', ')}` : ''}`)
+console.log(`${out.length} of ${marks.marks.length} songs written${missing.length ? `; not found or not analysed (${missing.length}): ${missing.join(', ')}` : ''}${unfinished.length ? `; not finished marking (${unfinished.length}): ${unfinished.join(', ')}` : ''}`)
