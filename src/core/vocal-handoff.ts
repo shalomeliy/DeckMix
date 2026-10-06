@@ -19,7 +19,7 @@ import type { BeatGrid } from '@/core/types'
  * caller does not plan in that case and says why (`HANDOFF_NEEDS_STRAIGHT_SYNC`). The plan is clean by construction: before the handoff B is
  * in a stretch with no voice; after it A is in a stretch with no voice until it is fully out.
  *
- * Voice is read as the countdown reads it (`voiceRuns`): `unsure` counts as voice and a gap of 2 s or less is still voice (the owner's rule),
+ * Voice is read as the countdown reads it (`voiceRuns`): `unsure` counts as voice and a gap of 2 s or less is still voice (`COUNTDOWN_MERGE_GAP_SEC`: too short to bring another singer in),
  * so a plan never promises a quiet stretch the strip only drew dashed. Pure.
  */
 

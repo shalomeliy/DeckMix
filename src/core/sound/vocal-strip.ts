@@ -4,14 +4,21 @@
  * paths still use `unsure`). Pure — the caller decodes, picks the genre and runs this where it likes (a Worker in the app).
  *
  * What the strip is for (the owner, 03/10, after seeing it jump on every word): a DJ needs "singing here" and "no singing here", not a
- * syllable meter. A singer's breath, a pause between lines or a held ornament is still the vocal part; only a stop of MORE than two seconds is
- * "no vocals" — his rule, and the way he marks songs by hand. So the strip is two-valued now (the earlier "unsure" middle band is gone: 31% of
- * his marked songs were drawn dashed, which answered nothing), and the probabilities go through three steps, in this order:
+ * syllable meter. A singer's breath, a pause between lines or a held ornament is still the vocal part, and only a longer stop is "no vocals"
+ * (his rule, and the way he marks songs by hand; how long, see `MAX_GAP_SEC`). So the strip is two-valued now (the earlier "unsure" middle band
+ * is gone: 31% of his marked songs were drawn dashed, which answered nothing), and the probabilities go through three steps, in this order:
  *  1. smooth over ±`SMOOTH_RADIUS_CELLS`;
  *  2. hysteresis: a voice starts at `VOICE_ON_AT` and only ends below `VOICE_OFF_AT`, so a value wobbling between the two cannot flicker;
  *  3. his rule: a gap of `MAX_GAP_SEC` or less inside a voice is filled; then a voice shorter than `MIN_VOICE_SEC` is dropped (a shout or a
  *     chop, which his definition of "vocals" already excludes). Dropping can only widen gaps, so no second fill is needed.
- * On clean input the rule is exact: a 2 s pause is filled, a 2.5 s one is not, a 1.5 s shout is dropped (pinned in tests).
+ * On clean input: a pause of 1.5 s or less is joined (by the smoothing), a 2 s one splits, a 1.5 s shout is dropped (pinned in tests).
+ *
+ * 06/10, the rule went from 2 s to 0.5 s: going through the Mizrahi review list he said a stop of 1.5 s, even 1 s, can be real silence, and the
+ * eleven short stops he had marked were all on purpose. In this file the 0.5 s fill changes nothing (the smoothing and the look-ahead never
+ * leave a one-cell gap); what changed is that a drawn stop of 1.5 s is no longer filled, so the shortest stop the strip can show went from
+ * 2.5 s to 1.5 s. The rule matters most in training, where it is applied to his hand marks. Measured on his 147 marked songs: the frozen model
+ * drew 168 -> 177 Mizrahi sections, 163 -> 167 Techno, 102 -> 103 House (he has 216, 109, 66); leave-one-song-out agreement on the earlier
+ * export did not move for Mizrahi (86.8) or Techno (78.5), House 75.1 -> 74.3. His own marks are drawn as he made them, short stops included.
  *
  * MEASURED, not guessed, on his 20 hand-marked songs (deckmix-vocal-marks-2026-10-04.json; scripts/train/dump-strip-probs.mjs, then
  * measure-strip-marks.mjs for these numbers and calibrate-strip-marks.py for how the settings were picked). Agreement per half second with his
@@ -32,9 +39,9 @@ export const VOICE_ON_AT = 0.5
 export const VOICE_OFF_AT = 0.25
 /** Probabilities are averaged over this many cells each side first (±1 s), so one noisy half second cannot start or end a voice. */
 export const SMOOTH_RADIUS_CELLS = 2
-/** The owner's rule: a stop in the singing of this long or shorter is still singing. */
-export const MAX_GAP_SEC = 2
-/** A voice shorter than this is dropped: a shout or a chop, not the vocal part. FITTED on his marks (1-6 s tried), not his rule; 1 s and 2 s scored the same, 2 s is the one that matches his gap rule. */
+/** The owner's rule: a stop in the singing of this long or shorter is still singing. 2 s until 06/10, see the header. Here it is a no-op after the smoothing; it shapes his marks in training (scripts/train/). */
+export const MAX_GAP_SEC = 0.5
+/** A voice shorter than this is dropped: a shout or a chop, not the vocal part. FITTED on his marks (1-6 s tried), not his rule; 1 s and 2 s scored the same, 2 s was the one that matched his old gap rule. */
 export const MIN_VOICE_SEC = 2
 /** Genres where the owner's rule beats the model: Trance vocals are not what the strip is for, and the model could not be shown to beat "none" there. A RULE, not a measurement. */
 export const NO_STRIP_GENRES: readonly string[] = ['Trance']

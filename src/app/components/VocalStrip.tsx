@@ -291,7 +291,7 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
           data-vocal-countdown={deckId}
           className="font-semibold tabular-nums"
           style={{ color: countdown && (countdown.phase === 'in' || countdown.phase === 'before') ? VOICE : undefined }}
-          title="הטיימרים סופרים גם קטעים של 'לא בטוח' כשירה, ומתעלמים מהפסקה קצרה מ-3 שניות בין שני קטעי שירה."
+          title="הטיימרים סופרים גם קטעים של 'לא בטוח' כשירה, ומתעלמים מהפסקה של 2 שניות או פחות בין שני קטעי שירה."
         >
           {dragInfo ? `${dragInfo.edge === 'from' ? 'התחלה' : 'סוף'} ${mmssTenths(dragInfo.sec)}` : countdown ? countdownText(countdown) : null}
         </span>

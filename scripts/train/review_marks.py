@@ -9,7 +9,8 @@ Three kinds, each counted, the short ones too (nothing dropped silently):
   model    — a model that NEVER saw the song (leave-one-song-out, with its own shift) is sure of the opposite of his mark for at least MIN_SEC
              in a row: "you marked silence, I hear singing at 1:42-1:58" (or the reverse). Cells within EDGE of one of his edges are not
              counted: that is his reaction time, not a mistake. Shorter or less sure disagreements are counted as "left out", not listed.
-  gap      — a stop of 2 s or less marked as silence between two sung parts. His own rule says that is still singing.
+  gap      — a stop of GAP_SEC or less marked as silence between two sung parts. His own rule says that is still singing. (At 2 s this
+             listed 11 Mizrahi stops of 1-1.5 s; he said all were on purpose, 06/10, and the rule became 0.5 s.)
   phrase   — a mark that is not a whole number of 8-bar phrases after his previous one. Not a mistake in his marks (he marks where the voice
              is), but Mix Assist counts its 8-bar phrases from his marks (nextPhraseStartSec in src/core/vocal-handoff.ts), so these are where
              its count shifts. The bar length is the "- 128 BPM" in the song's name, else the one that puts every gap between his marks on
@@ -24,7 +25,7 @@ ANSWERS = os.path.join(os.path.dirname(__file__), "review-answers.json")
 
 SURE_VOICE, SURE_NONE = 0.75, 0.15  # how sure the held-out model must be (smoothed probability) to be listed
 MIN_SEC = 4.0  # about two bars at Mizrahi tempos: a single sure bar was mostly a shout or a sung hook he chose not to count
-GAP_SEC = 2.0  # his rule
+GAP_SEC = 0.5  # his rule (MAX_GAP_SEC; 2 s until 06/10)
 PHRASE_BARS = 8  # vocal-handoff.ts PHRASE_BARS
 
 
@@ -93,11 +94,11 @@ def write(path, genre, songs, Y, T, held, radius, edge, cell):
                               "marked": "silence" if want == 0 else "singing", "model": "singing" if want == 0 else "silence",
                               "sure": round(conf, 3), "say": f"{mmss(a * cell)}-{mmss(b * cell)}: you marked {'silence' if want == 0 else 'singing'}, "
                                                             f"a model that never saw this song is {conf:.0%} sure of {'singing' if want == 0 else 'silence'}"})
-        # his 2 s rule: silence of 2 s or less between two sung parts is still singing (T is his marks read with that rule)
+        # his rule: silence of GAP_SEC or less between two sung parts is still singing (T is his marks read with that rule)
         for a, b, v in runs(((y == 0) & (t == 1)).astype(np.int8)):
             if v:
                 items.append({"kind": "gap", "song": s["name"], "fromSec": round(a * cell, 1), "toSec": round(b * cell, 1),
-                              "say": f"{mmss(a * cell)}: a {(b - a) * cell:.1f} s silence between two sung parts; by your 2 s rule it counts as singing"})
+                              "say": f"{mmss(a * cell)}: a {(b - a) * cell:.1f} s silence between two sung parts; by your {GAP_SEC:g} s rule it counts as singing"})
         if not t.any():
             items.append({"kind": "model", "song": s["name"], "fromSec": 0, "toSec": round(len(t) * cell, 1), "marked": "silence",
                           "model": "-", "sure": 0, "say": "the whole song is marked without singing"})

@@ -135,8 +135,9 @@ export function dashedFraction(t: VocalTimeline): number {
 
 /**
  * A voice-free gap this long or shorter does not count as one for the countdown: a breath between two lines is not a place to mix, and a timer
- * that said "vocal ends in 0:01" and then "starts in 0:01" would be noise. It is the owner's own rule (03/10): a stop of two seconds or less is
- * still singing, only a longer one is "no vocals" — the same number vocal-strip.ts fills gaps with (it was 3 here before he said it).
+ * that said "vocal ends in 0:01" and then "starts in 0:01" would be noise. It came from the owner's 03/10 rule (a stop of two seconds or less is
+ * still singing; it was 3 here before he said it). On 06/10 he said a shorter stop can be real silence, and vocal-strip.ts's rule went to 0.5 s;
+ * this one stays at 2 s on purpose, because a stop that short is too short to bring another singer in.
  * The strip itself still draws every gap he marked by hand.
  */
 export const COUNTDOWN_MERGE_GAP_SEC = 2

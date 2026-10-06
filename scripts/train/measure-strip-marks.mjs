@@ -1,7 +1,7 @@
 /**
  * How close is the vocal strip the app draws to the owner's hand marks? Runs the SHIPPED cellsFromProbabilities (core/sound/vocal-strip.ts)
- * on the output of dump-strip-probs.mjs and scores it against his marks, read with his rule (03/10): a stop of 2 s or less inside his singing
- * is still singing.
+ * on the output of dump-strip-probs.mjs and scores it against his marks, read with his rule: a stop of MAX_GAP_SEC or less inside his singing
+ * is still singing (2 s from 03/10, 0.5 s from 06/10).
  *   node --import ./scripts/train/alias-register.mjs scripts/train/measure-strip-marks.mjs <probs.json>
  * Prints per song and in total: agreement per half second, misses (his voice drawn as none), false alarms, how many voice sections were
  * drawn against how many he has, and how many of his section edges have one drawn within 2 s.
@@ -9,11 +9,11 @@
  * edge figure falls with the rework: the old strip put an edge beside nearly every word, so most of his edges had one near by luck.)
  */
 import fs from 'node:fs'
-import { cellsFromProbabilities } from '../../src/core/sound/vocal-strip.ts'
+import { MAX_GAP_SEC, cellsFromProbabilities } from '../../src/core/sound/vocal-strip.ts'
 import { manualLabels } from '../../src/core/sound/vocal-manual.ts'
 import { CELL_NONE, CELL_VOCAL } from '../../src/core/sound/vocal-timeline.ts'
 
-const GAP_CELLS = 4 // his 2 s rule, in half seconds
+const GAP_CELLS = Math.round(MAX_GAP_SEC / 0.5) // his rule, in half seconds — the shipped one, so the score never uses a rule the app does not
 const songs = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'))
 const runs = (x) => { const r = []; let s = 0; for (let i = 1; i <= x.length; i++) if (i === x.length || x[i] !== x[s]) { r.push([s, i, x[s]]); s = i } return r }
 function hisTruth(s) {

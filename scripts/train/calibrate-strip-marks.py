@@ -3,14 +3,14 @@ How the vocal strip's settings were chosen (03/10): core/sound/vocal-strip.ts's 
 hand-marked songs. Leave-one-song-out: each song is scored with the settings that did best on the OTHER songs, so the number it prints is what
 a song he has not marked can expect, not how well the settings memorised these.
     python scripts/train/calibrate-strip-marks.py <probs.json from dump-strip-probs.mjs>
-Needs numpy only. The gap rule (2 s) is his, not a fitted number: it is fixed here on purpose.
+Needs numpy only. The gap rule (2 s until 06/10, 0.5 s since) is his, not a fitted number: it is fixed here on purpose.
 It prints; it does not change the app. Copying a result into vocal-strip.ts is a decision: bump VOCAL_STRIP_VERSION with it.
 """
 import itertools, json, sys
 import numpy as np
 
 CELL = 0.5
-GAP = 4  # his rule: 2 s, in half seconds
+GAP = 1  # his rule, in half seconds: 0.5 s since 06/10 (MAX_GAP_SEC in vocal-strip.ts; the 03/10 calibration ran at 2 s)
 songs = json.load(open(sys.argv[1], encoding="utf-8"))
 
 

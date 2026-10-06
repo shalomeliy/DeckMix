@@ -25,7 +25,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-CELL, GAP = 0.5, 4  # his rule: 2 s, in half seconds
+CELL, GAP = 0.5, 1  # his rule, in half seconds: 0.5 s since 06/10 (was 2 s; MAX_GAP_SEC in vocal-strip.ts)
 STRIP = (2, 0.5, 0.25, 4)  # vocal-strip.ts: SMOOTH_RADIUS_CELLS, VOICE_ON_AT, VOICE_OFF_AT, MIN_VOICE_SEC in cells
 BLEND, C, EDGE = 0.5, 0.1, 2
 SHIFTS = np.arange(-3, 3.01, 0.25)
@@ -85,7 +85,7 @@ def strip(p, radius, on, off, min_cells):  # exactly cellsFromProbabilities (voc
 n_of = [min(len(s["labels"]), len(s["rows"]), len(s["probs"])) for s in songs]
 R = [np.array(s["rows"][:n]) for s, n in zip(songs, n_of)]
 Y = [np.array(s["labels"][:n]) for s, n in zip(songs, n_of)]
-T = [fill_gaps(y.astype(np.int8), GAP) for y in Y]  # what he means: a stop of 2 s or less inside singing is singing
+T = [fill_gaps(y.astype(np.int8), GAP) for y in Y]  # what he means: a stop of GAP or less inside singing is singing
 lg = lambda p: np.log(np.clip(p, 1e-4, 1 - 1e-4) / (1 - np.clip(p, 1e-4, 1 - 1e-4)))
 sig = lambda z: 1 / (1 + np.exp(-z))
 ZB = [lg(np.array(s["probs"][:n])) for s, n in zip(songs, n_of)]

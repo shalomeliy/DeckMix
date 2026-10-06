@@ -20,13 +20,13 @@ function pcm(seconds: number, fill: (t: number) => number, stereo = true): PcmDa
   return { channels: [l, r], sampleRate: SR }
 }
 
-describe("the strip follows the owner's rule: singing with pauses of 2 s or less is one vocal part", () => {
+describe("the strip follows the owner's rule: a breath inside singing is still one vocal part", () => {
   // Cells are half a second. `v` = clear voice (0.9), `.` = clear no-voice (0.02).
   const probs = (pattern: string) => [...pattern].map((ch) => (ch === 'v' ? 0.9 : 0.02))
   const cells = (pattern: string) => [...cellsFromProbabilities(probs(pattern))].map((c) => (c === CELL_VOCAL ? 'v' : '.')).join('')
 
   it('the settings are pinned: a change is a decision, measured against his marks', () => {
-    expect({ VOICE_ON_AT, VOICE_OFF_AT, SMOOTH_RADIUS_CELLS, MAX_GAP_SEC, MIN_VOICE_SEC }).toEqual({ VOICE_ON_AT: 0.5, VOICE_OFF_AT: 0.25, SMOOTH_RADIUS_CELLS: 2, MAX_GAP_SEC: 2, MIN_VOICE_SEC: 2 })
+    expect({ VOICE_ON_AT, VOICE_OFF_AT, SMOOTH_RADIUS_CELLS, MAX_GAP_SEC, MIN_VOICE_SEC }).toEqual({ VOICE_ON_AT: 0.5, VOICE_OFF_AT: 0.25, SMOOTH_RADIUS_CELLS: 2, MAX_GAP_SEC: 0.5, MIN_VOICE_SEC: 2 })
     expect(VOICE_OFF_AT).toBeLessThan(VOICE_ON_AT)
   })
   it('two values only: a strip never comes out "unsure" any more', () => {
@@ -39,7 +39,7 @@ describe("the strip follows the owner's rule: singing with pauses of 2 s or less
     const out = cells('.'.repeat(20) + 'v'.repeat(6) + '..' + 'v'.repeat(6) + '...' + 'v'.repeat(6) + '.'.repeat(20))
     expect(out.match(/v+/g)?.length).toBe(1)
   })
-  it('a stop of more than 2 s splits the singing in two', () => {
+  it('a long stop (here 5 s) splits the singing in two', () => {
     const out = cells('.'.repeat(20) + 'v'.repeat(10) + '.'.repeat(10) + 'v'.repeat(10) + '.'.repeat(20)) // 5 s stop
     expect(out.match(/v+/g)?.length).toBe(2)
   })
@@ -48,10 +48,12 @@ describe("the strip follows the owner's rule: singing with pauses of 2 s or less
     expect(cells('.'.repeat(20) + 'vvv' + '.'.repeat(20))).not.toContain('v') // 1.5 s
     expect(cells('.'.repeat(20) + 'vvvv' + '.'.repeat(20))).toBe('.'.repeat(20) + 'vvvv' + '.'.repeat(20)) // 2 s, edges exact
   })
-  it('exactly at the rule: a 2 s pause is filled, a 2.5 s pause splits, and the edges land where the voice is', () => {
+  it('since 06/10 (his "1.5 s can be silence"): the fill rule is 0.5 s, the smoothing still joins up to 1.5 s, a 2 s pause splits', () => {
+    // Not the 2 s rule any more: before 06/10 a 2 s pause was filled. What joins 1.5 s now is the ±1 s smoothing, not the rule.
     const v = 'v'.repeat(10)
     const pad = '.'.repeat(20)
-    expect(cells(pad + v + '....' + v + pad)).toBe(pad + 'v'.repeat(24) + pad)
+    expect(cells(pad + v + '...' + v + pad)).toBe(pad + 'v'.repeat(23) + pad)
+    expect(cells(pad + v + '....' + v + pad)).toBe(pad + v + '....' + v + pad)
     expect(cells(pad + v + '.....' + v + pad)).toBe(pad + v + '.....' + v + pad)
     expect(cells(pad + v + '......' + v + pad)).toBe(pad + v + '......' + v + pad)
   })
@@ -136,7 +138,7 @@ describe('the cache version is tied to what the answer depends on', () => {
       .update(readFileSync('src/core/sound/vocal-model.json'))
       .update(readFileSync('src/core/sound/vocal-genre-models.json'))
       .digest('hex')
-    expect({ version: VOCAL_STRIP_VERSION, fingerprint }).toEqual({ version: 4, fingerprint: '22f0808f060d859788c27a4c2ee116ff2e528b5aa7a674bef238c69c92586594' })
+    expect({ version: VOCAL_STRIP_VERSION, fingerprint }).toEqual({ version: 5, fingerprint: 'ccb6eef8af6a39d6318b1bd93bc8dc12ae26ef327da01c677e70c019ffe616a0' })
   })
 })
 

@@ -39,3 +39,4 @@ graphify-out/
 
 # v0.12.15: training-only Python environment (numpy, scikit-learn) - never shipped, never committed
 .venv-train/
+__pycache__/
