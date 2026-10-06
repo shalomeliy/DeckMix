@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as ctl from '@/controls'
 import { GENRES } from '@/core/genres'
 import { getGenreOverrides, getGenreOverridesByHash } from '@/platform/genre-overrides-idb/store'
@@ -58,6 +58,7 @@ import {
 } from '@/core/library-filter'
 import { ChecklistFilterBody, HeaderFilter, RangeFilterBody, TextFilterBody } from '@/app/components/ColumnFilter'
 import { useVirtualRows } from '@/app/hooks/useVirtualRows'
+import { useScrollMemory } from '@/app/hooks/useScrollMemory'
 import { Button, HintIcon } from '@/app/components/controls'
 import { SourceCheckPanel } from '@/app/components/SourceCheckPanel'
 import { beatportSearch } from '@/core/source-lookup'
@@ -316,23 +317,9 @@ export function Library() {
   // the panel can no longer explain (a real folder read as "no audio files
   // found" — exactly the silent-skip this project forbids).
   const wasPlayingForMixOnly = useRef(false)
-  // The owner (03/10): where he scrolled the list must stay where it is when a song ends. The automatic Mix Only switch below swaps the list under
-  // him (the suggestions while a deck plays, the whole library after), and the scroll offset went to 0 with it. So the offset is saved at the moment
-  // of the automatic switch and put back once the new list is on screen. Only these automatic switches: his own clicks, a new search or a new sort
-  // are meant to start the list from the top.
-  const lastGoodListScroll = useRef(0)
-  const savedListScroll = useRef<number | null>(null)
   useEffect(() => {
     const started = anyPlaying && !wasPlayingForMixOnly.current
     const stopped = !anyPlaying && wasPlayingForMixOnly.current
-    if (started || stopped) {
-      // Not read from the DOM: by the time this effect runs the commit has already shown the transient empty list (no deck playing, so no
-      // suggestions) and the browser has clamped the offset to 0. The last offset seen while the list had rows is kept by the scroll listener below.
-      savedListScroll.current = lastGoodListScroll.current
-      window.setTimeout(() => {
-        savedListScroll.current = null
-      }, 800)
-    }
     if (started) setMixOnly(true)
     else if (stopped) setMixOnly(false)
     wasPlayingForMixOnly.current = anyPlaying
@@ -891,28 +878,10 @@ export function Library() {
   // below) — `list.length` is 0 in every empty state anyway, which
   // `visibleRange` already treats as "nothing to render".
   const { containerRef, start, end, padTop, padBottom } = useVirtualRows(rows.length, ROW_HEIGHT)
-  // The last scroll offset seen while the list had rows (see the effect that saves it at an automatic Mix Only switch).
-  const listHasRows = rows.length > 0
-  const listHasRowsRef = useRef(listHasRows)
-  listHasRowsRef.current = listHasRows
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-    const onScroll = () => {
-      if (listHasRowsRef.current) lastGoodListScroll.current = el.scrollTop
-    }
-    onScroll()
-    el.addEventListener('scroll', onScroll, { passive: true })
-    return () => el.removeEventListener('scroll', onScroll)
-  }, [containerRef, listHasRows])
-  // Puts the offset saved at an automatic Mix Only switch back once the new list is in the DOM (see the effect above). Runs on every commit of the
-  // switch, because the window of rendered rows catches up one render AFTER the list changes (the scroll height is still the old list's, so the offset is clamped
-  // at first): it is set again each time the window's spacers change, until the saved value expires.
-  useLayoutEffect(() => {
-    const saved = savedListScroll.current
-    const el = containerRef.current
-    if (saved != null && el && el.scrollTop !== saved) el.scrollTop = saved
-  }, [mixOnly, rows.length, rowIdsKey, containerRef, padTop, padBottom, end])
+  // Where the owner scrolled, kept per list the table can show (`core/scroll-memory.ts` has the bug this replaced, 06/10):
+  // play/pause switches Mix Only by itself, and coming back to the whole library must land where he left it, not at the top.
+  const listView = similarTo ? `similar:${similarTo}` : mixOnly ? 'mix' : 'all'
+  useScrollMemory(containerRef, listView, rows.length > 0, [rows.length, rowIdsKey, padTop, padBottom, end])
   const emptyAction = similarTo ? (
     <Button variant="toggle" active tone="var(--color-accent)" onClick={() => setSimilarTo(null)}>
       Clear similar filter
