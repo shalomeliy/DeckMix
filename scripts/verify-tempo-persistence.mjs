@@ -57,7 +57,7 @@ const SEEDED_TEMPO = 0.25
 const TEMPO_KEY = 'deckmix:tempo3:' + CONTENT_HASH
 const OLD_TEMPO_KEY = 'deckmix:tempo2:' + CONTENT_HASH
 
-function harness({ seedTempo, seedOld, seedRate, breakMeta } = {}) {
+function harness({ seedTempo, seedOld, seedRate, seedPath, otherHash, breakMeta } = {}) {
   return `(() => {
   window.__unhandled = [];
   addEventListener('unhandledrejection', (e) => window.__unhandled.push(String(e.reason)));
@@ -88,7 +88,19 @@ function harness({ seedTempo, seedOld, seedRate, breakMeta } = {}) {
   mem.set('deckmix:libraryDir', makeDir('Tracks'));
   ${seedTempo ? `mem.set(${JSON.stringify(TEMPO_KEY)}, ${SEEDED_TEMPO});` : ''}
   ${seedOld ? `mem.set(${JSON.stringify(OLD_TEMPO_KEY)}, ${SEEDED_TEMPO});` : ''}
-  ${seedRate ? `mem.set('deckmix:trackMeta', { ${JSON.stringify(CONTENT_HASH)}: { playRate: ${seedRate} } });` : ''}
+  ${seedRate ? `mem.set('deckmix:trackMeta', { ${JSON.stringify(otherHash ? 'f'.repeat(64) : CONTENT_HASH)}: { playRate: ${seedRate}${seedPath ? `, playRatePath: ${JSON.stringify(seedPath)}` : ''} } });` : ''}
+  // v0.9.48: every state of the row from the first moment the store exists — was the saved speed there before the file had a hash?
+  window.__rows = [];
+  const poll = setInterval(async () => {
+    if (!window.__import) return;
+    try {
+      const { useStore } = await window.__import('/src/app/state/store.ts');
+      clearInterval(poll);
+      const rec = (s) => { const t = s.library.tracks[0]; if (t) window.__rows.push({ rate: t.playRate ?? null, hash: !!t.contentHash }); };
+      rec(useStore.getState());
+      useStore.subscribe(rec);
+    } catch {}
+  }, 5);
   const fire = (obj, prop, value) => setTimeout(() => { obj.result = value; obj[prop] && obj[prop](); }, 0);
   Object.defineProperty(window, 'indexedDB', { configurable: true, value: {
     open() {
@@ -116,6 +128,7 @@ function harness({ seedTempo, seedOld, seedRate, breakMeta } = {}) {
 
   window.__readTempo = () => mem.get(${JSON.stringify(TEMPO_KEY)});
   window.__hasTempo = () => mem.has(${JSON.stringify(TEMPO_KEY)});
+  window.__readPath = () => mem.get('deckmix:trackMeta')?.[${JSON.stringify(CONTENT_HASH)}]?.playRatePath;
   window.__readRate = () => mem.get('deckmix:trackMeta')?.[${JSON.stringify(CONTENT_HASH)}]?.playRate;
   window.__import = (path) => {
     const loaded = performance.getEntriesByType('resource').map((r) => r.name).find((n) => new URL(n).pathname === path);
@@ -201,6 +214,27 @@ await scenario('saved speed after refresh', { seedRate: 0.92 }, async (page, err
   ok('refresh: the deck says 138.0 BPM', /138\.0/.test(await deckA(page).innerText()))
   ok('refresh: Forget tempo is offered, Save is not', (await forgetButton(page).count()) === 1 && (await saveButton(page).count()) === 0)
   ok('refresh: no console errors', errors.length === 0, errors[0])
+})
+
+// 2b'. v0.9.48 (Shalom 06/10: "after a refresh it still shows the old BPM until I load it"): the row has the saved speed before the hash
+await scenario('saved speed before the hash', { seedRate: 0.92, seedPath: 'silence.wav' }, async (page, errors) => {
+  await page.waitForTimeout(800)
+  const rows = await page.evaluate(() => window.__rows)
+  const first = rows.find((r) => r.rate != null)
+  ok('row: the saved speed is there before the file has a hash', !!first && first.hash === false && Math.abs(first.rate - 0.92) < 1e-9, JSON.stringify(rows.slice(0, 6)))
+  ok('row: and stays after the hash pass', rows.at(-1)?.hash === true && Math.abs(rows.at(-1).rate - 0.92) < 1e-9, JSON.stringify(rows.at(-1)))
+  ok('before hash: no console errors', errors.length === 0, errors[0])
+})
+await scenario('a different file at the saved path', { seedRate: 0.92, seedPath: 'silence.wav', otherHash: true }, async (page) => {
+  await page.waitForTimeout(800)
+  const rows = await page.evaluate(() => window.__rows)
+  ok('another file at that path: the hash pass takes the guess back', rows.at(-1)?.hash === true && rows.at(-1).rate == null, JSON.stringify(rows.slice(-3)))
+})
+await scenario('load records where the file is', { seedRate: 0.92 }, async (page) => {
+  await loadFirstTrackToDeckA(page)
+  await page.waitForTimeout(200)
+  const path = await page.evaluate(() => window.__readPath())
+  ok('a load of a track saved before v0.9.48 records its path', path === 'silence.wav', String(path))
 })
 
 // 2c. mixes count from the saved speed (Shalom 06/10: "make sure it does not affect the mixes"): SYNC both ways, and the way back

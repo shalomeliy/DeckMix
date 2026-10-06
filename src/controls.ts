@@ -63,6 +63,7 @@ import {
   setOwnerArtist,
   setOwnerTempoKey,
   getPlayRate,
+  rememberPlayRatePath,
   setPlayRate,
 } from '@/platform/track-meta-idb/store'
 import {
@@ -413,7 +414,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
   // middle is the speed saved for this track ("Save tempo"), else the file's own.
   // `null`: no identity (the hash failed) or the store could not be read. Then the row's own copy, merged at scan time, is used — the row
   // said 138, so the deck must not quietly play 150 — and either way it is said on screen below.
-  const savedRate = contentHash ? await loadPlayRate(contentHash) : null
+  const savedRate = contentHash ? await loadPlayRate(contentHash, track.id) : null
   const rowCopy = useStore.getState().library.tracks.find((t) => t.id === track.id)?.playRate ?? track.playRate ?? null
   const baseRate = savedRate ?? rowCopy ?? 1
   const rateUnread = savedRate == null && (contentHash != null || rowCopy != null)
@@ -421,8 +422,10 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
   if (contentHash && savedRate != null) {
     const lib = useStore.getState().library
     const rowRate = baseRate === 1 ? null : baseRate
-    if (lib.tracks.some((t) => t.contentHash === contentHash && (t.playRate ?? null) !== rowRate)) {
-      useStore.getState().setLibrary({ tracks: lib.tracks.map((t) => (t.contentHash === contentHash ? withPlayRate(t, rowRate) : t)) })
+    // by id too: a row that took its speed from the path (v0.9.48) has no hash yet, and may hold another file's guess
+    const mine = (t: Track) => t.contentHash === contentHash || t.id === track.id
+    if (lib.tracks.some((t) => mine(t) && (t.playRate ?? null) !== rowRate)) {
+      useStore.getState().setLibrary({ tracks: lib.tracks.map((t) => (mine(t) ? withPlayRate(t, rowRate) : t)) })
     }
   }
   // v0.5.4: same "not yet identified, not an error" treatment as `storedCues`.
@@ -1657,7 +1660,7 @@ export function setTempo(deckId: DeckId, tempo: number, opts: { byHand?: boolean
  * changed — is carried over once at the range it was saved under (the current one; nobody changed it in between) and then removed.
  * `null` = the store could not be read (the caller falls back to the row's copy and says so).
  */
-async function loadPlayRate(contentHash: string): Promise<number | null> {
+async function loadPlayRate(contentHash: string, path: string): Promise<number | null> {
   let rate: number | null
   try {
     rate = await getPlayRate(contentHash)
@@ -1665,12 +1668,16 @@ async function loadPlayRate(contentHash: string): Promise<number | null> {
     console.error('reading the saved speed failed', err)
     return null
   }
-  if (rate != null) return rate
+  if (rate != null) {
+    // where it is now, so the row shows it straight after the next refresh (v0.9.48) — a failure only delays that, said in the console
+    void rememberPlayRatePath(contentHash, path).catch((err) => console.error('recording where a saved speed is failed', err))
+    return rate
+  }
   const fader = await getTempo(contentHash)
   if (fader == null) return 1
   const carried = tempoToRate(fader, settings.values.tempoRange)
   try {
-    await setPlayRate(contentHash, Math.abs(carried - 1) < 1e-4 ? null : carried)
+    await setPlayRate(contentHash, Math.abs(carried - 1) < 1e-4 ? null : carried, path)
     await clearTempo(contentHash)
   } catch (err) {
     console.error('carrying a v0.9.46 saved tempo over failed', err)
@@ -1702,7 +1709,7 @@ export async function saveDeckTempo(deckId: DeckId, opts: { forget?: boolean } =
   const rate = opts.forget ? 1 : deckRate(deck.baseRate, deck.tempo, settings.values.tempoRange)
   const isFile = Math.abs(rate - 1) < 1e-4
   try {
-    await setPlayRate(hash, isFile ? null : rate)
+    await setPlayRate(hash, isFile ? null : rate, track.id)
   } catch (err) {
     setNotice({ text: `Tempo for "${name}" wasn't saved: ${err instanceof Error ? err.message : String(err)}`, tone: 'warn', source: 'tempo' })
     return

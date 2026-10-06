@@ -4,7 +4,7 @@ import { GENRES } from '@/core/genres'
 import { rowBpm, speedPercent } from '@/core/constants'
 import { getGenreOverrides, getGenreOverridesByHash } from '@/platform/genre-overrides-idb/store'
 import { migrateGenreOverridesToHash } from '@/platform/genre-overrides-idb/migrate'
-import { getTrackMetaByHash } from '@/platform/track-meta-idb/store'
+import { getPlayRatesByPath, getTrackMetaByHash, rememberPlayRatePath } from '@/platform/track-meta-idb/store'
 import {
   ensureReadPermission,
   fileSystemAccessSupported,
@@ -483,6 +483,7 @@ export function Library() {
       })
     }
     await applyGenreOverrides(scan)
+    await applySavedSpeedsByPath(scan)
     // Sampler slots saved from a previous session (v0.6.0) key on content
     // hash, same as genre overrides — this is what turns a saved-but-not-
     // yet-matched slot into a loaded one once its file is back on screen.
@@ -561,6 +562,7 @@ export function Library() {
       hashesRead: false,
     })
     await applyGenreOverrides(scan)
+    await applySavedSpeedsByPath(scan)
     // Sampler slots saved from a previous session (v0.6.0) key on content
     // hash, same as genre overrides — see the matching call in `runScan`
     // for why this needs a second pass after tagging/analysis actually
@@ -581,6 +583,22 @@ export function Library() {
    * rescan of the same, unmoved files does not clobber a manual pick with the
    * freshly re-derived folder genre.
    */
+  /**
+   * v0.9.48: saved speeds by path, the moment the folder is read. Without it a row said the file's 150 after a refresh until the
+   * background analysis reached the file and gave it a hash (Shalom, 06/10). The hash pass below has the last word.
+   */
+  async function applySavedSpeedsByPath(scan: { cancelled: boolean }) {
+    const rates = await getPlayRatesByPath()
+    if (scan.cancelled || rates.size === 0) return
+    const store = useStore.getState()
+    store.setLibrary({
+      tracks: store.library.tracks.map((t) => {
+        const rate = rates.get(t.id)
+        return rate != null && t.playRate == null && !t.contentHash ? { ...t, playRate: rate } : t
+      }),
+    })
+  }
+
   async function applyGenreOverrides(scan: { cancelled: boolean }) {
     const overrides = await getGenreOverrides()
     if (scan.cancelled || overrides.size === 0) return
@@ -666,6 +684,11 @@ export function Library() {
             const hash = p.contentHash ?? t.contentHash
             const override = hash ? hashOverrides.get(hash) : undefined
             const meta = hash ? trackMetaByHash.get(hash) : undefined
+            // v0.9.48: keep the saved speed's path current, so a moved file's old path stops lending its speed to whatever sits there now.
+            // A failure only means the next refresh waits for this pass again — said in the console.
+            if (hash && meta?.playRate != null && meta.playRatePath !== t.id) {
+              void rememberPlayRatePath(hash, t.id).catch((err) => console.error('recording where a saved speed is failed', err))
+            }
             // v0.8.38: the owner's own BPM/key goes on last, over tag and detection.
             // The map is live (`setOwnerTempoKey` updates it), so a value typed or
             // a "back to original" pressed mid-scan is what this sees.
@@ -676,7 +699,8 @@ export function Library() {
                   ...(override ? { genre: override } : {}),
                   ...(meta?.note != null ? { note: meta.note } : {}),
                   ...(meta?.lastPlayedAt != null ? { lastPlayedAt: meta.lastPlayedAt } : {}),
-                  ...(meta?.playRate != null ? { playRate: meta.playRate } : {}),
+                  // by hash, the truth: it also takes back a by-path guess (v0.9.48) when the file at that path is another one
+                  ...(hash ? { playRate: meta?.playRate } : {}),
                 },
                 meta?.owner,
               ),

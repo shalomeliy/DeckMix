@@ -27,6 +27,12 @@ export interface TrackMeta {
    * speed: the fader's centre, the BPM the deck and the row show, and what SYNC and the glide back count from. Absent = the file's speed.
    */
   playRate?: number
+  /**
+   * v0.9.48: where the file was (`Track.id`) when its speed was saved or last loaded. The row needs the speed the moment the folder is
+   * read, but the hash only exists once the background analysis reaches the file — on a big library, minutes later. Shalom saw 150 after
+   * a refresh until he loaded the track. A hint only: the hash pass replaces it, so a different file at the same path loses it there.
+   */
+  playRatePath?: string
 }
 
 /**
@@ -129,18 +135,60 @@ export async function setOwnerArtist(
 }
 
 /** "Save tempo" / "Forget tempo" (v0.9.47): `null` removes it. `update`, like `setOwnerTempoKey`. Throws on failure, same contract. */
-export async function setPlayRate(contentHash: string, rate: number | null): Promise<void> {
+export async function setPlayRate(contentHash: string, rate: number | null, path?: string): Promise<void> {
   let written: TrackMeta | null = null
   await update<Record<string, TrackMeta>>(KEY, (stored) => {
     const all = { ...(stored ?? {}) }
     const meta = { ...all[contentHash] }
-    if (rate == null) delete meta.playRate
-    else meta.playRate = rate
+    if (rate == null) {
+      delete meta.playRate
+      delete meta.playRatePath
+    } else {
+      meta.playRate = rate
+      if (path) meta.playRatePath = path
+    }
     all[contentHash] = meta
     written = meta
     return all
   })
   if (live && written) live.set(contentHash, written)
+}
+
+/** Record where a track with a saved speed is now (v0.9.48, see `playRatePath`). No write when nothing changed. Throws on failure. */
+export async function rememberPlayRatePath(contentHash: string, path: string): Promise<void> {
+  const stored = await get<Record<string, TrackMeta>>(KEY)
+  const meta = stored?.[contentHash]
+  if (meta?.playRate == null || meta.playRatePath === path) return
+  await update<Record<string, TrackMeta>>(KEY, (cur) => {
+    const all = { ...(cur ?? {}) }
+    if (all[contentHash]?.playRate == null) return all
+    all[contentHash] = { ...all[contentHash], playRatePath: path }
+    live?.set(contentHash, all[contentHash])
+    return all
+  })
+}
+
+/**
+ * Saved speeds by where the file was (v0.9.48), for the row the moment the folder is read — before any hash exists. A path claimed by
+ * two records (a file replaced, then saved again) is left out: guessing between them would be a silent pick. Never throws: an empty
+ * map only means the rows wait for the hash pass, as before.
+ */
+export async function getPlayRatesByPath(): Promise<Map<string, number>> {
+  const out = new Map<string, number>()
+  const twice = new Set<string>()
+  try {
+    const stored = await get<Record<string, TrackMeta>>(KEY)
+    for (const meta of Object.values(stored ?? {})) {
+      const p = meta.playRatePath
+      if (!p || typeof meta.playRate !== 'number' || meta.playRate <= 0) continue
+      if (out.has(p)) twice.add(p)
+      out.set(p, meta.playRate)
+    }
+  } catch {
+    return new Map()
+  }
+  for (const p of twice) out.delete(p)
+  return out
 }
 
 /**
