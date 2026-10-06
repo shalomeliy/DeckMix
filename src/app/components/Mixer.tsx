@@ -221,6 +221,7 @@ function ChannelStrip({ deckId }: { deckId: DeckId }) {
 export function Mixer() {
   const mixer = useStore((s) => s.mixer)
   const activeTransition = useStore((s) => s.activeTransition)
+  const compact = useStore((s) => s.libraryExpanded)
   return (
     <section className="panel flex flex-col items-center gap-2.5 overflow-hidden p-2.5">
       <span className="label self-start">Mix</span>
@@ -257,41 +258,46 @@ export function Mixer() {
         <SamplerStrip />
       </div>
 
-      <div className="flex items-center gap-4 pt-0.5">
-        <Knob
-          label="Master"
-          size={32}
-          value={mixer.masterVolume}
-          min={0}
-          max={1}
-          tone="var(--color-grid-text)"
-          onChange={ctl.setMasterVolume}
-          hint="mixer.masterVolume"
-          format={(v) => `${Math.round(v * 100)}`}
-        />
-        <Knob label="Cue Vol" size={32} value={mixer.cueVolume} min={0} max={1} tone="var(--color-live)" onChange={ctl.setCueVolume} hint="mixer.cueVolume" />
-        <Knob label="Cue Mix" size={32} value={mixer.cueMix} min={0} max={1} tone="var(--color-live)" onChange={ctl.setCueMix} hint="mixer.cueMix" />
-      </div>
+      {/* While the track list is pulled up (v0.9.34) the master knobs sit
+          beside the crossfader instead of above it: with the decks' pads gone,
+          that row is what would otherwise set the height of the whole top. */}
+      <div className={compact ? 'mt-auto flex items-end gap-5 pt-1' : 'contents'}>
+        <div className="flex items-center gap-4 pt-0.5">
+          <Knob
+            label="Master"
+            size={32}
+            value={mixer.masterVolume}
+            min={0}
+            max={1}
+            tone="var(--color-grid-text)"
+            onChange={ctl.setMasterVolume}
+            hint="mixer.masterVolume"
+            format={(v) => `${Math.round(v * 100)}`}
+          />
+          <Knob label="Cue Vol" size={32} value={mixer.cueVolume} min={0} max={1} tone="var(--color-live)" onChange={ctl.setCueVolume} hint="mixer.cueVolume" />
+          <Knob label="Cue Mix" size={32} value={mixer.cueMix} min={0} max={1} tone="var(--color-live)" onChange={ctl.setCueMix} hint="mixer.cueMix" />
+        </div>
 
-      <div className="mt-auto flex w-full flex-col items-center gap-1.5 pt-2">
-        <Fader
-          value={mixer.crossfader}
-          min={-1}
-          max={1}
-          vertical={false}
-          onChange={ctl.setCrossfader}
-          length={188}
-          detent
-          hint="mixer.crossfader"
-        />
-        <div className="flex w-[188px] justify-between">
-          <span className="text-2xs font-bold" style={{ color: DECK_COLOR.A }}>
-            A
-          </span>
-          <span className="label">Crossfader</span>
-          <span className="text-2xs font-bold" style={{ color: DECK_COLOR.B }}>
-            B
-          </span>
+        <div className={`flex flex-col items-center gap-1.5 ${compact ? '' : 'mt-auto w-full pt-2'}`}>
+          <Fader
+            value={mixer.crossfader}
+            min={-1}
+            max={1}
+            vertical={false}
+            onChange={ctl.setCrossfader}
+            length={188}
+            detent
+            hint="mixer.crossfader"
+          />
+          <div className="flex w-[188px] justify-between">
+            <span className="text-2xs font-bold" style={{ color: DECK_COLOR.A }}>
+              A
+            </span>
+            <span className="label">Crossfader</span>
+            <span className="text-2xs font-bold" style={{ color: DECK_COLOR.B }}>
+              B
+            </span>
+          </div>
         </div>
       </div>
     </section>

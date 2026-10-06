@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AiControlBar } from '@/app/components/AiControlBar'
 import { Deck } from '@/app/components/Deck'
 import { Library } from '@/app/components/Library'
+import { LibraryResizeHandle } from '@/app/components/LibraryResizeHandle'
 import { Mixer } from '@/app/components/Mixer'
 import { SettingsScreen } from '@/app/components/Settings'
 import { SetHistoryScreen } from '@/app/components/SetHistory'
@@ -49,6 +50,12 @@ export default function App() {
   // built-in defaults, which is the same thing it did before there were any.
   useEffect(() => {
     void settings.init()
+  }, [])
+
+  // The track list size the owner left it at (v0.9.34) — before the audio
+  // engine starts, so the layout is right from the first screen.
+  useEffect(() => {
+    void ctl.restoreLibraryLayout()
   }, [])
 
   // Crates (v0.8.1) are independent of the library scan, so they load once
@@ -251,7 +258,8 @@ export default function App() {
         <Mixer />
         <Deck deckId="B" />
       </main>
-      <div className="min-h-[200px] flex-1 px-3 pb-3">
+      <div className="relative min-h-[200px] flex-1 px-3 pb-3">
+        <LibraryResizeHandle />
         <Library />
       </div>
       {settingsOpen && (

@@ -58,6 +58,7 @@ src/
     grid-corrections-idb/ תיקוני גריד ידניים, לפי content‑hash — לא בתוך מטמון הניתוח (v0.8.23)
     genre-overrides-idb/ override ז'אנר ידני — חנות ישנה (נתיב) + חנות חדשה (hash) +
                         migrate.ts (מיגרציה חד‑פעמית, v0.4.0)
+    layout-idb/         גודל רשימת השירים שהבעלים בחר (v0.9.34)
     clock-audio.ts      Clock יחיד מעל audioContext.currentTime
     capabilities.ts     מה נתמך בסביבה הזו — ה‑UI מתדרדר בחן לפיו
 
@@ -69,7 +70,8 @@ src/
                         WaveformOverview (v0.12.0 — פס כל השיר, קיפול ב-core/waveform-overview.ts),
                         controls.tsx (Button/Knob/Fader), KeysScreen (v0.8.24 — מהטבלה ב-core/hints.ts),
                         TaggingScreen (v0.9.0 — מסך התיוג, audio-webaudio/tag-player.ts מנגן),
-                        SourceCheckPanel (v0.8.38 — בדיקת BPM/סולם מול Beatport, מתחת לרשימה)
+                        SourceCheckPanel (v0.8.38 — בדיקת BPM/סולם מול Beatport, מתחת לרשימה),
+                        LibraryResizeHandle (v0.9.34 — ידית בראש הרשימה; גדולה = בלי פדים)
 ```
 
 הגבולות נאכפים ע"י `dependency-cruiser` (`.dependency-cruiser.cjs`), לא ע"י מוסכמה —

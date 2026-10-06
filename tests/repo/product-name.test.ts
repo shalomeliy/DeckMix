@@ -29,6 +29,8 @@ const STORAGE_KEYS = [
   'deckmix:cues:',
   'deckmix:embeddingCache:',
   'deckmix:fx:racks',
+  // v0.9.34: the track list's size (big = pads hidden).
+  'deckmix:layout:libraryExpanded',
   'deckmix:genreOverrides',
   'deckmix:gridCorrection:',
   'deckmix:genreOverrides:migratedToHash',

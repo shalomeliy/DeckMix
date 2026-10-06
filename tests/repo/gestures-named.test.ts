@@ -49,6 +49,11 @@ const NAMED: Record<string, Named[]> = {
     { token: 'onKeyDown=', count: 1, gesture: 'library.search' }, // Esc: tag first, then text
     { token: "addEventListener('keydown'", count: 1, exempt: `v0.9.24 Genre ▾ list: ${ESC_CLOSES}` },
   ],
+  // v0.9.34: the bar on the track list's top edge.
+  'src/app/components/LibraryResizeHandle.tsx': [
+    { token: 'onDoubleClick=', count: 1, gesture: 'library.resize' },
+    { token: 'onKeyDown=', count: 1, gesture: 'library.resize' },
+  ],
   'src/app/components/SourceCheckPanel.tsx': [{ token: 'onKeyDown=', count: 1, gesture: 'library.checkSource' }],
   'src/app/components/Deck.tsx': [{ token: 'onDrop=', count: 1, gesture: 'library.rows' }],
   // v0.9.10b: the vocal strip's mark edges — drag, Shift = finer (once in the drag, once in the wheel nudge), wheel.

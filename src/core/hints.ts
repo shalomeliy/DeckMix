@@ -263,6 +263,14 @@ const HINT_BASE = {
       { key: 'Esc in the search box', does: 'drop the column tag first, then clear the text' },
     ],
   },
+  'library.resize': {
+    text: 'The thin bar on the track list’s top edge sets its size. Bigger hides the pads and the jog wheel (the FLX4 has both) and lays the tempo fader flat; smaller brings them back. It stays the size you left it.',
+    gestures: [
+      { mouse: 'Drag the bar up or down', does: 'track list bigger / back to normal' },
+      { mouse: 'Double-click the bar', does: 'switch between the two sizes' },
+      { key: '↑ / ↓ on the focused bar', does: 'bigger / normal' },
+    ],
+  },
   'library.checkSource': {
     text: 'Check this track’s BPM and key against Beatport. Opens a Beatport search for the artist and title in a new tab, and this panel, where you type what Beatport shows. Nothing changes until you press Update. Values you type lose the * or ? mark and survive a rescan; Back to original drops them. Turn the ↗ on or off in Settings › Library.',
     gestures: [

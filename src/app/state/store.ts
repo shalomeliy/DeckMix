@@ -35,6 +35,7 @@ export type NoticeSource =
   | 'ai'
   | 'sampler'
   | 'fx'
+  | 'layout'
   | 'recording'
   | 'history'
   | 'mixRating'
@@ -404,6 +405,15 @@ export interface AppState {
    */
   storageNotice: { text: string; tone: 'warn' | 'info' } | null
 
+  /**
+   * v0.9.34: the owner pulled the track list up. The decks then drop their
+   * pads, platter and tall tempo fader (the FLX4 has all three in hardware) and
+   * the mixer folds its master row beside the crossfader, so the list gets the
+   * height they gave up. Pads alone would free nothing: the platter column
+   * beside them is just as tall.
+   */
+  libraryExpanded: boolean
+
   /** v0.5.5 natural-language control — see `AiState`. */
   ai: AiState
 
@@ -491,6 +501,7 @@ export const useStore = create<AppState>((set) => ({
   vocalManual: {},
   vocalMarkOpen: { A: null, B: null },
   storageNotice: null,
+  libraryExpanded: false,
   ai: {
     enabled: false,
     phase: 'idle',

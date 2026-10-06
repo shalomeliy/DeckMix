@@ -24,6 +24,7 @@ function fmt(sec: number): string {
 
 export function Deck({ deckId }: { deckId: DeckId }) {
   const deck = useStore((s) => s.decks[deckId])
+  const compact = useStore((s) => s.libraryExpanded)
   const activeTransition = useStore((s) => s.activeTransition)
   const otherDeckId: DeckId = deckId === 'A' ? 'B' : 'A'
   const otherPlaying = useStore((s) => s.decks[otherDeckId].playing)
@@ -156,6 +157,70 @@ export function Deck({ deckId }: { deckId: DeckId }) {
   const effectiveBpm = deck.bpm != null ? deck.bpm * (1 + deck.tempo * tempoRange) : null
   const deltaPct = deck.tempo * tempoRange * 100
   const remain = deck.durationSec - deck.positionSec
+
+  // Built once, placed in either layout below: the full one, or the compact
+  // one while the track list is pulled up (v0.9.34).
+  const deckToggles = (
+    <span className="flex gap-2">
+      <span className="relative inline-flex">
+        <Button
+          variant="toggle"
+          active={deck.vinylMode}
+          tone={color}
+          onClick={() => ctl.toggleVinylMode(deckId)}
+          title="Vinyl mode: stop and start spin down and up instead of cutting"
+        >
+          Vinyl
+        </Button>
+        <HintIcon id="deck.vinyl" className="absolute -right-1.5 -top-1.5" />
+      </span>
+      <span className="relative inline-flex">
+        <Button
+          variant="toggle"
+          active={deck.keyLock}
+          tone={color}
+          onClick={() => void ctl.toggleKeyLock(deckId)}
+          title="Key lock: the tempo fader changes the speed, the pitch stays the song's own"
+        >
+          Key lock
+        </Button>
+        <HintIcon id="deck.keylock" className="absolute -right-1.5 -top-1.5" />
+      </span>
+      <span className="relative inline-flex">
+        <Button
+          variant="toggle"
+          active={deck.keySyncShift != null}
+          tone={color}
+          onClick={() => void ctl.toggleKeySync(deckId)}
+          title={
+            deck.keySyncShift != null
+              ? `Key sync is on: moved ${deck.keySyncShift > 0 ? '+' : ''}${deck.keySyncShift} semitones to fit the other deck. Click to go back to the song's own key.`
+              : "Key sync: move this deck's key, without changing its speed, to the nearest key that fits the other deck"
+          }
+        >
+          {deck.keySyncShift != null ? `Key ${deck.keySyncShift > 0 ? '+' : ''}${deck.keySyncShift}` : 'Key sync'}
+        </Button>
+        <HintIcon id="deck.keysync" className="absolute -right-1.5 -top-1.5" />
+      </span>
+    </span>
+  )
+  const tempoFader = (length: number, vertical = true) => (
+    <Fader
+      vertical={vertical}
+      label="Tempo"
+      value={deck.tempo}
+      min={-1}
+      max={1}
+      onChange={(v) => ctl.setTempo(deckId, v)}
+      color={color}
+      length={length}
+      detent
+      hint="deck.tempo"
+      format={(v) =>
+        `${v * tempoRange * 100 > 0 ? '+' : ''}${(v * tempoRange * 100).toFixed(1)}%`
+      }
+    />
+  )
 
   return (
     <section
@@ -501,91 +566,49 @@ export function Deck({ deckId }: { deckId: DeckId }) {
             </span>
           </div>
 
-          <PadGrid deckId={deckId} hotCues={deck.hotCues} padMode={deck.padMode} color={color} />
+          {compact ? (
+            // The track list is pulled up (v0.9.34): pads and platter step
+            // aside, the buttons that were under the platter and the tempo
+            // fader (laid flat) take one row instead of the platter's height.
+            <div className="flex items-center gap-3">
+              {deckToggles}
+              <span className="ml-auto">{tempoFader(120, false)}</span>
+            </div>
+          ) : (
+            <PadGrid deckId={deckId} hotCues={deck.hotCues} padMode={deck.padMode} color={color} />
+          )}
         </div>
 
         {/* right: platter + vinyl, tempo beside them ------------------- */}
         {/* Side by side, not stacked. Stacking is what forced the platter down
             to 54px: the column had to hold both. Beside each other, the platter
             gets the column's full 178px height and the layout does not grow. */}
-        <div className="flex shrink-0 items-start gap-2">
-          {/* Vinyl keeps its natural width rather than filling the platter:
-              stretched to 142px it became the largest coloured area on the deck
-              — louder than PLAY — and it is on by default, so it would be lit
-              almost always. Moving the control is the change here; its weight
-              stays what it was. */}
-          <div className="flex flex-col items-center gap-1">
-            <span className="relative inline-block">
-              <Platter
-                deckId={deckId}
-                positionSec={deck.positionSec}
-                durationSec={deck.durationSec}
-                playing={deck.playing}
-                scratching={deck.scratching}
-                hasTrack={!!deck.track}
-                color={color}
-                size={PLATTER_SIZE}
-              />
-              <HintIcon id="deck.platter" className="absolute -bottom-1 -right-1" />
-            </span>
-            <span className="flex gap-2">
-              <span className="relative inline-flex">
-                <Button
-                  variant="toggle"
-                  active={deck.vinylMode}
-                  tone={color}
-                  onClick={() => ctl.toggleVinylMode(deckId)}
-                  title="Vinyl mode: stop and start spin down and up instead of cutting"
-                >
-                  Vinyl
-                </Button>
-                <HintIcon id="deck.vinyl" className="absolute -right-1.5 -top-1.5" />
+        {!compact && (
+          <div className="flex shrink-0 items-start gap-2">
+            {/* Vinyl keeps its natural width rather than filling the platter:
+                stretched to 142px it became the largest coloured area on the deck
+                — louder than PLAY — and it is on by default, so it would be lit
+                almost always. Moving the control is the change here; its weight
+                stays what it was. */}
+            <div className="flex flex-col items-center gap-1">
+              <span className="relative inline-block">
+                <Platter
+                  deckId={deckId}
+                  positionSec={deck.positionSec}
+                  durationSec={deck.durationSec}
+                  playing={deck.playing}
+                  scratching={deck.scratching}
+                  hasTrack={!!deck.track}
+                  color={color}
+                  size={PLATTER_SIZE}
+                />
+                <HintIcon id="deck.platter" className="absolute -bottom-1 -right-1" />
               </span>
-              <span className="relative inline-flex">
-                <Button
-                  variant="toggle"
-                  active={deck.keyLock}
-                  tone={color}
-                  onClick={() => void ctl.toggleKeyLock(deckId)}
-                  title="Key lock: the tempo fader changes the speed, the pitch stays the song's own"
-                >
-                  Key lock
-                </Button>
-                <HintIcon id="deck.keylock" className="absolute -right-1.5 -top-1.5" />
-              </span>
-              <span className="relative inline-flex">
-                <Button
-                  variant="toggle"
-                  active={deck.keySyncShift != null}
-                  tone={color}
-                  onClick={() => void ctl.toggleKeySync(deckId)}
-                  title={
-                    deck.keySyncShift != null
-                      ? `Key sync is on: moved ${deck.keySyncShift > 0 ? '+' : ''}${deck.keySyncShift} semitones to fit the other deck. Click to go back to the song's own key.`
-                      : "Key sync: move this deck's key, without changing its speed, to the nearest key that fits the other deck"
-                  }
-                >
-                  {deck.keySyncShift != null ? `Key ${deck.keySyncShift > 0 ? '+' : ''}${deck.keySyncShift}` : 'Key sync'}
-                </Button>
-                <HintIcon id="deck.keysync" className="absolute -right-1.5 -top-1.5" />
-              </span>
-            </span>
+              {deckToggles}
+            </div>
+            {tempoFader(160)}
           </div>
-          <Fader
-            label="Tempo"
-            value={deck.tempo}
-            min={-1}
-            max={1}
-            onChange={(v) => ctl.setTempo(deckId, v)}
-            color={color}
-            length={160}
-            detent
-            hint="deck.tempo"
-            format={(v) =>
-              `${v * tempoRange * 100 > 0 ? '+' : ''}${(v * tempoRange * 100).toFixed(1)}%`
-            }
-          />
-        </div>
+        )}
       </div>
     </section>
   )

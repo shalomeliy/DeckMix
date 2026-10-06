@@ -141,6 +141,7 @@ import {
   importSamplerBankWithRecordings,
 } from '@/platform/sampler-bank-fsaccess/store'
 import { getFxBank, saveFxBank, type StoredFxBank } from '@/platform/fx-idb/store'
+import { getLibraryExpanded, saveLibraryExpanded } from '@/platform/layout-idb/store'
 import { useStore, type AppState, type FxState } from '@/app/state/store'
 import type { AIMessage, AIToolCall } from '@/core/ports/ai'
 import type { BeatGrid, DeckId, PadMode, Track } from '@/core/types'
@@ -2558,6 +2559,41 @@ export function restoreFxBank(): Promise<void> {
     })()
   }
   return fxBankRestored
+}
+
+/**
+ * The track list pulled up big, or back to its normal size (v0.9.34). The
+ * decks hide their pads while it is big — see `libraryExpanded` in the store.
+ * Saved so it comes back after a reload; a save that fails says so, because a
+ * size that silently resets next time looks like the drag never worked.
+ */
+let libraryLayoutTouched = false
+
+export function setLibraryExpanded(expanded: boolean): void {
+  libraryLayoutTouched = true
+  const { libraryExpanded, set, setNotice } = useStore.getState()
+  if (libraryExpanded === expanded) return
+  set('libraryExpanded', expanded)
+  saveLibraryExpanded(expanded).catch((err: unknown) => {
+    console.error('Library size save failed', err)
+    setNotice({
+      text: `The track list size didn't save, so it will open at the normal size next time — ${err instanceof Error ? err.message : String(err)}`,
+      tone: 'warn',
+      source: 'layout',
+    })
+  })
+}
+
+export function toggleLibraryExpanded(): void {
+  setLibraryExpanded(!useStore.getState().libraryExpanded)
+}
+
+/** Boot: put the list back at the size it was left at. Not tied to the audio engine — the layout should be right before anyone presses Start. */
+export async function restoreLibraryLayout(): Promise<void> {
+  const stored = await getLibraryExpanded()
+  // A drag that landed while IndexedDB was still answering is newer than
+  // what it holds (and is already being saved); the stored value must not undo it.
+  if (stored != null && !libraryLayoutTouched) useStore.getState().set('libraryExpanded', stored)
 }
 
 /** Save-as (ROADMAP.md v0.6.0's "export bank"). `'cancelled'` (the owner closed the dialog) is silent on purpose — everything else, including "this browser can't do this", is a notice. */
