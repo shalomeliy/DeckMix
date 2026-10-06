@@ -8,7 +8,7 @@ import {
 } from '@/core/structure'
 import type { BeatGrid, DeckId } from '@/core/types'
 import { TRANSITION_CROSSFADE_SEC } from '@/core/constants'
-import { HANDOFF_NEEDS_STRAIGHT_SYNC, MAX_FADE_BARS, MIN_BARS_AFTER_MIX, bVoiceStarts, enoughSongAfterMix, handoffEndInB, planHandoff, plainMixEndInB, plainTransitionClashSec, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
+import { HANDOFF_NEEDS_STRAIGHT_SYNC, MAX_FADE_BARS, bVoiceStarts, enoughSongAfterMix, handoffEndInB, planHandoff, plainMixEndInB, plainTransitionClashSec, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
 import { SWAP_BARS, planVocalSwap, swapEntries, type SwapEntry, type VocalSwapPlan } from '@/core/vocal-swap-mix'
 import { Pill } from '@/app/components/controls'
 
@@ -108,44 +108,48 @@ const MAX_HANDOFF_ROWS = 3
  * The handoff rows (v0.9.15): one per voice of the incoming song that has room for drums before it, each planned against the playing song,
  * earliest handoff first. The plan itself is core's (`planHandoff`).
  */
-function handoffRows(other: HandoffSide, otherPosSec: number, self: HandoffSide): { rows: { voice: BVoiceStart; plan: HandoffPlan }[]; tooLate: number } {
-  // All of them — the panel shows MAX_HANDOFF_ROWS and counts the rest on screen, never drops them quietly.
+function handoffRows(other: HandoffSide, otherPosSec: number, self: HandoffSide): { rows: { voice: BVoiceStart; plan: HandoffPlan }[]; allLate: boolean } {
   const rows: { voice: BVoiceStart; plan: HandoffPlan }[] = []
-  let tooLate = 0
+  let late = 0
+  let unplanned = 0
   for (const voice of bVoiceStarts(self)) {
     const plan = planHandoff(other, otherPosSec, self, voice)
-    if (!plan) continue
-    // v0.9.23: a voice this close to the song's end would leave B over before the mix is — counted on screen, not offered. Judged on the
-    // longest fade, not this plan's: the click re-plans from the live playhead (`startVocalHandoffAt`), and that plan's fade can be longer.
+    if (!plan) {
+      unplanned++
+      continue
+    }
+    // v0.9.23: a voice this close to the song's end would leave B over before the mix is — not offered. Judged on the longest fade, not
+    // this plan's: the click re-plans from the live playhead (`startVocalHandoffAt`), and that plan's fade can be longer.
     if (enoughSongAfterMix(self.durationSec, self.grid, handoffEndInB({ ...plan, fadeBars: MAX_FADE_BARS }, self.grid))) rows.push({ voice, plan })
-    else tooLate++
+    else late++
   }
-  return { rows: rows.sort((x, y) => x.plan.handoffSec - y.plan.handoffSec), tooLate }
+  // Only when the song's end is the whole reason: a voice deck A never goes quiet for is the other reason, and the note must not blame one
+  // for the other.
+  return { rows: rows.sort((x, y) => x.plan.handoffSec - y.plan.handoffSec), allLate: late > 0 && unplanned === 0 }
 }
 
-/** What the panel says about rows it left out because the song ends too soon after them. */
-const tooLateText = (n: number) => `${n === 1 ? 'נקודה אחת לא מוצגת' : `${n} נקודות לא מוצגות`}: השיר נגמר פחות מ-${MIN_BARS_AFTER_MIX} תיבות אחרי שהמיקס מסתיים`
+/*
+ * Points the panel does not offer (too late in the song, too short, too early, past the row cap) are left out with no line counting them.
+ * The owner's decision, 06/10, after v0.9.23 counted them: "אין צורך להציג... שיש קטע שלא מוצג, פשוט אל תציג אותם". A named exemption from
+ * the never-skip-silently rule, not an omission: the rules that hide them are fixed and named (`enoughSongAfterMix`, `swapEntries`,
+ * `MAX_HANDOFF_ROWS`), and a section with nothing to offer still says so in words.
+ */
 
 /**
  * The vocal-swap rows: one per voice of the incoming song it can come in on, each planned against the playing song, earliest first
- * (`core/vocal-swap-mix.ts`). `note` is why there is none, or what was left out — never an empty section.
+ * (`core/vocal-swap-mix.ts`). `note` is why there is none — never an empty section.
  */
 function swapRows(other: HandoffSide, otherPosSec: number, self: HandoffSide, otherDeckId: DeckId): { rows: { entry: SwapEntry; plan: VocalSwapPlan }[]; note: string | null } {
-  const { entries, short, early, late } = swapEntries(self)
+  const { entries } = swapEntries(self)
   const rows: { entry: SwapEntry; plan: VocalSwapPlan }[] = []
   for (const entry of entries) {
     const plan = planVocalSwap(other, otherPosSec, self, entry)
     if (plan) rows.push({ entry, plan })
   }
   rows.sort((x, y) => x.plan.joinSec - y.plan.joinSec || x.entry.voiceSec - y.entry.voiceSec)
-  const left: string[] = []
-  if (short) left.push(`${short} קצרות מ-2 תיבות`)
-  if (early) left.push(`${early} בתחילת השיר`)
-  if (late) left.push(`${late} קרובות לסוף השיר`)
-  const leftText = left.length ? `כניסות שירה שלא מוצגות: ${left.join(', ')}` : null
-  if (rows.length) return { rows, note: leftText }
-  if (entries.length) return { rows, note: `החלפת שירה: אין בדק ${otherDeckId} עד סוף השיר רגע בלי שירה שמחזיק ${SWAP_BARS} תיבות${leftText ? ` (${leftText})` : ''}` }
-  return { rows, note: `החלפת שירה: אין בשיר הזה כניסת שירה מתאימה${leftText ? ` (${leftText})` : ''}` }
+  if (rows.length) return { rows, note: null }
+  if (entries.length) return { rows, note: `החלפת שירה: אין בדק ${otherDeckId} עד סוף השיר רגע בלי שירה שמחזיק ${SWAP_BARS} תיבות` }
+  return { rows, note: 'החלפת שירה: אין בשיר הזה כניסת שירה מתאימה' }
 }
 
 const hasVoice = (side: HandoffSide) => side.timeline.cells.some((c) => c !== 0)
@@ -172,12 +176,12 @@ export function TransitionPointsPanel({
   // (`controls.ts`'s `loadTrackToDeck`) — independent of the track's
   // library-wide `analysisState`, which can already read "analyzed" from an
   // earlier background pass while this specific deck load is still running.
-  // v0.9.23: an energy point B enters at must leave B playing well past the crossfade — the late ones are counted below, not offered.
+  // v0.9.23: an energy point B enters at must leave B playing well past the crossfade — the late ones are not offered.
   // Where the mix ends is `plainMixEndInB`'s, the same one a saved pad and an excellent pair are refused by (`refuseTooLateEntry`, v0.9.26).
   const { candidates, lateCandidates } = useMemo(() => {
     const all = bands ? findTransitionCandidates(bands, durationSec, beatGrid) : []
     const ok = all.filter((c) => enoughSongAfterMix(durationSec, beatGrid, plainMixEndInB(c.sec, beatGrid, TRANSITION_CROSSFADE_SEC)))
-    return { candidates: ok, lateCandidates: all.length - ok.length }
+    return { candidates: ok, lateCandidates: all.length > ok.length }
   }, [bands, durationSec, beatGrid])
 
   const incomingProfile = useMemo(
@@ -200,8 +204,8 @@ export function TransitionPointsPanel({
   }
 
   const sides = 'missing' in vocalSide || 'missing' in otherVocalSide ? null : { self: vocalSide, other: otherVocalSide }
-  const { rows, tooLate } = useMemo(
-    () => (sides && syncMult === 1 && hasVoice(sides.self) ? handoffRows(sides.other, otherPositionBucketSec, sides.self) : { rows: [], tooLate: 0 }),
+  const { rows, allLate } = useMemo(
+    () => (sides && syncMult === 1 && hasVoice(sides.self) ? handoffRows(sides.other, otherPositionBucketSec, sides.self) : { rows: [], allLate: false }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [vocalSide, otherVocalSide, otherPositionBucketSec, syncMult],
   )
@@ -220,8 +224,8 @@ export function TransitionPointsPanel({
       : rows.length === 0
         ? bVoiceStarts(sides.self).length === 0
           ? 'מסירת שירה: אין בשיר הזה 4 תיבות בלי שירה לפני שהשירה נכנסת'
-          : tooLate > 0
-          ? `מסירת שירה: ${tooLateText(tooLate)}`
+          : allLate
+          ? 'מסירת שירה: אין בשיר הזה נקודה שנשאר אחריה מספיק שיר'
           : `מסירת שירה: אין בדק ${otherDeckId} עד סוף השיר רגע שקט מספיק ארוך (4 תיבות) להוריד אותו`
         : null
   // The second signal on each energy point: the plain transition from there — would it put a voice over a voice? Never merged with the energy dot.
@@ -268,10 +272,6 @@ export function TransitionPointsPanel({
               </span>
             </button>
           ))}
-          {rows.length > MAX_HANDOFF_ROWS && (
-            <div className="px-2 text-2xs text-grid-muted">{`ועוד ${rows.length - MAX_HANDOFF_ROWS} מאוחרות יותר — יופיעו כשהשיר יתקדם`}</div>
-          )}
-          {tooLate > 0 && <div className="px-2 text-2xs text-grid-muted" data-testid="handoff-too-late">{tooLateText(tooLate)}</div>}
         </div>
       )}
       {/* The vocal swap (owner, 05/10): A's voice and instruments go, B's voice comes in alone over A's bass, then the bass swap. */}
@@ -295,9 +295,6 @@ export function TransitionPointsPanel({
               </span>
             </button>
           ))}
-          {swap.rows.length > MAX_HANDOFF_ROWS && (
-            <div className="px-2 text-2xs text-grid-muted">{`מוצגות ${MAX_HANDOFF_ROWS} כניסות השירה הראשונות של השיר הזה; עוד ${swap.rows.length - MAX_HANDOFF_ROWS} לא מוצגות`}</div>
-          )}
           {swap.note && <div className="px-2 text-2xs text-grid-muted" data-testid="swap-left-out">{swap.note}</div>}
         </div>
       )}
@@ -310,13 +307,12 @@ export function TransitionPointsPanel({
         </div>
       ) : candidates.length === 0 ? (
         <div className="text-2xs text-grid-muted">
-          {lateCandidates > 0
-            ? tooLateText(lateCandidates)
+          {lateCandidates
+            ? 'No transition point leaves enough of this song after the mix.'
             : 'No clear transition points found — energy stays roughly constant throughout.'}
         </div>
       ) : (
         <div className="flex flex-col gap-1">
-          {lateCandidates > 0 && <div className="px-2 text-2xs text-grid-muted" data-testid="energy-too-late">{tooLateText(lateCandidates)}</div>}
           {candidates.map((c) => {
             const { text, dot } = proximityMessage(c.sec)
             const vocal = vocalMessage(c.sec)

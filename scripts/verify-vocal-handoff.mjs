@@ -433,6 +433,33 @@ if (!setup.error) {
   }
 }
 
+// The owner, 06/10: a point Mix Assist leaves out is not counted on screen. With B's only voice this close to its end every handoff is too
+// late, so the section has no row, and its note says the song's end is why — no "N not shown".
+if (!setup.error) {
+  const lateNote = await page.evaluate(async () => {
+    const { useStore } = await window.mod('/src/app/state/store.ts')
+    const ctl = await window.mod('/src/controls.ts')
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+    const s = useStore.getState()
+    const ta = s.library.tracks.find((t) => t.name.startsWith('Handoff A'))
+    const tb = s.library.tracks.find((t) => t.name.startsWith('Handoff B'))
+    ctl.cancelTransition(); ctl.pause('A'); ctl.pause('B')
+    await ctl.loadTrackToDeck('A', ta)
+    await ctl.loadTrackToDeck('B', tb)
+    const deadline = Date.now() + 30000
+    while (Date.now() < deadline && !(useStore.getState().decks.A.beatGrid && useStore.getState().decks.B.beatGrid && !useStore.getState().decks.A.loading && !useStore.getState().decks.B.loading)) await sleep(200)
+    const t = useStore.getState().decks.B.track
+    useStore.getState().setVocalManual(t.contentHash, { schema: 1, contentHash: t.contentHash, trackId: t.id, name: t.name, genre: 'House', finished: true, updatedAt: Date.now(), regions: [{ fromSec: 70, toSec: 90 }] })
+    ctl.seekDeck('A', 6); ctl.play('A')
+    await sleep(1500)
+    const panel = [...document.querySelectorAll('div')].find((d) => d.firstElementChild?.textContent === 'מסירת שירה — לפי הצליל')
+    return { note: document.querySelector('[data-testid="handoff-note"]')?.textContent ?? null, rows: document.querySelectorAll('[data-testid="handoff-rows"] button').length, panel: panel?.innerText ?? '' }
+  })
+  ok('v0.9.29: every handoff too late — no row, and the note blames the song\'s end', lateNote.rows === 0 && lateNote.note === 'מסירת שירה: אין בשיר הזה נקודה שנשאר אחריה מספיק שיר', JSON.stringify({ rows: lateNote.rows, note: lateNote.note }))
+  ok('v0.9.29: nothing in the panel counts points it left out', !/לא מוצג|מאוחרות יותר/.test(lateNote.panel), lateNote.panel.split('\n').filter((l) => /לא מוצג|מאוחרות/.test(l)).join(' | '))
+  await page.evaluate(async () => { const ctl = await window.mod('/src/controls.ts'); ctl.pause('A') })
+}
+
 const resp = await page.evaluate(() => {
   const ctx = new OfflineAudioContext(1, 128, 44100)
   const n = ctx.createBiquadFilter()

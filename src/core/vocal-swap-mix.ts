@@ -73,7 +73,8 @@ export interface VocalSwapPlan {
 }
 
 /**
- * B's voices this mix can enter on, and how many it cannot, with the reason counted: the panel never drops one quietly.
+ * B's voices this mix can enter on, and how many it cannot, with the reason counted. The panel shows none of the counts (the owner,
+ * 06/10: points left out are simply not shown); they stay here for the tests that pin each reason.
  * - `short`: the voice lasts less than `SWAP_VOICE_ALONE_BARS` from its yellow line — the two bars alone would run out of voice.
  * - `early`: the voice starts within the song's first two bars, so B cannot already be playing before it.
  * - `late`: B ends less than `MIN_BARS_AFTER_MIX` bars after the mix (v0.9.23's rule, same as every Mix Assist row).
