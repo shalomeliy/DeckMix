@@ -194,6 +194,11 @@ export interface DeckState {
    * in use, or after any edit or check of it.
    */
   barOneUnsure: boolean
+  /**
+   * Where the deck's BPM came from, and what each source said (v0.9.45b). Shown in the grid panel: the deck said 75 while the row said
+   * 150, and after the first fix it still did — with nothing on screen saying which of four sources the 75 was. `null` until analysis lands.
+   */
+  bpmOrigin: BpmOrigin | null
   /** locked to the master deck's phase via SYNC (v0.3.0) */
   syncActive: boolean
   /** tempo fader value, -1..1 mapped to +/- range (see TEMPO_RANGE) */
@@ -259,4 +264,15 @@ export interface MidiDeviceInfo {
   id: string
   name: string
   manufacturer: string
+}
+
+/** See `DeckState.bpmOrigin`. Each number is what that source said for this track, `null` when it said nothing. */
+export interface BpmOrigin {
+  from: 'saved' | 'owner' | 'list' | 'detected'
+  /** The saved grid was an octave off and was recounted to this label at load (`reconcileSavedGrid`); `null` when used as saved. */
+  recountedTo: 'owner' | 'tag' | 'detected' | null
+  saved: number | null
+  owner: number | null
+  tag: number | null
+  detected: number | null
 }

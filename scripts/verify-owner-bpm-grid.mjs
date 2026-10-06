@@ -30,7 +30,7 @@ function id3Tag(bpm) {
   const frame = Buffer.concat([Buffer.from('TBPM', 'ascii'), size, Buffer.from([0, 0]), payload])
   return Buffer.concat([Buffer.from('ID3', 'ascii'), Buffer.from([3, 0, 0]), syncsafe32(frame.length), frame])
 }
-function buildClickWav(bpm, { durationSec = 20, sampleRate = 8000 } = {}) {
+function buildClickWav(bpm, { durationSec = 20, sampleRate = 8000, tagged = true } = {}) {
   const numSamples = Math.round(durationSec * sampleRate)
   const pcm = Buffer.alloc(numSamples * 2)
   const beatSamples = Math.round((60 / bpm) * sampleRate)
@@ -53,17 +53,18 @@ function buildClickWav(bpm, { durationSec = 20, sampleRate = 8000 } = {}) {
     size.writeUInt32LE(body.length, 0)
     return Buffer.concat([Buffer.from(id, 'ascii'), size, body])
   }
-  const body = Buffer.concat([Buffer.from('WAVE', 'ascii'), chunk('fmt ', fmt), chunk('data', pcm), chunk('ID3 ', tagPadded)])
+  const body = Buffer.concat([Buffer.from('WAVE', 'ascii'), chunk('fmt ', fmt), chunk('data', pcm), ...(tagged ? [chunk('ID3 ', tagPadded)] : [])])
   const riffSize = Buffer.alloc(4)
   riffSize.writeUInt32LE(body.length, 0)
   return Buffer.concat([Buffer.from('RIFF', 'ascii'), riffSize, body])
 }
 
-const wavBytes = buildClickWav(150, { durationSec: 40 })
-const CONTENT_HASH = createHash('sha256').update(wavBytes).digest('hex')
-const GRID_KEY = 'deckmix:gridCorrection:' + CONTENT_HASH
+const TAGGED = buildClickWav(150, { durationSec: 40 })
+const UNTAGGED = buildClickWav(150, { durationSec: 40, tagged: false })
 
-function harness(seed, meta) {
+function harness(seed, meta, wavBytes = TAGGED) {
+  const CONTENT_HASH = createHash('sha256').update(wavBytes).digest('hex')
+  const GRID_KEY = 'deckmix:gridCorrection:' + CONTENT_HASH
   return `(() => {
   window.__unhandled = [];
   addEventListener('unhandledrejection', (e) => window.__unhandled.push(String(e.reason)));
@@ -116,11 +117,11 @@ function harness(seed, meta) {
 
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined, args: ['--autoplay-policy=no-user-gesture-required'] })
 const GRID75 = { schema: 1, grid: { bpm: 75, offsetSec: 0 }, source: 'owner', savedAt: 1 }
-async function run(seed, meta, fn) {
+async function run(seed, meta, fn, wav) {
   const page = await browser.newPage({ viewport: VIEWPORT })
   const errors = []
   page.on('pageerror', (e) => errors.push(String(e)))
-  await page.addInitScript(harness(seed, meta))
+  await page.addInitScript(harness(seed, meta, wav))
   await page.goto(URL, { waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(1500)
   await page.locator('tbody tr').first().dblclick()
@@ -131,7 +132,7 @@ async function run(seed, meta, fn) {
   }
   const st = await page.evaluate(async () => {
     const s = (await window.__import('/src/app/state/store.ts')).useStore.getState()
-    return { shown: document.querySelector('[aria-label="Edit beat grid"]')?.textContent, deckBpm: s.decks.A.bpm, rowBpm: s.library.tracks[0].bpm, notice: s.notice?.text ?? '' }
+    return { origin: s.decks.A.bpmOrigin, shown: document.querySelector('[aria-label="Edit beat grid"]')?.textContent, deckBpm: s.decks.A.bpm, rowBpm: s.library.tracks[0].bpm, notice: s.notice?.text ?? '' }
   })
   try {
     await fn(st, page)
@@ -159,8 +160,31 @@ await run(GRID75, { owner: { bpm: 150 } }, async (st, page) => {
   ok('tempo fader top: plays ~8% faster than at centre', Math.abs(rUp - 1.08) < 0.01, `${r0.toFixed(3)} → ${rUp.toFixed(3)}`)
   ok('tempo fader bottom: plays ~8% slower than at centre', Math.abs(rDown - 0.92) < 0.01, `${r0.toFixed(3)} → ${rDown.toFixed(3)}`)
 })
+// v0.9.45b — the owner's real case: nothing typed, a grid saved at 75 for its phase (a check, a nudge, a tagging answer), the song is 150.
+await run(GRID75, undefined, async (st, page) => {
+  ok('file tag 150, grid saved at 75 not by hand: the deck shows 150', st.shown === '150.0BPM' && st.rowBpm === 150, JSON.stringify(st))
+  await page.getByRole('button', { name: 'Edit beat grid' }).first().click()
+  const panel = await page.getByTestId('bpm-origin').textContent()
+  ok('the grid panel says where the BPM came from and what each source said', /From: the beat grid you saved, counted like the file's tag/.test(panel) && /Saved grid 75 · File tag 150/.test(panel), panel)
+  await page.getByTestId('bpm-origin').locator('xpath=..').getByRole('button', { name: '÷2' }).click()
+  await page.waitForTimeout(300)
+  const rec = await page.evaluate(() => window.__readGrid())
+  ok('÷2 by hand is saved as a tempo set by hand', rec?.tempoByHand === true && rec.grid.bpm === 75, JSON.stringify(rec))
+  await page.evaluate(async () => (await window.__import('/src/controls.ts')).nudgeBeatGrid('A', 0.01))
+  await page.waitForTimeout(300)
+  const rec2 = await page.evaluate(() => window.__readGrid())
+  ok('a nudge after ÷2 keeps it a tempo set by hand', rec2?.tempoByHand === true && rec2.grid.bpm === 75, JSON.stringify(rec2))
+  const panel2 = await page.getByTestId('bpm-origin').textContent()
+  ok('after the edit the panel says the saved grid, no longer recounted', /From: the beat grid you saved/.test(panel2) && !/counted like/.test(panel2), panel2)
+})
 await run(GRID75, undefined, async (st) => {
-  ok('grid saved at 75, nothing typed: the grid still wins, deck and row agree', st.deckBpm === 75 && st.rowBpm === 75, JSON.stringify(st))
+  ok('no tag, the sound says 150, grid saved at 75 not by hand: the deck shows 150', st.shown === '150.0BPM', JSON.stringify(st))
+}, UNTAGGED)
+await run({ ...GRID75, tempoByHand: true }, undefined, async (st) => {
+  ok('grid halved to 75 by hand: his 75 still wins over the tag', st.deckBpm === 75 && st.rowBpm === 75, JSON.stringify(st))
+})
+await run({ ...GRID75, tempoByHand: true }, { owner: { bpm: 150 } }, async (st) => {
+  ok('÷2 by hand beats even a typed 150: the press is the later answer', st.deckBpm === 75, JSON.stringify(st))
 })
 await run(GRID75, { owner: { bpm: 100 } }, async (st) => {
   ok('typed 100 over a grid at 75 (not an octave): the checked grid stays', st.deckBpm === 75, JSON.stringify(st))

@@ -431,7 +431,7 @@ export function Deck({ deckId }: { deckId: DeckId }) {
             </div>
           )}
           {gridPanelOpen && (
-            <BeatGridPanel deckId={deckId} beatGrid={deck.beatGrid} onClose={confirmAndCloseGridPanel} />
+            <BeatGridPanel deckId={deckId} beatGrid={deck.beatGrid} bpmOrigin={deck.bpmOrigin} onClose={confirmAndCloseGridPanel} />
           )}
         </div>
       </header>

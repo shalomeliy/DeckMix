@@ -92,6 +92,7 @@ function emptyDeck(id: DeckId): DeckState {
     beatGrid: null,
     beatGridConfirmed: true,
     barOneUnsure: false,
+    bpmOrigin: null,
     syncActive: false,
     tempo: 0,
     peaks: null,

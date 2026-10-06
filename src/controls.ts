@@ -71,7 +71,7 @@ import { sortTracks } from '@/core/library-sort'
 import { getCues, putCues } from '@/platform/cues-idb/store'
 import { getTempo, putTempo } from '@/platform/tempo-idb/store'
 import { getGridCorrection, putGridCorrection } from '@/platform/grid-corrections-idb/store'
-import { ownerCorrection, reconcileOwnerBpm, resolveGridCorrection } from '@/core/grid-corrections'
+import { ownerCorrection, reconcileSavedGrid, resolveGridCorrection } from '@/core/grid-corrections'
 import { getExcellentPoints, markExcellent } from '@/platform/mix-ratings-idb/store'
 import { markExcellentPair } from '@/platform/mix-pairs-idb/store'
 import { clock } from '@/platform/clock-audio'
@@ -146,7 +146,7 @@ import { getFxBank, saveFxBank, type StoredFxBank } from '@/platform/fx-idb/stor
 import { getLibraryExpanded, saveLibraryExpanded } from '@/platform/layout-idb/store'
 import { useStore, type AppState, type FxState } from '@/app/state/store'
 import type { AIMessage, AIToolCall } from '@/core/ports/ai'
-import type { BeatGrid, DeckId, PadMode, Track } from '@/core/types'
+import type { BeatGrid, BpmOrigin, DeckId, PadMode, Track } from '@/core/types'
 import { aiLocalProvider } from '@/platform/ai-local'
 import {
   acknowledgeAiWarning as acknowledgeAiWarning_idb,
@@ -455,6 +455,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     beatGrid: null,
     beatGridConfirmed: false,
     barOneUnsure: false,
+    bpmOrigin: null,
     syncActive: false,
     peaks: null,
     bands: null,
@@ -533,7 +534,9 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     // bpm included: it is the one answer here a person checked.
     const saved = contentHash ? await loadGridCorrection(contentHash) : null
     if (useStore.getState().decks[deckId].track?.id !== track.id) return
-    const corrected = savedGridForOwnerBpm(track.id, applySavedGridResult(saved))
+    const savedGrid = saved && 'grid' in saved ? saved.grid : null
+    const atLoad = savedGridAtLoad(deckId, track.id, saved, { tag: hintBpm, detected: detectedBpm })
+    const corrected = atLoad?.grid ?? null
     // Which beat is the "1" (v0.9.5) — the rules, and why an unsure answer
     // still moves the grid, are in core/downbeat.ts.
     const barOne =
@@ -553,6 +556,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
         detectedKey,
       ),
       bpm: deckBpm,
+      bpmOrigin: bpmOriginOf({ row: useStore.getState().library.tracks.find((t) => t.id === track.id) ?? track, tagBpm: hintBpm, detectedBpm, savedBpm: savedGrid?.bpm ?? null, recountedTo: atLoad?.recountedTo ?? null, tagAgrees }),
       // Unconfirmed whenever detection didn't produce a grid it trusts — never
       // a silently-assumed-fine grid. Cleared only by the user checking or
       // editing it (BeatGridPanel, v0.3.0 sub-step d), or by a saved edit.
@@ -589,10 +593,20 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     // this, a failed analysis hid a correction that was sitting in storage.
     const saved = contentHash ? await loadGridCorrection(contentHash) : null
     if (useStore.getState().decks[deckId].track?.id !== track.id) return
-    const corrected = savedGridForOwnerBpm(track.id, applySavedGridResult(saved))
+    // No analysis to read a tag or a detection from: the row's BPM (a tag, or the last analysis) is the label left.
+    const atLoad = savedGridAtLoad(deckId, track.id, saved, { tag: track.bpm ?? null, detected: null })
+    const corrected = atLoad?.grid ?? null
     patchDeck(deckId, {
       track: { ...track, contentHash, analysisState: 'failed', analysisError: message, durationSec },
       ...(corrected ? { beatGrid: corrected, bpm: corrected.bpm, beatGridConfirmed: true } : {}),
+      bpmOrigin: bpmOriginOf({
+        row: useStore.getState().library.tracks.find((t) => t.id === track.id) ?? track,
+        tagBpm: track.bpm ?? null,
+        detectedBpm: null,
+        savedBpm: saved && 'grid' in saved ? saved.grid.bpm : null,
+        recountedTo: atLoad?.recountedTo ?? null,
+        tagAgrees: false,
+      }),
     })
     const { library: libAfter, setLibrary: setLibAfter } = useStore.getState()
     setLibAfter({
@@ -674,6 +688,7 @@ export function ejectDeck(deckId: DeckId) {
     beatGrid: null,
     beatGridConfirmed: true,
     barOneUnsure: false,
+    bpmOrigin: null,
     syncActive: false,
     peaks: null,
     bands: null,
@@ -926,7 +941,7 @@ export function cue(deckId: DeckId) {
  */
 const deckAnalysisPending: Record<DeckId, string | null> = { A: null, B: null }
 
-type SavedGridResult = { grid: BeatGrid } | { problem: string } | null
+type SavedGridResult = { grid: BeatGrid; tempoByHand: boolean } | { problem: string } | null
 
 /**
  * The owner's saved grid for this track. Reads only — the notice for a
@@ -957,23 +972,57 @@ function applySavedGridResult(r: SavedGridResult): BeatGrid | null {
   return r.grid
 }
 
+/** Which source the deck's BPM came from at load, with what each one said — the grid panel shows it (`DeckState.bpmOrigin`). */
+function bpmOriginOf(a: {
+  row: Track
+  tagBpm: number | null
+  detectedBpm: number | null
+  savedBpm: number | null
+  recountedTo: BpmOrigin['recountedTo']
+  tagAgrees: boolean
+}): BpmOrigin {
+  const owner = a.row.bpmSource === 'owner' ? (a.row.bpm ?? null) : null
+  const from = a.savedBpm != null ? 'saved' : a.tagAgrees || a.row.bpm == null ? 'detected' : owner != null ? 'owner' : 'list'
+  return { from, recountedTo: a.recountedTo, saved: a.savedBpm, owner, tag: a.tagBpm, detected: a.detectedBpm }
+}
+
 /**
- * The saved grid, counted the way the owner typed this track's BPM (v0.9.45, `reconcileOwnerBpm`). Read from the library's row, not the
- * load's snapshot: the owner can type a BPM while the deck is still loading. A grid that disagrees with his number by more than an octave
- * is kept and said on screen — the deck and the row showing two numbers with nothing to say why was the bug.
+ * Whether the saved grid now on each deck had its tempo set by hand (`GridCorrection.tempoByHand`). Read at load, set by ÷2/×2/Tap, and
+ * written back with every later save from that deck — a nudge after a ÷2 must not quietly turn the ÷2 into "not by hand".
  */
-function savedGridForOwnerBpm(trackId: string, grid: BeatGrid | null): BeatGrid | null {
+const tempoByHandOnDeck: Record<DeckId, boolean> = { A: false, B: false }
+
+/**
+ * The saved grid to use at load, counted the way the track is labelled (v0.9.45, `reconcileSavedGrid`). The label is the BPM the owner
+ * typed — read from the library's row, not the load's snapshot, since he can type one while the deck loads — else the file tag, else the
+ * sound; none of them when the saved tempo was set by hand. Disagreeing with his typed number by more than an octave is said on screen; disagreeing
+ * with a tag or a detection is not — there the grid he saved is the better answer, as it always was.
+ */
+function savedGridAtLoad(
+  deckId: DeckId,
+  trackId: string,
+  r: SavedGridResult,
+  label: { tag: number | null; detected: number | null },
+): { grid: BeatGrid; recountedTo: BpmOrigin['recountedTo'] } | null {
+  const grid = applySavedGridResult(r)
+  tempoByHandOnDeck[deckId] = r != null && 'grid' in r && r.tempoByHand
+  if (!grid) return null
+  // A tempo he set by hand (÷2/×2/Tap) beats every label, his own typed number included: the press is the later, more direct answer.
+  if (tempoByHandOnDeck[deckId]) return { grid, recountedTo: null }
   const row = useStore.getState().library.tracks.find((t) => t.id === trackId)
-  if (!grid || row?.bpmSource !== 'owner' || !row.bpm) return grid
-  const r = reconcileOwnerBpm(grid, row.bpm)
-  if (r.outcome === 'differs') {
+  const owner = row?.bpmSource === 'owner' && row.bpm ? row.bpm : null
+  const labelFrom = owner != null ? 'owner' : label.tag != null ? 'tag' : label.detected != null ? 'detected' : null
+  const labelBpm = owner ?? label.tag ?? label.detected
+  if (!labelBpm || !labelFrom) return { grid, recountedTo: null }
+  const out = reconcileSavedGrid(grid, labelBpm)
+  if (out.outcome === 'differs' && owner != null) {
     useStore.getState().setNotice({
-      text: `"${row.title ?? row.name}": you set ${Number(row.bpm.toFixed(1))} BPM, but the beat grid you fixed says ${Number(grid.bpm.toFixed(1))} — the deck plays your grid. Click the deck's BPM to fix the grid.`,
+      text: `"${row?.title ?? row?.name}": you set ${Number(owner.toFixed(1))} BPM, but the beat grid you fixed says ${Number(grid.bpm.toFixed(1))} — the deck plays your grid. Click the deck's BPM to fix the grid.`,
       tone: 'warn',
       source: 'grid',
     })
   }
-  return r.grid
+  return { grid: out.grid, recountedTo: out.outcome === 'recounted' ? labelFrom : null }
 }
 
 /**
@@ -998,6 +1047,8 @@ function persistGridCorrection(deckId: DeckId) {
   if (!st.beatGrid) return
   // Any edit or check is the owner looking at the grid — the "1" is no longer a guess shown as one.
   if (st.barOneUnsure) useStore.getState().patchDeck(deckId, { barOneUnsure: false })
+  // From here the deck's BPM is the grid he just saved; the other sources keep what they said.
+  if (st.bpmOrigin) useStore.getState().patchDeck(deckId, { bpmOrigin: { ...st.bpmOrigin, from: 'saved', recountedTo: null, saved: st.beatGrid.bpm } })
   if (!hash) {
     setNotice({
       text: 'Beat grid changed on screen, but this track has no identity yet, so it will not be remembered.',
@@ -1006,7 +1057,7 @@ function persistGridCorrection(deckId: DeckId) {
     })
     return
   }
-  void putGridCorrection(hash, ownerCorrection(st.beatGrid, Date.now())).catch((err) => {
+  void putGridCorrection(hash, ownerCorrection(st.beatGrid, Date.now(), tempoByHandOnDeck[deckId])).catch((err) => {
     setNotice({
       text: `Beat grid changed on screen but not saved: ${err instanceof Error ? err.message : String(err)}`,
       tone: 'warn',
@@ -3109,6 +3160,7 @@ export function halveBeatGrid(deckId: DeckId) {
   if (!grid) return
   const next = halveGrid(grid)
   patchDeck(deckId, { beatGrid: next, bpm: next.bpm, beatGridConfirmed: true })
+  tempoByHandOnDeck[deckId] = true
   persistGridCorrection(deckId)
 }
 
@@ -3119,6 +3171,7 @@ export function doubleBeatGrid(deckId: DeckId) {
   if (!grid) return
   const next = doubleGrid(grid)
   patchDeck(deckId, { beatGrid: next, bpm: next.bpm, beatGridConfirmed: true })
+  tempoByHandOnDeck[deckId] = true
   persistGridCorrection(deckId)
 }
 
@@ -3166,6 +3219,7 @@ export function tapTempo(deckId: DeckId) {
   // itself doesn't move.
   const next = setDownbeatAt(bpm, decks[deckId].beatGrid?.offsetSec ?? 0)
   patchDeck(deckId, { beatGrid: next, bpm, beatGridConfirmed: true })
+  tempoByHandOnDeck[deckId] = true
   persistGridCorrection(deckId)
 }
 
@@ -5610,10 +5664,19 @@ export async function tagSaveMark(shownHash: string, input: MarkInput): Promise<
     await (input.round === 'decide' ? putDecideTag(tag) : input.round === 'fresh' ? putFreshTag(tag) : putMarkTag(tag))
     if (markSec != null && grid) {
       const next = setDownbeatAt(grid.bpm, markSec)
-      await putGridCorrection(c.contentHash, ownerCorrection(next, tag.taggedAt))
+      // A tempo he set by hand (÷2/×2/Tap) stays his when this answer only moves the "1" on it (v0.9.45).
+      const prev = resolveGridCorrection(await getGridCorrection(c.contentHash).catch(() => null))
+      const byHand = prev != null && 'grid' in prev && prev.tempoByHand && Math.abs(prev.grid.bpm - next.bpm) < 1e-6
+      await putGridCorrection(c.contentHash, ownerCorrection(next, tag.taggedAt, byHand))
       const { decks, patchDeck } = useStore.getState()
       for (const id of ['A', 'B'] as DeckId[]) {
-        if (decks[id].track?.contentHash === c.contentHash) patchDeck(id, { beatGrid: next, bpm: next.bpm, beatGridConfirmed: true, barOneUnsure: false })
+        if (decks[id].track?.contentHash !== c.contentHash) continue
+        // The deck takes the new "1", counted as it already was: the answer was about the bar line, and putting the stored octave back on
+        // a deck that load had recounted would show the 75 of a song playing at 150 again (v0.9.45 review).
+        const deckBpm = decks[id].bpm
+        const counted = deckBpm ? reconcileSavedGrid(next, deckBpm).grid : next
+        tempoByHandOnDeck[id] = byHand
+        patchDeck(id, { beatGrid: counted, bpm: counted.bpm, beatGridConfirmed: true, barOneUnsure: false })
       }
     }
     return true

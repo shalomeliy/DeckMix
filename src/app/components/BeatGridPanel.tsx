@@ -1,11 +1,12 @@
 import * as ctl from '@/controls'
 import { BEATGRID_NUDGE_SEC } from '@/core/constants'
-import type { BeatGrid, DeckId } from '@/core/types'
+import type { BeatGrid, BpmOrigin, DeckId } from '@/core/types'
 import { Button, HintIcon } from '@/app/components/controls'
 
 interface Props {
   deckId: DeckId
   beatGrid: BeatGrid | null
+  bpmOrigin: BpmOrigin | null
   onClose: () => void
 }
 
@@ -15,7 +16,22 @@ interface Props {
  * work even without one — either is how a track with no detectable
  * periodicity gets its first grid.
  */
-export function BeatGridPanel({ deckId, beatGrid, onClose }: Props) {
+const FROM_LABEL: Record<BpmOrigin['from'], string> = {
+  saved: 'the beat grid you saved',
+  owner: 'the BPM you typed',
+  list: "the track list's BPM",
+  detected: 'our analysis of the sound',
+}
+
+const RECOUNT_LABEL: Record<NonNullable<BpmOrigin['recountedTo']>, string> = {
+  owner: 'the BPM you typed',
+  tag: "the file's tag",
+  detected: 'our analysis of the sound',
+}
+
+const n = (v: number | null) => (v == null ? '—' : String(Number(v.toFixed(1))))
+
+export function BeatGridPanel({ deckId, beatGrid, bpmOrigin, onClose }: Props) {
   return (
     <div
       className="absolute right-0 top-full z-30 mt-1 w-60 rounded-[var(--radius-md)] border border-hairline bg-surface-2 p-2.5 text-left shadow-[var(--shadow-pop)]"
@@ -39,6 +55,20 @@ export function BeatGridPanel({ deckId, beatGrid, onClose }: Props) {
           ? `${beatGrid.bpm.toFixed(1)} bpm · phase ${beatGrid.offsetSec.toFixed(3)}s`
           : 'no grid yet — tap or set a downbeat'}
       </div>
+      {/* v0.9.45b: which source this BPM is, and what the others said — a deck at 75 under a row at 150 had nothing on screen saying why. */}
+      {bpmOrigin && (
+        <div className="tnum mb-2 text-2xs leading-snug text-grid-dim" data-testid="bpm-origin">
+          <div>
+            From: <span className="text-grid-muted">{FROM_LABEL[bpmOrigin.from]}</span>
+            {bpmOrigin.recountedTo && (
+              <span className="text-grid-muted">, counted like {RECOUNT_LABEL[bpmOrigin.recountedTo]}</span>
+            )}
+          </div>
+          <div>
+            Saved grid {n(bpmOrigin.saved)} · File tag {n(bpmOrigin.tag)} · Sound {n(bpmOrigin.detected)} · Typed {n(bpmOrigin.owner)}
+          </div>
+        </div>
+      )}
 
       <div className="mb-1.5 flex items-center gap-1.5">
         <span className="w-14 text-2xs text-grid-dim">Nudge</span>
