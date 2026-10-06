@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { GRID_CORRECTION_SCHEMA, ownerCorrection, resolveGridCorrection } from '@/core/grid-corrections.ts'
+import { GRID_CORRECTION_SCHEMA, ownerCorrection, reconcileOwnerBpm, resolveGridCorrection } from '@/core/grid-corrections.ts'
 
 describe('resolveGridCorrection', () => {
   it('nothing stored is nothing, not a refusal', () => {
@@ -25,5 +25,30 @@ describe('resolveGridCorrection', () => {
     expect(resolveGridCorrection({ schema: GRID_CORRECTION_SCHEMA, grid, source: 'owner', savedAt: 1 })).toEqual({
       refused: 'damaged record',
     })
+  })
+})
+
+describe('reconcileOwnerBpm (v0.9.45)', () => {
+  it('a grid saved at 75 under a typed 150 is recounted to 150, its bar line kept — the deck said 75 while the row said 150', () => {
+    const r = reconcileOwnerBpm({ bpm: 75, offsetSec: 0.4 }, 150)
+    expect(r.outcome).toBe('recounted')
+    expect(r.grid.bpm).toBe(150)
+    expect(r.grid.offsetSec).toBeCloseTo(0.4, 9)
+  })
+
+  it('and the other way: a grid at 150 under a typed 75 is halved', () => {
+    expect(reconcileOwnerBpm({ bpm: 150, offsetSec: 0.4 }, 75)).toEqual({ grid: { bpm: 75, offsetSec: 0.4 }, outcome: 'recounted' })
+  })
+
+  it("keeps the grid's own finer number when it is the same tempo: 124.93 under a typed 125", () => {
+    expect(reconcileOwnerBpm({ bpm: 124.93, offsetSec: 0.1 }, 125)).toEqual({ grid: { bpm: 124.93, offsetSec: 0.1 }, outcome: 'same' })
+  })
+
+  it('a refined octave keeps its fine number: 74.9 under a typed 150 becomes 149.8, not 150', () => {
+    expect(reconcileOwnerBpm({ bpm: 74.9, offsetSec: 0 }, 150).grid.bpm).toBeCloseTo(149.8, 9)
+  })
+
+  it('a different tempo is not guessed at: the checked grid stays, and the caller is told they differ', () => {
+    expect(reconcileOwnerBpm({ bpm: 125, offsetSec: 0.1 }, 100)).toEqual({ grid: { bpm: 125, offsetSec: 0.1 }, outcome: 'differs' })
   })
 })

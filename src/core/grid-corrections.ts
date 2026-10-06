@@ -10,6 +10,7 @@
  * same store: an owner's correction and a detector's answer must never be
  * confused for each other.
  */
+import { doubleGrid, halveGrid } from '@/core/beatgrid'
 import type { BeatGrid } from '@/core/types'
 
 export const GRID_CORRECTION_SCHEMA = 1
@@ -40,4 +41,21 @@ export function resolveGridCorrection(stored: unknown): { grid: BeatGrid } | { r
     return { refused: 'damaged record' }
   }
   return { grid: { bpm: g.bpm, offsetSec: g.offsetSec } }
+}
+
+/**
+ * A saved grid against the BPM the owner typed (v0.9.45). Two answers the owner gave at different times can count the same song at
+ * different octaves: Shalom fixed or confirmed a hip-hop grid at 75, later typed Beatport's 150, and the deck kept saying 75 while the
+ * row said 150 (06/10) — the Beatport panel had told him the new BPM "applies the next time you load this track", and it never did,
+ * because the saved grid always won. The typed number is his count of the beat; the saved grid is his phase. So:
+ * - within 2%: the same tempo (the load's own 2% rule) — the grid's finer number stays, nothing to say;
+ * - double or half: the grid is recounted to his number, its bar line kept (`doubleGrid`/`halveGrid`);
+ * - anything else: the grid he checked stays, and the caller says on screen that the two disagree — never one quietly dropped.
+ */
+export function reconcileOwnerBpm(grid: BeatGrid, ownerBpm: number): { grid: BeatGrid; outcome: 'same' | 'recounted' | 'differs' } {
+  const ratio = ownerBpm / grid.bpm
+  if (Math.abs(ratio - 1) <= 0.02) return { grid, outcome: 'same' }
+  if (Math.abs(ratio / 2 - 1) <= 0.02) return { grid: doubleGrid(grid), outcome: 'recounted' }
+  if (Math.abs(ratio * 2 - 1) <= 0.02) return { grid: halveGrid(grid), outcome: 'recounted' }
+  return { grid, outcome: 'differs' }
 }

@@ -71,7 +71,7 @@ import { sortTracks } from '@/core/library-sort'
 import { getCues, putCues } from '@/platform/cues-idb/store'
 import { getTempo, putTempo } from '@/platform/tempo-idb/store'
 import { getGridCorrection, putGridCorrection } from '@/platform/grid-corrections-idb/store'
-import { ownerCorrection, resolveGridCorrection } from '@/core/grid-corrections'
+import { ownerCorrection, reconcileOwnerBpm, resolveGridCorrection } from '@/core/grid-corrections'
 import { getExcellentPoints, markExcellent } from '@/platform/mix-ratings-idb/store'
 import { markExcellentPair } from '@/platform/mix-pairs-idb/store'
 import { clock } from '@/platform/clock-audio'
@@ -533,7 +533,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     // bpm included: it is the one answer here a person checked.
     const saved = contentHash ? await loadGridCorrection(contentHash) : null
     if (useStore.getState().decks[deckId].track?.id !== track.id) return
-    const corrected = applySavedGridResult(saved)
+    const corrected = savedGridForOwnerBpm(track.id, applySavedGridResult(saved))
     // Which beat is the "1" (v0.9.5) — the rules, and why an unsure answer
     // still moves the grid, are in core/downbeat.ts.
     const barOne =
@@ -589,7 +589,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     // this, a failed analysis hid a correction that was sitting in storage.
     const saved = contentHash ? await loadGridCorrection(contentHash) : null
     if (useStore.getState().decks[deckId].track?.id !== track.id) return
-    const corrected = applySavedGridResult(saved)
+    const corrected = savedGridForOwnerBpm(track.id, applySavedGridResult(saved))
     patchDeck(deckId, {
       track: { ...track, contentHash, analysisState: 'failed', analysisError: message, durationSec },
       ...(corrected ? { beatGrid: corrected, bpm: corrected.bpm, beatGridConfirmed: true } : {}),
@@ -953,6 +953,25 @@ function applySavedGridResult(r: SavedGridResult): BeatGrid | null {
   if ('problem' in r) {
     useStore.getState().setNotice({ text: r.problem, tone: 'warn', source: 'grid' })
     return null
+  }
+  return r.grid
+}
+
+/**
+ * The saved grid, counted the way the owner typed this track's BPM (v0.9.45, `reconcileOwnerBpm`). Read from the library's row, not the
+ * load's snapshot: the owner can type a BPM while the deck is still loading. A grid that disagrees with his number by more than an octave
+ * is kept and said on screen — the deck and the row showing two numbers with nothing to say why was the bug.
+ */
+function savedGridForOwnerBpm(trackId: string, grid: BeatGrid | null): BeatGrid | null {
+  const row = useStore.getState().library.tracks.find((t) => t.id === trackId)
+  if (!grid || row?.bpmSource !== 'owner' || !row.bpm) return grid
+  const r = reconcileOwnerBpm(grid, row.bpm)
+  if (r.outcome === 'differs') {
+    useStore.getState().setNotice({
+      text: `"${row.title ?? row.name}": you set ${Number(row.bpm.toFixed(1))} BPM, but the beat grid you fixed says ${Number(grid.bpm.toFixed(1))} — the deck plays your grid. Click the deck's BPM to fix the grid.`,
+      tone: 'warn',
+      source: 'grid',
+    })
   }
   return r.grid
 }
