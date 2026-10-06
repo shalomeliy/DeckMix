@@ -57,7 +57,10 @@ while ((await playing()) && Date.now() < deadline) await page.waitForTimeout(200
 const stillPlaying = await playing()
 await page.waitForTimeout(1500)
 const after = await top()
-const ok = !stillPlaying && during > 0 && Math.abs(after - during) <= 2 && logs.length === 0
-console.log(`${ok ? 'PASS' : 'FAIL'}  list offset while the song played: ${during}px, after it ended: ${after}px${logs.length ? ' — ' + logs.join(' | ') : ''}`)
+// v0.9.39: compared with where he SCROLLED, not with the offset during play. The suggestions list is shorter, so the box clamps it (1500 → 1380 here),
+// and the v0.12.10 code then carried that clamp back to the library — this script passed at "1380 → 1380" while he had scrolled to 1500.
+const scrolled = 1500
+const ok = !stillPlaying && during > 0 && Math.abs(after - scrolled) <= 2 && logs.length === 0
+console.log(`${ok ? 'PASS' : 'FAIL'}  list scrolled to ${scrolled}px, while the song played: ${during}px, after it ended: ${after}px${logs.length ? ' — ' + logs.join(' | ') : ''}`)
 await b.close()
 process.exit(ok ? 0 : 1)

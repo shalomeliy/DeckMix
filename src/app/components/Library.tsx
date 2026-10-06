@@ -59,6 +59,7 @@ import {
 import { ChecklistFilterBody, HeaderFilter, RangeFilterBody, TextFilterBody } from '@/app/components/ColumnFilter'
 import { useVirtualRows } from '@/app/hooks/useVirtualRows'
 import { useScrollMemory } from '@/app/hooks/useScrollMemory'
+import { listViewKey } from '@/core/scroll-memory'
 import { Button, HintIcon } from '@/app/components/controls'
 import { SourceCheckPanel } from '@/app/components/SourceCheckPanel'
 import { beatportSearch } from '@/core/source-lookup'
@@ -880,8 +881,8 @@ export function Library() {
   const { containerRef, start, end, padTop, padBottom } = useVirtualRows(rows.length, ROW_HEIGHT)
   // Where the owner scrolled, kept per list the table can show (`core/scroll-memory.ts` has the bug this replaced, 06/10):
   // play/pause switches Mix Only by itself, and coming back to the whole library must land where he left it, not at the top.
-  const listView = similarTo ? `similar:${similarTo}` : mixOnly ? 'mix' : 'all'
-  useScrollMemory(containerRef, listView, rows.length > 0, [rows.length, rowIdsKey, padTop, padBottom, end])
+  const listView = listViewKey({ similarTo, mixOnly, dupOnly, deckIds: [aId, bId] })
+  useScrollMemory(containerRef, listView, rows.length > 0, `${rows.length}:${start}:${end}:${padTop}:${padBottom}`)
   const emptyAction = similarTo ? (
     <Button variant="toggle" active tone="var(--color-accent)" onClick={() => setSimilarTo(null)}>
       Clear similar filter

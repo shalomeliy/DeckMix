@@ -1,16 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { createScrollMemory, endRestore, recordScroll, restoreLanded, switchView } from '@/core/scroll-memory'
+import {
+  boxReplaced,
+  createScrollMemory,
+  listViewKey,
+  ownerTookOver,
+  recordScroll,
+  restoreExpired,
+  restoreLanded,
+  switchView,
+} from '@/core/scroll-memory'
+
+const view = (o: Partial<Parameters<typeof listViewKey>[0]> = {}) =>
+  listViewKey({ similarTo: null, mixOnly: false, dupOnly: false, deckIds: ['t1', null], ...o })
 
 describe('scroll memory per list view (v0.9.39)', () => {
   it("Shalom's bug: genre filter, scroll down, play, pause — the whole library comes back where he left it", () => {
     const m = createScrollMemory('all')
     recordScroll(m, 2000, true) // he scrolled down the filtered library
-    // Play: Mix Only switches on by itself; first visit to the suggestions starts at the top.
-    expect(switchView(m, 'mix')).toBe(0)
-    restoreLanded(m, 0)
-    // The browser clamps 2000 down to the short suggestions list and fires a scroll event for it.
-    recordScroll(m, 0, true)
-    // Pause (or the song ends): Mix Only switches off. The old single offset restored this 0.
+    // Play: Mix Only switches on by itself. A first visit is not scrolled anywhere — the box keeps its offset.
+    expect(switchView(m, 'mix:all:t1|-')).toBeNull()
+    // The browser clamps 2000 down to the few suggestions and fires a scroll event for it — the suggestions' offset now.
+    recordScroll(m, 60, true)
+    // Pause (or the song ends). v0.12.10's single offset restored that clamp.
     expect(switchView(m, 'all')).toBe(2000)
   })
 
@@ -18,8 +29,6 @@ describe('scroll memory per list view (v0.9.39)', () => {
     const m = createScrollMemory('all')
     recordScroll(m, 1500, true)
     switchView(m, 'mix')
-    recordScroll(m, 50, true) // a clamp while the restore is pending: ignored
-    restoreLanded(m, 0)
     recordScroll(m, 300, true)
     switchView(m, 'all')
     // First commit: the rendered rows are still the short list's height, so 1500 is clamped.
@@ -31,6 +40,19 @@ describe('scroll memory per list view (v0.9.39)', () => {
     expect(switchView(m, 'mix')).toBe(300)
   })
 
+  it('a restore that times out keeps the remembered offset, never the clamp (review finding: sticky bottom)', () => {
+    const m = createScrollMemory('all')
+    recordScroll(m, 1200, true)
+    switchView(m, 'dups')
+    recordScroll(m, 0, true)
+    switchView(m, 'all') // the library got shorter meanwhile: 1200 no longer exists
+    restoreLanded(m, 60)
+    recordScroll(m, 60, true) // the clamp's scroll event, while pending
+    restoreExpired(m)
+    switchView(m, 'dups')
+    expect(switchView(m, 'all')).toBe(1200)
+  })
+
   it('a transient empty list records nothing', () => {
     const m = createScrollMemory('all')
     recordScroll(m, 900, true)
@@ -39,13 +61,19 @@ describe('scroll memory per list view (v0.9.39)', () => {
     expect(switchView(m, 'all')).toBe(900)
   })
 
+  it('a box an empty state replaced is put back where the view was', () => {
+    const m = createScrollMemory('all')
+    recordScroll(m, 700, true)
+    expect(boxReplaced(m)).toBe(700)
+    expect(boxReplaced(createScrollMemory('all'))).toBeNull()
+  })
+
   it("the owner's hand ends a pending restore and his position is what is kept", () => {
     const m = createScrollMemory('all')
     recordScroll(m, 1200, true)
     switchView(m, 'mix')
-    restoreLanded(m, 0)
     switchView(m, 'all')
-    endRestore(m, 700) // he scrolled before the restore landed
+    ownerTookOver(m, 700) // he scrolled before the restore landed
     expect(m.pending).toBeNull()
     recordScroll(m, 650, true)
     switchView(m, 'mix')
@@ -57,5 +85,21 @@ describe('scroll memory per list view (v0.9.39)', () => {
     recordScroll(m, 500, true)
     expect(switchView(m, 'all')).toBeNull()
     expect(m.pending).toBeNull()
+  })
+})
+
+describe('listViewKey: every toggle that swaps the list is its own view', () => {
+  it('Duplicates only, Mix Only and More like this each get their own key (review finding: dupOnly shared "all")', () => {
+    const keys = [view(), view({ dupOnly: true }), view({ mixOnly: true }), view({ mixOnly: true, dupOnly: true }), view({ similarTo: 'x' })]
+    expect(new Set(keys).size).toBe(keys.length)
+  })
+
+  it("the suggestions are keyed by the decks' tracks — another play is another list", () => {
+    expect(view({ mixOnly: true, deckIds: ['t1', null] })).not.toBe(view({ mixOnly: true, deckIds: ['t2', null] }))
+    expect(view({ mixOnly: true })).toBe(view({ mixOnly: true }))
+  })
+
+  it('the library view does not change when a deck loads a track', () => {
+    expect(view({ deckIds: ['t1', null] })).toBe(view({ deckIds: ['t9', 't3'] }))
   })
 })

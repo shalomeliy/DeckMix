@@ -2,17 +2,26 @@
  * Where the owner scrolled the track list, remembered per view (v0.9.39).
  *
  * The table shows different lists over the same scroll box: the whole library, Mix Only's suggestions (switched on by
- * itself when a deck starts playing and off when both stop), a "More like this" list. v0.9.x kept ONE offset — the last
- * one seen while the list had rows — and put it back after the automatic switch. That number was overwritten by the
- * suggestions list on the way in: the scroll box clamps 2000px down to the few rows the suggestions have, the browser
- * fires a scroll event for the clamp, and the "last good offset" became 0. Pause, or the song ending, then restored
- * that 0 to the whole library — the list jumped to the top (Shalom, 06/10: genre filter, scroll down, load, play, pause).
+ * itself when a deck starts playing and off when both stop), Duplicates only, a "More like this" list. v0.12.10 kept ONE
+ * offset — the last one seen while the list had rows — and put it back after the automatic switch. That number was
+ * overwritten on the way in: with a genre filter on, the suggestions are a few rows, the scroll box clamps 2000px down
+ * to them, the browser fires a scroll event for the clamp, and the "last good offset" became the clamp. Pause, or the
+ * song ending, then restored that to the whole library — the list jumped to the top (Shalom, 06/10: genre filter,
+ * scroll down, load, play, pause).
  *
- * So each view keeps its own offset, and while a restore is pending, scroll events are the browser clamping or this
- * code assigning — never the owner — so they record nothing. The owner touching the list (wheel, drag, key, click)
- * ends a pending restore at once, so a restore never fights his hand.
+ * So each view keeps its own offset, and:
+ * - while a restore is pending, scroll events are the browser clamping or this code assigning — never the owner — so
+ *   they record nothing;
+ * - the owner's hand (wheel, click, key) ends a pending restore at once and his position is what is kept;
+ * - a restore that times out (the list got shorter while he was away) records nothing: the clamp is not where he was;
+ * - a view seen for the first time is NOT scrolled anywhere — the box keeps its offset, as the browser leaves it.
+ *   Forcing the top there is a jump too (the 03/10 check `scripts/verify-library-scroll-keeps.mjs` holds the offset
+ *   across PLAY).
  *
- * Pure — no DOM, no React. `app/components/Library.tsx` feeds it the scroll box's real numbers.
+ * What is deliberately NOT a separate view: a search, a sort, a crate, a column filter. Those make a new list out of the
+ * same view, and the browser's clamp is what the owner sees — the same as before v0.9.39.
+ *
+ * Pure — no DOM, no React. `app/hooks/useScrollMemory.ts` feeds it the scroll box's real numbers.
  */
 export interface ScrollMemory {
   view: string
@@ -25,6 +34,23 @@ export function createScrollMemory(view: string): ScrollMemory {
   return { view, byView: new Map(), pending: null }
 }
 
+/**
+ * The key of the list the table is drawing. Every view toggle that swaps the list for a different one belongs here —
+ * leaving one out puts two lists under one offset, which is the bug this module exists for. The suggestions are a
+ * different list for every pair of deck tracks, so they are keyed by them: an offset in one play's suggestions means
+ * nothing in the next one's.
+ */
+export function listViewKey(v: {
+  similarTo: string | null
+  mixOnly: boolean
+  dupOnly: boolean
+  deckIds: readonly (string | null)[]
+}): string {
+  if (v.similarTo) return `similar:${v.similarTo}`
+  const base = v.dupOnly ? 'dups' : 'all'
+  return v.mixOnly ? `mix:${base}:${v.deckIds.map((id) => id ?? '-').join('|')}` : base
+}
+
 /** A scroll event. `hasRows` false = a transient empty list, whose 0 says nothing about where the owner was. */
 export function recordScroll(m: ScrollMemory, top: number, hasRows: boolean): void {
   if (m.pending != null || !hasRows) return
@@ -32,13 +58,22 @@ export function recordScroll(m: ScrollMemory, top: number, hasRows: boolean): vo
 }
 
 /**
- * The table switched lists. Returns the offset to put back — where the owner left this view, or the top on a first
- * visit — or null when the view did not change.
+ * The table switched lists. Returns the offset to put back — where the owner left this view — or null when there is
+ * nothing to restore (the same view, or a view never seen before, which keeps the box's offset as it is).
  */
 export function switchView(m: ScrollMemory, view: string): number | null {
   if (view === m.view) return null
   m.view = view
-  m.pending = m.byView.get(view) ?? 0
+  m.pending = m.byView.get(view) ?? null
+  return m.pending
+}
+
+/**
+ * The scroll box was replaced (an empty state unmounted it, and it came back at 0) while the view stayed the same.
+ * Returns the offset to put back, or null when this view has none.
+ */
+export function boxReplaced(m: ScrollMemory): number | null {
+  m.pending = m.byView.get(m.view) ?? null
   return m.pending
 }
 
@@ -51,9 +86,17 @@ export function restoreLanded(m: ScrollMemory, actual: number): void {
   if (m.pending != null && Math.abs(actual - m.pending) < 1) m.pending = null
 }
 
-/** The owner touched the list, or the restore timed out (the list got shorter while he was away): stop restoring. */
-export function endRestore(m: ScrollMemory, actual?: number): void {
+/** The owner touched the list: stop restoring, and where he is now is this view's offset. */
+export function ownerTookOver(m: ScrollMemory, actual: number): void {
   if (m.pending == null) return
   m.pending = null
-  if (actual != null) m.byView.set(m.view, actual)
+  m.byView.set(m.view, actual)
+}
+
+/**
+ * The restore ran out of time — the list is shorter than it was and the old offset no longer exists. Stop, and keep the
+ * remembered offset: writing the clamp back would land every later visit at the bottom.
+ */
+export function restoreExpired(m: ScrollMemory): void {
+  m.pending = null
 }
