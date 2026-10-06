@@ -47,7 +47,10 @@ const NAMED: Record<string, Named[]> = {
     { token: 'onDoubleClick=', count: 3, exempt: 'stops a row double-click inside the genre/note cell editors and on the ↗ Beatport link' },
     { token: 'onKeyDown=', count: 1, gesture: 'library.rows' },
     { token: 'onKeyDown=', count: 1, gesture: 'library.search' }, // Esc: tag first, then text
-    { token: "addEventListener('keydown'", count: 1, exempt: `v0.9.24 Genre ▾ list: ${ESC_CLOSES}` },
+  ],
+  // v0.9.36: the Genre ▾ list (v0.9.24) moved here, shared with every column's ▾
+  'src/app/components/ColumnFilter.tsx': [
+    { token: "addEventListener('keydown'", count: 1, exempt: `column ▾ lists: ${ESC_CLOSES}` },
   ],
   // v0.9.34: the bar on the track list's top edge.
   'src/app/components/LibraryResizeHandle.tsx': [

@@ -112,4 +112,9 @@ describe('libraryEmptyCopy — played tracks hidden (v0.8.10)', () => {
     const copy = libraryEmptyCopy('', false, 0, null, false, null, true)
     expect(copy.title).toBe('No audio files found')
   })
+
+  it('v0.9.36: a header ▾ filter that leaves nothing is named, not "No audio files found"', () => {
+    const copy = libraryEmptyCopy('', false, 0, null, false, null, false, false, true)
+    expect(copy.title).toBe('No tracks match these filters')
+  })
 })

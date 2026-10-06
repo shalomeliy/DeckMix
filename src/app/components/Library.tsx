@@ -16,7 +16,6 @@ import {
   restoreLibraryFolder,
   scanLibrary,
 } from '@/platform/source-fsaccess/library'
-import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import { bootCopy, bootFor, bootForScanError } from '@/core/library-boot'
 import { findSimilarTracks, orderBySimilarMatches } from '@/core/embedding-search'
@@ -42,7 +41,22 @@ import { useSettings } from '@/app/hooks/useSettings'
 import { useStore } from '@/app/state/store'
 import type { KeyMode } from '@/core/settings'
 import type { Track } from '@/core/types'
-import type { SortDir, SortKey } from '@/core/library-sort'
+import { camelotOrder, type SortDir, type SortKey } from '@/core/library-sort'
+import {
+  FILTER_COLUMN_LABEL,
+  PLAYED_BUCKETS,
+  PLAYED_BUCKET_LABEL,
+  describeColumnFilter,
+  fmtMinSec,
+  keyValue,
+  missingCount,
+  parseTimeInput,
+  playedBucket,
+  type ColumnFilters,
+  type FilterColumn,
+  type PlayedBucket,
+} from '@/core/library-filter'
+import { ChecklistFilterBody, HeaderFilter, RangeFilterBody, TextFilterBody } from '@/app/components/ColumnFilter'
 import { useVirtualRows } from '@/app/hooks/useVirtualRows'
 import { Button, HintIcon } from '@/app/components/controls'
 import { SourceCheckPanel } from '@/app/components/SourceCheckPanel'
@@ -784,6 +798,12 @@ export function Library() {
     ctl.setSearchColumn(searchColumn === c ? null : c)
     searchRef.current?.focus()
   }
+  // v0.9.36: while a header ▾ filter is on, the header stays even when nothing
+  // is left. Without it the open ▾ list vanished mid-typing — "13" on the way
+  // to "130" in BPM "to" emptied the table, and the box went with it. A search
+  // that matches nothing keeps it too: clearing the last ▾ under such a search
+  // took the header away the same way (review).
+  const headerFilterOn = library.genreFilter != null || Object.keys(library.columnFilters).length > 0
   // Every narrowing on screen, each with its own way out — shown in the
   // empty state (v0.8.25), so "nothing matches" always names what to undo.
   const activeFilters: { label: string; clear: () => void }[] = [
@@ -810,6 +830,11 @@ export function Library() {
           },
         ]
       : []),
+    // v0.9.36: one chip per column ▾, each clearing only its own column
+    ...(Object.keys(library.columnFilters) as FilterColumn[]).flatMap((c) => {
+      const v = library.columnFilters[c]
+      return v ? [{ label: describeColumnFilter(c, v), clear: () => ctl.setColumnFilter(c, null) }] : []
+    }),
     ...(dupOnly ? [{ label: 'Duplicates only', clear: () => setDupOnly(false) }] : []),
     ...(activeCrate ? [{ label: `Crate: ${activeCrate.name}`, clear: () => ctl.setActiveCrate(null) }] : []),
     ...(similarToTrack
@@ -855,6 +880,7 @@ export function Library() {
     similarToTrack ? (similarToTrack.title ?? similarToTrack.name) : null,
     allSuggestionsPlayedHidden,
     dupOnly,
+    headerFilterOn,
   )
   // Only a manual crate's membership can be edited from here — a smart
   // crate's contents are entirely rule-derived (`refreshSmartCrate`), so
@@ -1403,7 +1429,7 @@ export function Library() {
             ) : undefined
           }
         />
-      ) : rows.length === 0 ? (
+      ) : rows.length === 0 && !headerFilterOn && !library.query.trim() ? (
         <EmptyState title={emptyCopy.title} body={emptyCopy.body} action={emptyActions} />
       ) : (
         <div ref={containerRef} className="min-h-0 flex-1 overflow-auto">
@@ -1434,11 +1460,13 @@ export function Library() {
                     band between Artist and MP3. Fixed layout is what makes the
                     number mean what it says. */}
                 <Th className="w-[20%] pl-3 text-left" sortKey="title" activeSort={activeSort} onSort={handleSort}
-                  searchColumn="title" searchActive={searchColumn === 'title'} onSearch={pickSearchColumn}>
+                  searchColumn="title" searchActive={searchColumn === 'title'} onSearch={pickSearchColumn}
+                  extra={<ColumnFilterButton column="title" tracks={library.tracks} filters={library.columnFilters} keyMode={keyMode} />}>
                   Title
                 </Th>
                 <Th className="w-[21%] text-left" sortKey="artist" activeSort={activeSort} onSort={handleSort}
-                  searchColumn="artist" searchActive={searchColumn === 'artist'} onSearch={pickSearchColumn}>
+                  searchColumn="artist" searchActive={searchColumn === 'artist'} onSearch={pickSearchColumn}
+                  extra={<ColumnFilterButton column="artist" tracks={library.tracks} filters={library.columnFilters} keyMode={keyMode} />}>
                   Artist
                 </Th>
                 {/* Reclaimed from Type (8%→4%) and Time (10%→7%) — Title, Artist,
@@ -1450,9 +1478,13 @@ export function Library() {
                   extra={<GenreFilterButton tracks={library.tracks} picked={library.genreFilter} />}>
                   Genre
                 </Th>
-                <Th className="w-[3%] text-left">Type</Th>
+                <Th className="w-[3%] text-left" sortKey="type" activeSort={activeSort} onSort={handleSort}
+                  extra={<ColumnFilterButton column="type" tracks={library.tracks} filters={library.columnFilters} keyMode={keyMode} />}>
+                  Type
+                </Th>
                 <Th className="w-[8%] text-right tnum" sortKey="bpm" activeSort={activeSort} onSort={handleSort}
-                  searchColumn="bpm" searchActive={searchColumn === 'bpm'} onSearch={pickSearchColumn}>
+                  searchColumn="bpm" searchActive={searchColumn === 'bpm'} onSearch={pickSearchColumn}
+                  extra={<ColumnFilterButton column="bpm" tracks={library.tracks} filters={library.columnFilters} keyMode={keyMode} />}>
                   BPM
                 </Th>
                 <Th className="w-[8%] text-right">
@@ -1493,6 +1525,7 @@ export function Library() {
                     </span>
                   </button>
                   <SearchColumnButton column="key" active={searchColumn === 'key'} onSearch={pickSearchColumn} />
+                  <ColumnFilterButton column="key" tracks={library.tracks} filters={library.columnFilters} keyMode={keyMode} />
                 </Th>
                 {/* Time is right-aligned and Note left-aligned, so with no padding
                     between them the header read "TimeNote" as one word (v0.8.28).
@@ -1504,10 +1537,12 @@ export function Library() {
                   sortKey="durationSec"
                   activeSort={activeSort}
                   onSort={handleSort}
+                  extra={<ColumnFilterButton column="durationSec" tracks={library.tracks} filters={library.columnFilters} keyMode={keyMode} />}
                 >
                   Time
                 </Th>
-                <Th className="w-[12%] pl-2 text-left" sortKey="note" activeSort={activeSort} onSort={handleSort}>
+                <Th className="w-[12%] pl-2 text-left" sortKey="note" activeSort={activeSort} onSort={handleSort}
+                  extra={<ColumnFilterButton column="note" tracks={library.tracks} filters={library.columnFilters} keyMode={keyMode} />}>
                   Note
                 </Th>
                 <Th
@@ -1515,6 +1550,7 @@ export function Library() {
                   sortKey="lastPlayedAt"
                   activeSort={activeSort}
                   onSort={handleSort}
+                  extra={<ColumnFilterButton column="played" tracks={library.tracks} filters={library.columnFilters} keyMode={keyMode} />}
                 >
                   Played
                 </Th>
@@ -1641,113 +1677,158 @@ const NO_GENRE = ''
  * The ▾ in the Genre header (v0.9.24, Shalom 05/10): tick the genres to keep,
  * like a spreadsheet column filter. Only genres the library actually holds are
  * listed, each with its count, and "No genre" is its own line — the tracks
- * without one are named, not silently left out of every pick.
- *
- * The list is portalled to `<body>` and placed `fixed` from the button's
- * rectangle: the table sits in a scrolling, sticky-header box that clipped it
- * when placed under the 5%-wide header, and inside that box `fixed` was not
- * relative to the window (the first browser run lost the list off-screen).
+ * without one are named, not silently left out of every pick. Since v0.9.36
+ * the button and list are `ColumnFilter.tsx`'s, shared with every column.
  */
 function GenreFilterButton({ tracks, picked }: { tracks: readonly Track[]; picked: string[] | null }) {
-  const [open, setOpen] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number } | null>(null)
-  const boxRef = useRef<HTMLDivElement>(null)
-  const btnRef = useRef<HTMLButtonElement>(null)
-  const counts = useMemo(() => {
+  const rows = useMemo(() => {
     const m = new Map<string, number>()
     for (const t of tracks) m.set(t.genre ?? NO_GENRE, (m.get(t.genre ?? NO_GENRE) ?? 0) + 1)
-    return [...m.entries()].sort((a, b) => (a[0] === NO_GENRE ? 1 : b[0] === NO_GENRE ? -1 : a[0].localeCompare(b[0])))
+    return [...m.entries()]
+      .sort((a, b) => (a[0] === NO_GENRE ? 1 : b[0] === NO_GENRE ? -1 : a[0].localeCompare(b[0])))
+      .map(([g, n]) => ({ value: g, label: g === NO_GENRE ? 'No genre' : g, count: n, muted: g === NO_GENRE }))
   }, [tracks])
-  // a genre still ticked after the last track of it left the library stays listed, at 0, so it can be unticked
-  const rows = [...counts, ...(picked ?? []).filter((g) => !counts.some(([c]) => c === g)).map((g) => [g, 0] as [string, number])]
-  const set = new Set(picked ?? [])
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (!boxRef.current?.contains(e.target as Node) && !btnRef.current?.contains(e.target as Node)) setOpen(null)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        setOpen(null)
-        btnRef.current?.focus()
-      }
-    }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey, true)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey, true)
-    }
-  }, [open])
-
-  const toggle = (g: string) => {
-    const next = new Set(set)
-    if (next.has(g)) next.delete(g)
-    else next.add(g)
-    ctl.setGenreFilter([...next])
-  }
   const label = (g: string) => (g === NO_GENRE ? 'No genre' : g)
-
   return (
-    <>
-      <button
-        ref={btnRef}
-        type="button"
-        onClick={() => {
-          if (open) return setOpen(null)
-          // The library sits low on the owner's 710px screen — its header was at
-          // y≈620 in the browser check — so the list opens upward when there is
-          // more room above, and is never taller than the room it has.
-          const r = btnRef.current!.getBoundingClientRect()
-          const left = Math.max(8, Math.min(r.left, window.innerWidth - 216))
-          const below = window.innerHeight - r.bottom - 12
-          const above = r.top - 12
-          setOpen(
-            below >= 240 || below >= above
-              ? { left, top: r.bottom + 4, maxHeight: below }
-              : { left, bottom: window.innerHeight - r.top + 4, maxHeight: above },
-          )
-        }}
-        aria-label={picked ? `Genre filter: ${picked.map(label).join(', ')}` : 'Filter by genre'}
-        aria-expanded={open != null}
-        aria-haspopup="true"
-        title={picked ? `Showing only: ${picked.map(label).join(', ')}` : 'Filter by genre'}
-        className={`ml-0.5 rounded-[var(--radius-xs)] px-0.5 text-2xs transition-colors hover:bg-surface-2 hover:text-grid-text ${
-          picked ? 'text-accent' : 'text-grid-dim'
-        }`}
-      >
-        {picked ? `▾${picked.length}` : '▾'}
-      </button>
-      {open && createPortal(
-        <div
-          ref={boxRef}
-          role="group"
-          aria-label="Genres to show"
-          className="fixed z-50 w-52 overflow-y-auto rounded-[var(--radius-sm)] border border-hairline bg-surface-1 p-1 text-left text-xs font-normal normal-case tracking-normal text-grid-text shadow-lg"
-          style={{ left: open.left, top: open.top, bottom: open.bottom, maxHeight: open.maxHeight }}
-        >
-          <button
-            type="button"
-            onClick={() => ctl.setGenreFilter(null)}
-            disabled={!picked}
-            className="mb-1 w-full rounded-[var(--radius-xs)] px-2 py-1 text-left hover:bg-surface-2 disabled:opacity-50"
-          >
-            {picked ? 'Show all genres' : 'All genres shown — tick to narrow'}
-          </button>
-          {rows.map(([g, n]) => (
-            <label key={g || '(none)'} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-xs)] px-2 py-0.5 hover:bg-surface-2">
-              <input type="checkbox" checked={set.has(g)} onChange={() => toggle(g)} />
-              <span className={`min-w-0 flex-1 truncate ${g === NO_GENRE ? 'italic text-grid-muted' : ''}`}>{label(g)}</span>
-              <span className="tnum text-grid-dim">{n}</span>
-            </label>
-          ))}
-          <p className="mt-1 px-2 text-2xs text-grid-dim">Esc to close</p>
-        </div>,
-        document.body,
-      )}
-    </>
+    <HeaderFilter active={!!picked} count={picked?.length} name="Genre" listLabel="Genres to show" summary={picked?.map(label).join(', ')}>
+      <ChecklistFilterBody rows={rows} picked={picked ?? undefined} onChange={ctl.setGenreFilter} noun="genres" />
+    </HeaderFilter>
   )
+}
+
+/** Counts per value, for a checklist filter: `[value, count]` in first-seen order. */
+function countBy(tracks: readonly Track[], valueOf: (t: Track) => string): Map<string, number> {
+  const m = new Map<string, number>()
+  for (const t of tracks) {
+    const v = valueOf(t)
+    m.set(v, (m.get(v) ?? 0) + 1)
+  }
+  return m
+}
+
+/**
+ * The ▾ filters on every column but Genre (v0.9.36, Shalom 06/10). What each
+ * column's filter is, and why, is written in `core/library-filter.ts`.
+ */
+function ColumnFilterButton({
+  column,
+  tracks,
+  filters,
+  keyMode,
+}: {
+  column: FilterColumn
+  tracks: readonly Track[]
+  filters: ColumnFilters
+  keyMode: KeyMode
+}) {
+  const value = filters[column]
+  const summary = value ? describeColumnFilter(column, value).replace(/^[^:]*: /, '') : undefined
+  const common = { active: value != null, name: FILTER_COLUMN_LABEL[column], summary }
+  switch (column) {
+    case 'title':
+    case 'artist':
+    case 'note':
+      return (
+        <HeaderFilter {...common}>
+          <TextFilterBody
+            value={filters[column]}
+            onChange={(v) => ctl.setColumnFilter(column, v)}
+            noun={column}
+            blankLabel={column === 'artist' ? 'No artist' : column === 'note' ? 'No note' : undefined}
+          />
+        </HeaderFilter>
+      )
+    case 'type': {
+      const rows = [...countBy(tracks, (t) => t.kind)]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([v, n]) => ({ value: v, label: v.toUpperCase(), count: n }))
+      return (
+        <HeaderFilter {...common} count={filters.type?.length}>
+          <ChecklistFilterBody rows={rows} picked={filters.type} onChange={(v) => ctl.setColumnFilter('type', v)} noun="types" />
+        </HeaderFilter>
+      )
+    }
+    case 'key': {
+      // One line per Camelot code, spelled the way the column is showing it.
+      const spelled = new Map<string, string>()
+      for (const t of tracks) {
+        const v = keyValue(t)
+        if (v && !spelled.has(v)) spelled.set(v, keyLabel(t, keyMode) ?? v)
+      }
+      const rows = [...countBy(tracks, keyValue)]
+        .sort((a, b) => {
+          if (a[0] === '' || b[0] === '') return a[0] === '' ? 1 : -1
+          const ao = camelotOrder(a[0])
+          const bo = camelotOrder(b[0])
+          if (ao != null && bo != null) return ao - bo
+          if (ao != null || bo != null) return ao != null ? -1 : 1
+          return a[0].localeCompare(b[0])
+        })
+        .map(([v, n]) => ({ value: v, label: v ? (spelled.get(v) ?? v) : 'No key', count: n, muted: v === '' }))
+      return (
+        <HeaderFilter {...common} count={filters.key?.length}>
+          <ChecklistFilterBody rows={rows} picked={filters.key} onChange={(v) => ctl.setColumnFilter('key', v)} noun="keys" />
+        </HeaderFilter>
+      )
+    }
+    case 'bpm':
+      return (
+        <HeaderFilter {...common}>
+          <RangeFilterBody
+            value={filters.bpm}
+            onChange={(v) => ctl.setColumnFilter('bpm', v)}
+            noun="BPM"
+            parse={parseBpmInput}
+            format={(n) => String(Math.round(n * 10) / 10)}
+            placeholder={['120', '130']}
+            missing={missingCount(tracks, 'bpm')}
+            missingNoun="tracks have no BPM yet"
+          />
+        </HeaderFilter>
+      )
+    case 'durationSec':
+      return (
+        <HeaderFilter {...common}>
+          <RangeFilterBody
+            value={filters.durationSec}
+            onChange={(v) => ctl.setColumnFilter('durationSec', v)}
+            noun="length"
+            parse={parseTimeInput}
+            format={fmtMinSec}
+            placeholder={['3:00', '7:30']}
+            missing={missingCount(tracks, 'durationSec')}
+            missingNoun="tracks have no length yet"
+          />
+        </HeaderFilter>
+      )
+    case 'played': {
+      const rows = playedRows(tracks)
+      return (
+        <HeaderFilter {...common} count={filters.played?.length}>
+          <ChecklistFilterBody
+            rows={rows}
+            picked={filters.played}
+            onChange={(v) => ctl.setColumnFilter('played', v as PlayedBucket[] | null)}
+            noun="periods"
+          />
+        </HeaderFilter>
+      )
+    }
+  }
+}
+
+/** The Played periods with their counts — "now" read the same way `fmtRelative` reads it for the cells. */
+function playedRows(tracks: readonly Track[]) {
+  const now = Date.now()
+  const counts = countBy(tracks, (t) => playedBucket(t.lastPlayedAt, now))
+  return PLAYED_BUCKETS.map((b) => ({ value: b, label: PLAYED_BUCKET_LABEL[b], count: counts.get(b) ?? 0, muted: b === 'never' }))
+}
+
+/** A typed BPM bound: any positive number, `undefined` for blank or unreadable. */
+function parseBpmInput(raw: string): number | undefined {
+  const s = raw.trim()
+  const n = Number(s)
+  return s && isFinite(n) && n > 0 ? n : undefined
 }
 
 /**

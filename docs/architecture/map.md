@@ -27,6 +27,7 @@ src/
     eq-mix.ts            eqMixFrame — המעבר עם ה-EQ כמו DJ: B בלי בס, החלפת בס, אחר כך MID ו-HIGH של A, ובסוף הקרוספיידר (v0.9.18)
     key-lock.ts          keyLockSemitones — בכמה חצאי טון להחזיר את הגובה כשהטמפו זז (v0.9.20)
     key-sync.ts          planKeySync — בכמה חצאי טון להזיז דק לסולם הקרוב שמתאים לדק השני (v0.9.21)
+    library-filter.ts    matchesColumnFilters — ה-▾ בכל עמודה ברשימה: טקסט, סימון ערכים, טווח, תקופה (v0.9.36)
     tempo-glide.ts       masterHasGone/glideTempoAt — מתי השיר הישן "נגמר" ואיך חוזרים לאט ל-BPM המקורי (v0.8.39)
     source-lookup.ts     beatportSearch — קישור חיפוש בלבד; האפליקציה אף פעם לא קוראת את Beatport (v0.8.38)
     ports/              ה‑interfaces: audio, source, transport, analyzer, clock,
@@ -71,7 +72,8 @@ src/
                         controls.tsx (Button/Knob/Fader), KeysScreen (v0.8.24 — מהטבלה ב-core/hints.ts),
                         TaggingScreen (v0.9.0 — מסך התיוג, audio-webaudio/tag-player.ts מנגן),
                         SourceCheckPanel (v0.8.38 — בדיקת BPM/סולם מול Beatport, מתחת לרשימה),
-                        LibraryResizeHandle (v0.9.34 — ידית בראש הרשימה; גדולה = בלי פדים)
+                        LibraryResizeHandle (v0.9.34 — ידית בראש הרשימה; גדולה = בלי פדים),
+                        ColumnFilter (v0.9.36 — ה-▾ בכותרות והרשימה שנפתחת, משותף ל-Genre ולשאר)
 ```
 
 הגבולות נאכפים ע"י `dependency-cruiser` (`.dependency-cruiser.cjs`), לא ע"י מוסכמה —

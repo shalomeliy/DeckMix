@@ -64,6 +64,7 @@ import {
   saveCrate,
   type CrateRecord,
 } from '@/platform/crates-idb/store'
+import { matchesColumnFilters, normalizeFilter, type ColumnFilters, type FilterColumn } from '@/core/library-filter'
 import { matchesSearch, type SearchColumn } from '@/core/library-search'
 import { sortTracks } from '@/core/library-sort'
 import { getCues, putCues } from '@/platform/cues-idb/store'
@@ -4315,12 +4316,31 @@ export function setGenreFilter(genres: string[] | null) {
   useStore.getState().setLibrary({ genreFilter: genres && genres.length > 0 ? genres : null })
 }
 
+/**
+ * Set or clear (`null`) one column's ▾ filter (v0.9.36). Empty values are
+ * dropped by `normalizeFilter`, so "nothing ticked" is "no filter", never an
+ * empty table.
+ */
+export function setColumnFilter<C extends FilterColumn>(column: C, value: ColumnFilters[C] | null) {
+  const { library, setLibrary } = useStore.getState()
+  const next: ColumnFilters = { ...library.columnFilters }
+  const v = normalizeFilter(column, value)
+  if (v === undefined) delete next[column]
+  else next[column] = v
+  setLibrary({ columnFilters: next })
+}
+
 export function filteredTracks(): Track[] {
   const { library, crates } = useStore.getState()
   const column = library.queryColumn
   const genres = library.genreFilter ? new Set(library.genreFilter) : null
+  const cols = library.columnFilters
+  const now = Date.now()
   const base = library.tracks.filter(
-    (t) => matchesSearch(t, library.query, column) && (!genres || genres.has(t.genre ?? '')),
+    (t) =>
+      matchesSearch(t, library.query, column) &&
+      (!genres || genres.has(t.genre ?? '')) &&
+      matchesColumnFilters(t, cols, now),
   )
   const crate = library.activeCrateId ? crates.get(library.activeCrateId) : undefined
   if (!crate) return base

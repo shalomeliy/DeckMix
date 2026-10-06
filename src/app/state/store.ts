@@ -17,6 +17,7 @@ import { detectCapabilities } from '@/platform/capabilities'
 import { emptySamplerSlot, SAMPLER_SLOT_COUNT, type SamplerSlot } from '@/core/sampler'
 import { FX_TIME_STEPS } from '@/core/fx'
 import { decksFollowLibraryKeys } from '@/core/tag-merge'
+import type { ColumnFilters } from '@/core/library-filter'
 import type { SearchColumn } from '@/core/library-search'
 import type { SortDir, SortKey } from '@/core/library-sort'
 import type { CrateRecord } from '@/platform/crates-idb/store'
@@ -318,6 +319,11 @@ export interface AppState {
      */
     genreFilter: string[] | null
     /**
+     * v0.9.36: the ▾ filters on every other column (`core/library-filter.ts`).
+     * `{}` is "no column filter"; an empty one is never stored.
+     */
+    columnFilters: ColumnFilters
+    /**
      * v0.8.25: the ids of the rows the table actually draws, in order —
      * written by `Library.tsx`, read by `moveSelection`. Mix Only, "hide
      * played" and "more like this" narrow the table inside the component, so
@@ -486,6 +492,7 @@ export const useStore = create<AppState>((set) => ({
     activeCrateId: null,
     queryColumn: null,
     genreFilter: null,
+    columnFilters: {},
     visibleIds: null,
   },
   crates: new Map(),

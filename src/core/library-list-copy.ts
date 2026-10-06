@@ -68,6 +68,12 @@ export function libraryEmptyCopy(
   allSuggestionsPlayedHidden = false,
   /** v0.8.45: "Duplicates only" is on and left nothing — its own message, or it would be blamed on Mix Only / "no audio files". */
   duplicatesOnly = false,
+  /**
+   * v0.9.36: a ▾ filter in a column header is on. Without it, a filter that
+   * left nothing with the search box empty fell through to "No audio files
+   * found" — telling the owner his folder holds no music (review).
+   */
+  headerFilterOn = false,
 ): LibraryEmptyCopy {
   if (duplicatesOnly && !similarToName) {
     return {
@@ -113,6 +119,13 @@ export function libraryEmptyCopy(
       title: 'No tracks currently mix with what’s playing',
       body: 'Turn off Mix Only to see the whole library again.',
       offerMixOnlyReset: true,
+    }
+  }
+  if (headerFilterOn) {
+    return {
+      title: 'No tracks match these filters',
+      body: 'Clear a filter with its ✕ below, or open its ▾ in the column header.',
+      offerMixOnlyReset: false,
     }
   }
   if (query) {
