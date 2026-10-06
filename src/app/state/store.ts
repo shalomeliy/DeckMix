@@ -297,6 +297,8 @@ export interface AppState {
     bootDetail: string | null
     /** listed tracks whose file could not be read — counted, never swallowed */
     unreadable: number
+    /** v0.9.41: the tag pass has finished — only then does "no artist" mean the file has none */
+    tagsRead: boolean
     /** which column the table is sorted by (v0.8.0) — null means scan order, today's default */
     sortKey: SortKey | null
     sortDir: SortDir
@@ -487,6 +489,7 @@ export const useStore = create<AppState>((set) => ({
     boot: 'checking',
     bootDetail: null,
     unreadable: 0,
+    tagsRead: false,
     sortKey: null,
     sortDir: 'asc',
     activeCrateId: null,

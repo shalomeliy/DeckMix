@@ -177,3 +177,22 @@ export function labelAgrees(track: Pick<Track, 'bpm' | 'bpmSource'>, detectedBpm
   const tolerance = track.bpmSource === 'owner' ? 0.005 : 0.02
   return Math.abs(detectedBpm - track.bpm) / track.bpm <= tolerance
 }
+
+/**
+ * The owner's own artist answers (v0.9.41), stored by content hash in
+ * `track-meta-idb`: an accepted artist goes on with `artistSource: 'owner'`
+ * and beats the tag, the same way his BPM/key do; the rejected ones ride along
+ * so the suggestion list never offers them again. `mergeTagPatch` keeps what
+ * the track already holds, so a tag pass that lands later does not undo it.
+ * Returns the same track when there is nothing to apply.
+ */
+export function applyOwnerArtist(track: Track, owner: { artist?: string; artistRejected?: string[] } | undefined): Track {
+  if (!owner || (!owner.artist && !owner.artistRejected?.length)) return track
+  const out: Track = { ...track }
+  if (owner.artist) {
+    out.artist = owner.artist
+    out.artistSource = 'owner'
+  }
+  if (owner.artistRejected?.length) out.artistRejected = owner.artistRejected
+  return out
+}

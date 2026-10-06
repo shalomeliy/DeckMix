@@ -57,6 +57,7 @@ import { pickJsonFileText } from '@/platform/vocal-marks-file-fsaccess/reader'
 import {
   setLastPlayed as persistLastPlayedByHash,
   setTrackNote as persistTrackNoteByHash,
+  setOwnerArtist,
   setOwnerTempoKey,
 } from '@/platform/track-meta-idb/store'
 import {
@@ -4779,6 +4780,49 @@ async function persistOwnerTempoKey(
   // he set earlier for the other field.
   const patch = Object.fromEntries(Object.entries(owner).filter(([, v]) => v !== undefined))
   await setOwnerTempoKey(hash, patch, clear)
+}
+
+/**
+ * The owner's answers to artist suggestions (v0.9.41, `core/artist-suggest.ts`).
+ * Same shape as `setTrackNote`: the rows change at once, each answer is kept by
+ * content hash, and a save that failed is said on screen with how many and the
+ * first track's name. Accepting several at once (the "Accept all" buttons) goes
+ * through here too, one file at a time, so a hash that has to be computed for
+ * each does not open a few hundred files together.
+ */
+export async function answerArtistSuggestions(answers: { trackId: string; artist: string; accept: boolean }[]): Promise<void> {
+  if (answers.length === 0) return
+  const byId = new Map(answers.map((a) => [a.trackId, a]))
+  const { library, setLibrary, setNotice } = useStore.getState()
+  setLibrary({
+    tracks: library.tracks.map((t) => {
+      const a = byId.get(t.id)
+      if (!a) return t
+      return a.accept
+        ? { ...t, artist: a.artist, artistSource: 'owner' as const }
+        : { ...t, artistRejected: [...new Set([...(t.artistRejected ?? []), a.artist])] }
+    }),
+  })
+  const failed: string[] = []
+  let firstError = ''
+  for (const a of answers) {
+    try {
+      if (!useStore.getState().library.tracks.some((t) => t.id === a.trackId)) continue // rescanned since — nothing to keep it against
+      const hash = await ensureContentHash(a.trackId)
+      await setOwnerArtist(hash, a.accept ? { accept: a.artist } : { reject: a.artist })
+    } catch (err) {
+      const t = useStore.getState().library.tracks.find((x) => x.id === a.trackId)
+      failed.push(t?.title ?? t?.name ?? a.trackId)
+      firstError ||= err instanceof Error ? err.message : String(err)
+    }
+  }
+  if (failed.length) {
+    setNotice({
+      text: `${failed.length} artist answer${failed.length === 1 ? '' : 's'} shown but not saved (first: "${failed[0]}"): ${firstError}`,
+      tone: 'warn',
+      source: 'library',
+    })
+  }
 }
 
 /** The track's content hash, computed once on demand and kept on the track — same path as `persistTrackNote`. */

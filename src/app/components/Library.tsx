@@ -21,8 +21,9 @@ import { bootCopy, bootFor, bootForScanError } from '@/core/library-boot'
 import { findSimilarTracks, orderBySimilarMatches } from '@/core/embedding-search'
 import { describeDuplicate, findDuplicates, type DuplicateGroup, type DuplicateNote } from '@/core/duplicates'
 import { libraryEmptyCopy } from '@/core/library-list-copy'
+import { sourceLabel, suggestArtists, type ArtistOption, type ArtistSource } from '@/core/artist-suggest'
 import { SEARCH_COLUMN_LABEL, columnSearchHint, type SearchColumn } from '@/core/library-search'
-import { applyOwnerMeta, mergeAnalysisPatch, mergeTagPatch } from '@/core/tag-merge'
+import { applyOwnerArtist, applyOwnerMeta, mergeAnalysisPatch, mergeTagPatch } from '@/core/tag-merge'
 import {
   excellentStripEntries,
   excellentStripHint,
@@ -156,6 +157,8 @@ export function Library() {
   // it narrows `preMixList`, so it intersects with Mix Only / similar instead of
   // being silently overridden by them.
   const [dupOnly, setDupOnly] = useState(false)
+  /** v0.9.41: only the tracks with no artist, each with its suggestion — like Duplicates only, the suggestions live in this view and not in the plain list. */
+  const [artistOnly, setArtistOnly] = useState(false)
   // v0.8.38: the track whose BPM/key the owner is checking against Beatport — see SourceCheckPanel.
   const [checking, setChecking] = useState<string | null>(null)
   // Which key notation to show. DJs are split between musical and Camelot and
@@ -579,6 +582,7 @@ export function Library() {
 
   /** Second pass: BPM/key/artist straight out of the file headers (v0.1.7). */
   async function applyTags(tracks: Track[], scan: { cancelled: boolean }) {
+    useStore.getState().setLibrary({ tagsRead: false })
     await readLibraryTags(
       tracks,
       (patch, progress) => {
@@ -604,6 +608,9 @@ export function Library() {
       },
       { signal: scan },
     )
+    // v0.9.41: artist suggestions wait for this — before it, a track whose tag
+    // is still unread looks exactly like one with no artist.
+    if (!scan.cancelled) useStore.getState().setLibrary({ tagsRead: true })
   }
 
   /**
@@ -649,14 +656,17 @@ export function Library() {
             // v0.8.38: the owner's own BPM/key goes on last, over tag and detection.
             // The map is live (`setOwnerTempoKey` updates it), so a value typed or
             // a "back to original" pressed mid-scan is what this sees.
-            return applyOwnerMeta(
-              {
-                ...merged,
-                ...(override ? { genre: override } : {}),
-                ...(meta?.note != null ? { note: meta.note } : {}),
-                ...(meta?.lastPlayedAt != null ? { lastPlayedAt: meta.lastPlayedAt } : {}),
-              },
-              meta?.owner,
+            return applyOwnerArtist(
+              applyOwnerMeta(
+                {
+                  ...merged,
+                  ...(override ? { genre: override } : {}),
+                  ...(meta?.note != null ? { note: meta.note } : {}),
+                  ...(meta?.lastPlayedAt != null ? { lastPlayedAt: meta.lastPlayedAt } : {}),
+                },
+                meta?.owner,
+              ),
+              meta,
             )
           }),
         })
@@ -762,7 +772,17 @@ export function Library() {
   const dupReport = useMemo(() => findDuplicates(library.tracks), [library.tracks])
   const trackById = useMemo(() => new Map(library.tracks.map((t) => [t.id, t])), [library.tracks])
   const sortedFiltered = ctl.sortedFilteredTracks()
-  const preMixList = dupOnly ? duplicatesView(sortedFiltered, dupReport.byTrack, library.sortKey == null) : sortedFiltered
+  // v0.9.41: null until the tag pass is done — before it, a track whose tag is
+  // still unread looks exactly like one with no artist.
+  const artistReport = useMemo(
+    () => (library.tagsRead ? suggestArtists(library.tracks) : null),
+    [library.tracks, library.tagsRead],
+  )
+  const preMixList = dupOnly
+    ? duplicatesView(sortedFiltered, dupReport.byTrack, library.sortKey == null)
+    : artistOnly
+      ? sortedFiltered.filter((t) => !t.artist)
+      : sortedFiltered
   const activeCrate = library.activeCrateId ? (crates.get(library.activeCrateId) ?? null) : null
   const list = similarTo
     ? orderBySimilarMatches(preMixList, similarMatches)
@@ -824,6 +844,7 @@ export function Library() {
       return v ? [{ label: describeColumnFilter(c, v), clear: () => ctl.setColumnFilter(c, null) }] : []
     }),
     ...(dupOnly ? [{ label: 'Duplicates only', clear: () => setDupOnly(false) }] : []),
+    ...(artistOnly ? [{ label: 'No artist only', clear: () => setArtistOnly(false) }] : []),
     ...(activeCrate ? [{ label: `Crate: ${activeCrate.name}`, clear: () => ctl.setActiveCrate(null) }] : []),
     ...(similarToTrack
       ? [{ label: `Similar to: ${similarToTrack.title ?? similarToTrack.name}`, clear: () => setSimilarTo(null) }]
@@ -1189,7 +1210,10 @@ export function Library() {
                 variant="toggle"
                 size="sm"
                 active={dupOnly}
-                onClick={() => setDupOnly((v) => !v)}
+                onClick={() => {
+                  setDupOnly((v) => !v)
+                  setArtistOnly(false)
+                }}
                 title={duplicatesTitle(dupReport.groups, dupReport.unchecked)}
               >
                 {duplicatesButtonText(dupReport.groups)}
@@ -1203,6 +1227,20 @@ export function Library() {
                 {dupReport.unchecked > 0 && ` yet · ${dupReport.unchecked} not checkable yet`}
               </span>
             )
+          )}
+          {!library.scanning && artistReport && artistReport.missing > 0 && (
+            <Button
+              variant="toggle"
+              size="sm"
+              active={artistOnly}
+              onClick={() => {
+                setArtistOnly((v) => !v)
+                setDupOnly(false)
+              }}
+              title={`Tracks whose file carries no artist. ${artistReport.byTrack.size} have a suggestion (from the file name, or the same song in another file); ${artistReport.noHint} have none — type those in. Nothing is written to your files.`}
+            >
+              {artistReport.missing} no artist
+            </Button>
           )}
           {/*
             Files that ARE tracks and could not be read: deleted between the
@@ -1362,6 +1400,13 @@ export function Library() {
             })}
           </div>
         </div>
+      )}
+
+      {artistOnly && artistReport && (
+        <ArtistAcceptStrip
+          report={artistReport}
+          visibleIds={new Set(preMixList.map((t) => t.id))}
+        />
       )}
 
       <div className="flex min-h-0 flex-1">
@@ -1558,6 +1603,7 @@ export function Library() {
                   // list as clutter beside every title; the header button still
                   // counts them, so nothing goes unsaid.
                   duplicate={dupOnly ? dupReport.byTrack.get(t.id) : undefined}
+                  artistOptions={artistOnly && !t.artist ? (artistReport?.byTrack.get(t.id) ?? []) : undefined}
                   duplicateNote={(() => {
                     const g = dupOnly ? dupReport.byTrack.get(t.id) : undefined
                     return g ? describeDuplicate(t, g, trackById) : undefined
@@ -1940,6 +1986,7 @@ function Row({
   loadedOnB,
   duplicate,
   duplicateNote,
+  artistOptions,
 }: {
   track: Track
   selected: boolean
@@ -1960,6 +2007,8 @@ function Row({
   duplicate?: DuplicateGroup
   /** v0.9.24: what sets this file apart from its twins — shown on the chip, not only in a tooltip. */
   duplicateNote?: DuplicateNote
+  /** v0.9.41: set only in the "no artist" view — the suggestions for this row, best first; `[]` means none, so the cell offers typing one in. */
+  artistOptions?: ArtistOption[]
 }) {
   const key = keyLabel(track, keyMode)
   const tone = keyColor(track.camelot)
@@ -2146,7 +2195,13 @@ function Row({
           )}
         </span>
       </td>
-      <td className="max-w-0 truncate py-1.5 pr-2 text-grid-muted">{track.artist}</td>
+      {artistOptions ? (
+        <td className="max-w-0 py-1.5 pr-2" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+          <ArtistSuggestionCell trackId={track.id} options={artistOptions} />
+        </td>
+      ) : (
+        <td className="max-w-0 truncate py-1.5 pr-2 text-grid-muted">{track.artist}</td>
+      )}
       {/*
         A native <select> rather than a plain cell that swaps to one on click:
         it gets keyboard/focus/screen-reader semantics for free and isn't
@@ -2381,6 +2436,121 @@ function EmptyState({
       <p className="text-sm font-medium text-grid-text">{title}</p>
       {body && <p className="max-w-sm text-xs leading-relaxed text-grid-muted">{body}</p>}
       {action && <div className="mt-1">{action}</div>}
+    </div>
+  )
+}
+
+/** v0.9.41: the short word beside a suggestion; the tooltip has the whole sentence (`sourceLabel`). */
+const ARTIST_SOURCE_TAG: Record<ArtistSource, string> = {
+  'name-known': 'known',
+  'known-prefix': 'known',
+  'same-song': 'same song',
+  name: 'file name',
+  pixabay: 'Pixabay',
+}
+
+/**
+ * The Artist cell of the "no artist" view (v0.9.41): the suggestion, set apart
+ * from a real artist (italic, dim, with where it came from), and the owner's
+ * yes / no. Two different answers from two sources are both reachable (⇄),
+ * never merged into a "most likely" one. A row with no suggestion at all gets
+ * a box to type the artist in — those are the ones nothing can guess.
+ */
+function ArtistSuggestionCell({ trackId, options }: { trackId: string; options: ArtistOption[] }) {
+  const [index, setIndex] = useState(0)
+  if (options.length === 0) {
+    return (
+      <input
+        type="text"
+        aria-label="Type the artist"
+        placeholder="type artist…"
+        className="w-full min-w-0 rounded-[var(--radius-xs)] bg-surface-2 px-1 text-grid-text placeholder:text-grid-dim"
+        onKeyDown={(e) => {
+          e.stopPropagation()
+          if (e.key === 'Enter') e.currentTarget.blur()
+        }}
+        onBlur={(e) => {
+          const artist = e.currentTarget.value.trim()
+          if (artist) void ctl.answerArtistSuggestions([{ trackId, artist, accept: true }])
+        }}
+      />
+    )
+  }
+  const option = options[index % options.length]
+  const answer = (accept: boolean) => {
+    setIndex(0)
+    void ctl.answerArtistSuggestions([{ trackId, artist: option.artist, accept }])
+  }
+  return (
+    <span className="flex min-w-0 items-center gap-1" title={`Suggested: ${option.artist} — ${sourceLabel(option)}`}>
+      <span className="min-w-0 truncate italic text-grid-dim">{option.artist}</span>
+      <span className="shrink-0 text-2xs text-grid-dim">· {ARTIST_SOURCE_TAG[option.source]}</span>
+      {options.length > 1 && (
+        <button
+          type="button"
+          className="shrink-0 rounded-[var(--radius-xs)] bg-surface-2 px-1 text-2xs text-grid-muted hover:bg-surface-3"
+          aria-label={`Another suggestion (${options.length} in all)`}
+          title={`${options.length} different suggestions — show the next one`}
+          onClick={() => setIndex((i) => i + 1)}
+        >
+          ⇄{options.length}
+        </button>
+      )}
+      <button
+        type="button"
+        className="shrink-0 rounded-[var(--radius-xs)] bg-surface-2 px-1 text-2xs font-bold text-live hover:bg-surface-3"
+        aria-label={`Accept ${option.artist} as the artist`}
+        title="Yes, this is the artist"
+        onClick={() => answer(true)}
+      >
+        ✓
+      </button>
+      <button
+        type="button"
+        className="shrink-0 rounded-[var(--radius-xs)] bg-surface-2 px-1 text-2xs font-bold text-warn hover:bg-surface-3"
+        aria-label={`Not ${option.artist}`}
+        title="No — never suggest this one for this track again"
+        onClick={() => answer(false)}
+      >
+        ✕
+      </button>
+    </span>
+  )
+}
+
+/**
+ * The "no artist" view's top strip (v0.9.41): how many are missing, how many
+ * have a suggestion and how many have none — the last is said, not left to be
+ * noticed — and one "accept all" per kind of source. Only rows on screen are
+ * accepted, so a search or a genre filter narrows what one click does.
+ */
+function ArtistAcceptStrip({ report, visibleIds }: { report: ReturnType<typeof suggestArtists>; visibleIds: ReadonlySet<string> }) {
+  const groups = new Map<string, { trackId: string; artist: string }[]>()
+  for (const [trackId, opts] of report.byTrack) {
+    if (!visibleIds.has(trackId)) continue
+    const tag = ARTIST_SOURCE_TAG[opts[0].source]
+    const g = groups.get(tag) ?? []
+    g.push({ trackId, artist: opts[0].artist })
+    groups.set(tag, g)
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-hairline bg-surface-1 px-2 py-1 text-2xs text-grid-dim">
+      <span className="label font-bold text-grid-muted">Artist suggestions</span>
+      <span>
+        {report.missing} with no artist · {report.byTrack.size} suggested · {report.noHint} with no hint (type those in)
+      </span>
+      <span className="text-grid-dim">· saved in DeckMix only, your files are not changed</span>
+      {[...groups].map(([tag, items]) => (
+        <Button
+          key={tag}
+          variant="toggle"
+          size="sm"
+          title={`Accept the first suggestion on all ${items.length} rows on screen whose suggestion is "${tag}"`}
+          onClick={() => void ctl.answerArtistSuggestions(items.map((i) => ({ ...i, accept: true })))}
+        >
+          ✓ all {items.length} {tag}
+        </Button>
+      ))}
     </div>
   )
 }

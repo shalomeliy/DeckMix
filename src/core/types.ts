@@ -14,6 +14,14 @@ export interface Track {
   durationSec?: number
   /** from the file's tags (v0.1.7) — analysis overrides these when it runs */
   artist?: string
+  /**
+   * `'owner'` when the owner accepted the artist from a suggestion (v0.9.41,
+   * `core/artist-suggest.ts`). Kept by content hash in `track-meta-idb`, so it
+   * survives a rescan; his files are never written. Undefined means the tag.
+   */
+  artistSource?: 'owner'
+  /** v0.9.41: suggestions the owner said no to for this track — never offered again. */
+  artistRejected?: string[]
   title?: string
   album?: string
   /** display spelling of the musical key, e.g. `Am` */

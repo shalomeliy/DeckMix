@@ -42,6 +42,27 @@ export interface TrackTags {
 // ---------------------------------------------------------------- byte utils
 
 const latin1 = new TextDecoder('latin1')
+const hebrew1255 = new TextDecoder('windows-1255')
+
+/**
+ * ID3 encoding 0 is Latin-1 by the spec, but Israeli taggers write Hebrew there
+ * in Windows-1255, and Latin-1 turns it into "òåìí äøîé÷ñ" (found in the owner's
+ * library, 06/10). Hebrew letters are 0xE0–0xFA in 1255. A Latin name has an
+ * accent here and there ("Beyoncé", "Café Olé"); a Hebrew one is mostly those
+ * bytes. So: most letters in that range, and none of the accented capitals
+ * (0xC0–0xDF) that Latin text has and Hebrew 1255 does not (there they are
+ * vowel points, which song tags do not carry).
+ */
+function looksLikeHebrew1255(b: Uint8Array): boolean {
+  let letters = 0
+  let hebrew = 0
+  for (const c of b) {
+    if (c >= 0xc0 && c <= 0xdf) return false
+    if (c >= 0xe0 && c <= 0xfa) hebrew++
+    if ((c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || c >= 0xe0) letters++
+  }
+  return hebrew >= 2 && hebrew / letters >= 0.6
+}
 const utf8 = new TextDecoder('utf-8')
 const utf16le = new TextDecoder('utf-16le')
 const utf16be = new TextDecoder('utf-16be')
@@ -127,7 +148,7 @@ function id3Text(payload: Uint8Array): string[] {
     else s = utf16le.decode(body)
   } else if (enc === 2) s = utf16be.decode(body)
   else if (enc === 3) s = utf8.decode(body)
-  else s = latin1.decode(body)
+  else s = looksLikeHebrew1255(body) ? hebrew1255.decode(body) : latin1.decode(body)
   return s.replace(/\uFEFF/g, '').split('\u0000')
 }
 

@@ -159,3 +159,25 @@ describe('readTags — OGG page walk', () => {
     expect(tags.artist).toBeUndefined()
   })
 })
+
+/**
+ * v0.9.41: an ID3 frame declared Latin-1 that holds Windows-1255 Hebrew — found
+ * in the owner's library (06/10) as "òåìí äøîé÷ñ". Latin text with an accent
+ * or two must still read as Latin.
+ */
+describe('readTags — Hebrew written into a Latin-1 ID3 frame', () => {
+  const mp3 = (bytes: number[]) => new File([new Uint8Array([...bytes, 0xff, 0xfb, 0x90, 0x00])], 'x.mp3')
+  // "עולם הרמיקס" in Windows-1255
+  const hebrew1255 = [0xf2, 0xe5, 0xec, 0xed, 0x20, 0xe4, 0xf8, 0xee, 0xe9, 0xf7, 0xf1]
+
+  it('reads it as Hebrew', async () => {
+    const tags = await readTags(mp3(id3Tag('TPE1', String.fromCharCode(...hebrew1255))))
+    expect(tags.artist).toBe('עולם הרמיקס')
+  })
+
+  it('keeps Latin names with accents as Latin', async () => {
+    expect((await readTags(mp3(id3Tag('TPE1', 'Beyoncé')))).artist).toBe('Beyoncé')
+    expect((await readTags(mp3(id3Tag('TPE1', 'Café Olé')))).artist).toBe('Café Olé')
+    expect((await readTags(mp3(id3Tag('TPE1', 'Röyksopp')))).artist).toBe('Röyksopp')
+  })
+})

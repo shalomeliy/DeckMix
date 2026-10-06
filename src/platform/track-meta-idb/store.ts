@@ -18,6 +18,10 @@ export interface TrackMeta {
   lastPlayedAt?: number
   /** v0.8.38: BPM/key the owner typed from the "check against Beatport" panel — see `applyOwnerMeta`. */
   owner?: OwnerTempoKey
+  /** v0.9.41: the artist the owner accepted from a suggestion — see `applyOwnerArtist`. */
+  artist?: string
+  /** v0.9.41: suggestions he rejected for this track, as written. */
+  artistRejected?: string[]
 }
 
 /**
@@ -88,6 +92,26 @@ export async function setOwnerTempoKey(contentHash: string, patch: OwnerTempoKey
     }
     if (owner.bpm == null && !owner.key && !owner.camelot) delete meta.owner
     else meta.owner = owner
+    all[contentHash] = meta
+    written = meta
+    return all
+  })
+  if (live && written) live.set(contentHash, written)
+}
+
+/**
+ * The owner's answer to an artist suggestion (v0.9.41): `accept` keeps it as
+ * this track's artist, `reject` adds it to the ones never offered again.
+ * `update`, like `setOwnerTempoKey`, so a play stamp landing in the same
+ * instant is not lost. Throws on failure, same contract as `setTrackNote`.
+ */
+export async function setOwnerArtist(contentHash: string, answer: { accept: string } | { reject: string }): Promise<void> {
+  let written: TrackMeta | null = null
+  await update<Record<string, TrackMeta>>(KEY, (stored) => {
+    const all = { ...(stored ?? {}) }
+    const meta = { ...all[contentHash] }
+    if ('accept' in answer) meta.artist = answer.accept
+    else meta.artistRejected = [...new Set([...(meta.artistRejected ?? []), answer.reject])]
     all[contentHash] = meta
     written = meta
     return all

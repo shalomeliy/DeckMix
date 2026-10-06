@@ -47,6 +47,9 @@ const NAMED: Record<string, Named[]> = {
     { token: 'onDoubleClick=', count: 3, exempt: 'stops a row double-click inside the genre/note cell editors and on the ↗ Beatport link' },
     { token: 'onKeyDown=', count: 1, gesture: 'library.rows' },
     { token: 'onKeyDown=', count: 1, gesture: 'library.search' }, // Esc: tag first, then text
+    // v0.9.41: the "no artist" view's Artist cell
+    { token: 'onDoubleClick=', count: 1, exempt: 'stops a row double-click on the artist suggestion ✓/✕ buttons from loading the track' },
+    { token: 'onKeyDown=', count: 1, exempt: 'Enter saves the artist typed into the "type artist…" box' },
   ],
   // v0.9.36: the Genre ▾ list (v0.9.24) moved here, shared with every column's ▾
   'src/app/components/ColumnFilter.tsx': [
