@@ -203,8 +203,23 @@ export type FolderHabit = Map<string, { left: number; right: number }>
 
 const dirOf = (path: string) => path.split('/').slice(0, -1).join('/')
 
-export function folderHabit(tagged: readonly Track[]): FolderHabit {
+export function folderHabit(tagged: readonly Track[], all: readonly Track[] = []): FolderHabit {
   const habit: FolderHabit = new Map()
+  // A side the owner said no to is evidence for the other side.
+  for (const t of all) {
+    if (!t.artistRejected?.length) continue
+    const segs = dashSegments(baseName(t.name))
+    if (segs.length !== 2) continue
+    const no = new Set(t.artistRejected.map(normalizeName))
+    const hit = (side: string) => no.has(normalizeName(side)) || artistPieces(side).some((p) => no.has(p))
+    const l = hit(segs[0])
+    const r = hit(segs[1])
+    if (l === r) continue
+    const e = habit.get(dirOf(t.path)) ?? { left: 0, right: 0 }
+    if (l) e.right++
+    else e.left++
+    habit.set(dirOf(t.path), e)
+  }
   for (const t of tagged) {
     const segs = dashSegments(baseName(t.name))
     if (segs.length !== 2 || !t.artist) continue
@@ -255,6 +270,13 @@ function sideVotes(track: Track, segs: string[], leftKnown: boolean, rightKnown:
       if (pl >= 0 && pr < 0) votes.push({ side: 'R', weight: 2, why: 'the left side is inside the title tag' })
       else if (pr >= 0 && pl < 0) votes.push({ side: 'L', weight: 2, why: 'the right side is inside the title tag' })
     }
+  }
+  // He already said no to one side of this very file: the other one is the artist.
+  if (track.artistRejected?.length) {
+    const no = new Set(track.artistRejected.map(normalizeName))
+    const hit = (side: string) => no.has(normalizeName(side)) || artistPieces(side).some((p) => no.has(p))
+    if (hit(left) && !hit(right)) votes.push({ side: 'R', weight: 2, why: 'you rejected the left side' })
+    else if (hit(right) && !hit(left)) votes.push({ side: 'L', weight: 2, why: 'you rejected the right side' })
   }
   const h = habit?.get(dirOf(track.path))
   if (h && h.left + h.right >= 4) {
@@ -365,12 +387,12 @@ export function suggestArtists(tracks: readonly Track[], rejected: (t: Track) =>
   // A tag that is a pack or a remixer's name counts as no artist (v0.9.43): it is shown in the same view, with the file name's guess beside it.
   const junk = new Set(tracks.filter(isJunkArtist).map((t) => t.id))
   const tagged = tracks.filter((t) => t.artist && !junk.has(t.id))
-  // "known" means the files say so. An artist the owner accepted from a file
-  // name would otherwise promote that same guess on every other file to
-  // "known", and into its "✓ all" (change-reviewer, 06/10).
-  const trusted = tagged.filter((t) => t.artistSource !== 'owner')
-  const known = knownArtists(trusted)
-  const habit = folderHabit(trusted)
+  // What the owner accepted or typed is the strongest truth there is: he listened to the song. It teaches
+  // "known" names and each folder's side habit like a file tag does (06/10, his request: learn from my choices).
+  // The earlier worry — one accepted guess promoting the same guess everywhere — is limited, not ignored: the
+  // habit vote tops out at weight 2 and a direct clue (title tag, version word) still outvotes or splits it.
+  const known = knownArtists(tagged)
+  const habit = folderHabit(tagged, tracks)
   const byTrack = new Map<string, ArtistOption[]>()
   const needs = new Set<string>()
   let noHint = 0

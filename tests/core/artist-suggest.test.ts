@@ -135,11 +135,9 @@ describe('suggestArtists — the other sources', () => {
 })
 
 describe('suggestArtists — what counts as known', () => {
-  it('an artist the owner accepted from a file name does not make the same guess "known" elsewhere', () => {
+  it('an artist the owner accepted becomes known elsewhere — his choices are what the app learns from', () => {
     const accepted = t('Argy - Tataki.mp3', { artist: 'Argy', artistSource: 'owner' })
-    expect(first('Argy - Aria.mp3', [accepted])?.source).toBe('name')
-    const tagged = t('x.mp3', { artist: 'Argy' })
-    expect(first('Argy - Aria.mp3', [accepted, tagged])?.source).toBe('name-known')
+    expect(first('Argy - Aria.mp3', [accepted])?.source).toBe('name-known')
   })
 })
 
@@ -151,11 +149,18 @@ describe('suggestArtists — counting', () => {
     expect(r.noHint).toBe(2)
   })
 
-  it('never offers what the owner already rejected for that track', () => {
+  it('never offers what the owner already rejected for that track — and takes the other side instead', () => {
     const track = t('Argy - Tataki.mp3', { artistRejected: ['argy'] })
     const r = suggestArtists([track])
-    expect(r.byTrack.has(track.id)).toBe(false)
-    expect(r.noHint).toBe(1)
+    expect(r.byTrack.get(track.id)?.map((o) => o.artist)).toEqual(['Tataki'])
+    const alone = t('Argy.mp3', { artistRejected: ['argy'] })
+    expect(suggestArtists([alone]).noHint).toBe(1)
+  })
+  it('learns the folder side from what the owner chose', () => {
+    const chosen = Array.from({ length: 5 }, (_, i) => ({ ...t(`S${i} - Bob Sinclar${i}.m4a`, { artist: `Bob Sinclar${i}`, artistSource: 'owner' }), path: 'F/' + i + '.m4a' }))
+    const track = { ...t('Eternity - Zed Moon.m4a'), path: 'F/x.m4a' }
+    const o = suggestArtists([track, ...chosen]).byTrack.get(track.id)!
+    expect(o[0].artist).toBe('Zed Moon')
   })
 })
 
