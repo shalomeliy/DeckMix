@@ -40,6 +40,8 @@ import {
 import { getExcellentFollowUps } from '@/platform/mix-pairs-idb/store'
 import { settings } from '@/platform/settings-idb/store'
 import { DEFAULTS } from '@/core/settings'
+import { canLookUp, NO_LOOKUP_GENRE } from '@/core/online-artist'
+import { normalizeName } from '@/core/duplicates'
 import { useSettings } from '@/app/hooks/useSettings'
 import { useStore } from '@/app/state/store'
 import type { KeyMode } from '@/core/settings'
@@ -1455,6 +1457,7 @@ export function Library() {
         <ArtistAcceptStrip
           report={artistReport}
           visibleIds={new Set(list.map((t) => t.id))}
+          noWebCount={list.filter((t) => artistReport.needs.has(t.id) && !canLookUp(t)).length}
         />
       )}
 
@@ -2326,7 +2329,7 @@ function Row({
       </td>
       {artistOptions ? (
         <td className="max-w-0 py-1.5 pr-2" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-          <ArtistSuggestionCell trackId={track.id} options={artistOptions} current={track.artist} />
+          <ArtistSuggestionCell trackId={track.id} options={artistOptions} current={track.artist} rejected={track.artistRejected} canSearch={canLookUp(track)} />
         </td>
       ) : (
         <td className="max-w-0 truncate py-1.5 pr-2 text-grid-muted">
@@ -2587,6 +2590,7 @@ const ARTIST_SOURCE_TAG: Record<ArtistSource, string> = {
   'same-song': 'same song',
   name: 'file name',
   pixabay: 'Pixabay',
+  online: 'web',
 }
 /**
  * Sources that get a "✓ all" button. Not 'known-prefix' (a guess from how the
@@ -2603,8 +2607,40 @@ const ARTIST_BULK_SOURCES: ReadonlySet<ArtistSource> = new Set(['name-known', 'n
  * never merged into a "most likely" one. A row with no suggestion at all gets
  * a box to type the artist in — those are the ones nothing can guess.
  */
-function ArtistSuggestionCell({ trackId, options, current }: { trackId: string; options: ArtistOption[]; current?: string }) {
+function ArtistSuggestionCell({ trackId, options: local, current, rejected, canSearch }: { trackId: string; options: ArtistOption[]; current?: string; rejected?: string[]; canSearch: boolean }) {
   const [index, setIndex] = useState(0)
+  // v0.9.44: what the owner's own "search the web" press found. Held here, not in the library: it is a question he asked of one row, and it is gone when the row is.
+  const [web, setWeb] = useState<{ state: 'idle' | 'busy' | 'none' | 'failed'; found: ArtistOption[] }>({ state: 'idle', found: [] })
+  // A web answer he said ✕ to must disappear like any other: the cell keeps them, so the rejection is applied here.
+  const no = new Set((rejected ?? []).map(normalizeName))
+  const options = [...local, ...web.found.filter((f) => !no.has(normalizeName(f.artist)) && !local.some((l) => normalizeName(l.artist) === normalizeName(f.artist)))]
+  const searchButton = canSearch ? (
+    <button
+      type="button"
+      className="shrink-0 rounded-[var(--radius-xs)] bg-surface-2 px-1 text-2xs text-grid-muted hover:bg-surface-3 disabled:opacity-50"
+      disabled={web.state === 'busy'}
+      aria-label="Search the web for this song's artist"
+      title={
+        web.state === 'none'
+          ? 'The web search found nobody for this song name. Press to try again.'
+          : web.state === 'failed'
+            ? 'The web search failed (see the notice). Press to try again.'
+            : "Search the web for who sings this — only the file's name (without extension and brackets) is sent, and you still say yes or no"
+      }
+      onClick={() => {
+        setWeb((w) => ({ ...w, state: 'busy' }))
+        void ctl.lookupArtistOnline(trackId).then((found) => {
+          if (found === null) setWeb((w) => ({ ...w, state: 'failed' }))
+          else {
+            setWeb({ state: found.length ? 'idle' : 'none', found })
+            if (found.length) setIndex(local.length)
+          }
+        })
+      }}
+    >
+      {web.state === 'busy' ? '…' : web.state === 'none' ? 'web: none' : web.state === 'failed' ? 'web: failed' : 'web'}
+    </button>
+  ) : null
   // v0.9.43: a row listed because its tag looks wrong (a pack name, the remixer) keeps that tag in view, struck through, so the owner sees what the suggestion would replace.
   const wrong = current ? (
     <span className="shrink-0 truncate text-2xs text-grid-dim line-through" title={`The file's artist tag, "${current}", looks like a pack or a remixer, not the artist`}>
@@ -2617,6 +2653,7 @@ function ArtistSuggestionCell({ trackId, options, current }: { trackId: string; 
       // name as his artist (change-reviewer, 06/10). Esc empties the box.
       <span className="flex min-w-0 items-center gap-1">
       {wrong}
+      {searchButton}
       <input
         type="text"
         aria-label="Type the artist"
@@ -2658,6 +2695,7 @@ function ArtistSuggestionCell({ trackId, options, current }: { trackId: string; 
           ⇄{options.length}
         </button>
       )}
+      {searchButton}
       <button
         type="button"
         className="shrink-0 rounded-[var(--radius-xs)] bg-surface-2 px-1 text-2xs font-bold text-live hover:bg-surface-3"
@@ -2713,7 +2751,7 @@ function OwnerArtist({ trackId, artist }: { trackId: string; artist: string }) {
  * noticed — and one "accept all" per kind of source. Only rows on screen are
  * accepted, so a search or a genre filter narrows what one click does.
  */
-function ArtistAcceptStrip({ report, visibleIds }: { report: ReturnType<typeof suggestArtists>; visibleIds: ReadonlySet<string> }) {
+function ArtistAcceptStrip({ report, visibleIds, noWebCount }: { report: ReturnType<typeof suggestArtists>; visibleIds: ReadonlySet<string>; noWebCount: number }) {
   const groups = new Map<string, { trackId: string; artist: string }[]>()
   for (const [trackId, opts] of report.byTrack) {
     // two different answers are the owner's to pick between, never the first one by default
@@ -2730,6 +2768,7 @@ function ArtistAcceptStrip({ report, visibleIds }: { report: ReturnType<typeof s
         {report.missing} with no artist{report.suspect > 0 ? ` (${report.suspect} with a tag that looks wrong: a pack or a remixer)` : ''} · {report.byTrack.size} suggested · {report.noHint} with no hint (type those in)
       </span>
       <span className="text-grid-dim">· saved in DeckMix only, your files are not changed</span>
+      {noWebCount > 0 && <span className="text-grid-dim">· {noWebCount} {NO_LOOKUP_GENRE} rows have no web search (by your choice)</span>}
       {[...groups].map(([tag, items]) => (
         <Button
           key={tag}

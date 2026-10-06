@@ -147,6 +147,10 @@ SoundGrid's hard invariant, and it outranks convenience:
   feature, a cloud library, anything — every one of its endpoints must filter by the
   caller's own identity, never by resource ID alone. Re-run that grep before trusting
   this note again; don't take it on faith once a backend exists.
+  **Update 2026-10-06 (v0.9.44):** the first `fetch(` exists — one read-only GET to Apple's public iTunes
+  Search from `platform/artist-lookup-itunes/`, only on the owner's click, sending a song name. It is
+  not an endpoint of ours, so the IDOR class still cannot occur; `tests/repo/privacy-claims.test.ts`
+  names it as the one exemption and the privacy page says so.
 
 ## Definition of done
 

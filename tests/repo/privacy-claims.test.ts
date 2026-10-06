@@ -19,7 +19,8 @@ import { read, ROOT } from './repo.ts'
  * silent omission. Every other file under `src/` must stay clean.
  */
 const PATTERN = /fetch\(|analytics|cookie/i
-const EXEMPT = ['src/app/legal-content.ts']
+// The lookup is the one network call (v0.9.44, a button on a single row); the page above says so in PRIVACY_NEVER.
+const EXEMPT = ['src/app/legal-content.ts', 'src/platform/artist-lookup-itunes/lookup.ts']
 
 function sourceFiles(): string[] {
   const walk = (dir: string): string[] =>
@@ -45,6 +46,7 @@ describe('the privacy page is true', () => {
 
   it('the exempted file still exists and still names all three terms', () => {
     for (const rel of EXEMPT) {
+      if (rel !== 'src/app/legal-content.ts') continue // the lookup file only needs the fetch( exemption
       const src = read(rel)
       for (const term of ['fetch', 'analytics', 'cookie']) {
         expect(
@@ -55,5 +57,11 @@ describe('the privacy page is true', () => {
         ).toBe(true)
       }
     }
+  })
+
+  it('the page names the web search, and the lookup is the only file that talks to the network', () => {
+    expect(read('src/app/legal-content.ts')).toContain('search the web')
+    const withFetch = sourceFiles().filter((rel) => /fetch\(/.test(read(rel)) && !EXEMPT.includes(rel))
+    expect(withFetch).toEqual([])
   })
 })

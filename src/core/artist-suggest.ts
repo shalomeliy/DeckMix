@@ -36,6 +36,8 @@ export type ArtistSource =
   | 'name'
   /** Pixabay's "uploader-title-123456" download name */
   | 'pixabay'
+  /** the owner pressed "search the web" on this row — never produced by `suggestArtists` */
+  | 'online'
 
 export interface ArtistOption {
   artist: string
@@ -421,5 +423,7 @@ export function sourceLabel(o: ArtistOption): string {
       return o.detail ? `from the file name · ${o.detail}` : 'from the file name'
     case 'pixabay':
       return 'Pixabay uploader'
+    case 'online':
+      return o.detail ? `from the web (iTunes) · ${o.detail}` : 'from the web (iTunes)'
   }
 }

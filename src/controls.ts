@@ -152,6 +152,9 @@ import { getFxBank, saveFxBank, type StoredFxBank } from '@/platform/fx-idb/stor
 import { getLibraryExpanded, saveLibraryExpanded } from '@/platform/layout-idb/store'
 import { useStore, type AppState, type FxState } from '@/app/state/store'
 import type { AIMessage, AIToolCall } from '@/core/ports/ai'
+import type { ArtistOption } from '@/core/artist-suggest'
+import { canLookUp, lookupTerm, onlineOptions } from '@/core/online-artist'
+import { itunesLookup } from '@/platform/artist-lookup-itunes/lookup'
 import type { BeatGrid, BpmOrigin, DeckId, PadMode, Track } from '@/core/types'
 import { aiLocalProvider } from '@/platform/ai-local'
 import {
@@ -5003,6 +5006,27 @@ export async function answerArtistSuggestions(answers: { trackId: string; artist
       tone: 'warn',
       source: 'library',
     })
+  }
+}
+
+/**
+ * "Search the web" on one row of the no-artist view (v0.9.44). Only the file's
+ * name (no extension, no brackets) goes out, only when the owner presses the button, and what comes back is
+ * a suggestion like any other — he still says yes or no. Returns null when the
+ * request failed (said in a notice, not turned into "found nothing"), and []
+ * when the store answered and nobody matched.
+ */
+export async function lookupArtistOnline(trackId: string): Promise<ArtistOption[] | null> {
+  const { library, setNotice } = useStore.getState()
+  const track = library.tracks.find((t) => t.id === trackId)
+  if (!track || !canLookUp(track)) return []
+  const term = lookupTerm(track)
+  if (term.length < 2) return []
+  try {
+    return onlineOptions(term, await itunesLookup.search(term), track.artistRejected ?? [])
+  } catch (err) {
+    setNotice({ text: `Web search for "${term}" failed: ${err instanceof Error ? err.message : String(err)}`, tone: 'warn', source: 'library' })
+    return null
   }
 }
 
