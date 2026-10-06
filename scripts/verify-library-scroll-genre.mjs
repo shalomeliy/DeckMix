@@ -61,7 +61,8 @@ for (const round of [1, 2]) {
   await call(`ctl.togglePlay('A')`)
   await page.waitForTimeout(1500)
   const after = await top()
-  const ok = playing && suggestions < rows && Math.abs(after - scrolled) <= 2
+  // v0.9.42: during PLAY the list is at the top of the suggestions; PAUSE brings back his place in the library.
+  const ok = playing && suggestions < rows && during === 0 && Math.abs(after - scrolled) <= 2
   pass &&= ok
   console.log(`${ok ? 'ok  ' : 'FAIL'}  round ${round}: PLAY → ${suggestions} rows on screen, list at ${during}px; PAUSE → list at ${after}px (scrolled to ${scrolled}px)`)
 }

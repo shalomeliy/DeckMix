@@ -3,6 +3,7 @@ import {
   boxReplaced,
   createScrollMemory,
   listViewKey,
+  opensAtTop,
   ownerTookOver,
   recordScroll,
   restoreExpired,
@@ -17,10 +18,10 @@ describe('scroll memory per list view (v0.9.39)', () => {
   it("Shalom's bug: genre filter, scroll down, play, pause — the whole library comes back where he left it", () => {
     const m = createScrollMemory('all')
     recordScroll(m, 2000, true) // he scrolled down the filtered library
-    // Play: Mix Only switches on by itself. A first visit is not scrolled anywhere — the box keeps its offset.
-    expect(switchView(m, 'mix:all:t1|-')).toBeNull()
-    // The browser clamps 2000 down to the few suggestions and fires a scroll event for it — the suggestions' offset now.
-    recordScroll(m, 60, true)
+    // Play: Mix Only switches on by itself, and the suggestions open at their top (v0.9.42).
+    expect(switchView(m, 'mix:all:t1|-')).toBe(0)
+    restoreLanded(m, 0)
+    recordScroll(m, 0, true)
     // Pause (or the song ends). v0.12.10's single offset restored that clamp.
     expect(switchView(m, 'all')).toBe(2000)
   })
@@ -101,5 +102,22 @@ describe('listViewKey: every toggle that swaps the list is its own view', () => 
 
   it('the library view does not change when a deck loads a track', () => {
     expect(view({ deckIds: ['t1', null] })).toBe(view({ deckIds: ['t9', 't3'] }))
+  })
+})
+
+describe('the suggestions open at the top (v0.9.42)', () => {
+  it('every PLAY lands at the top of the suggestions, even after he scrolled them last time, and pause restores the library', () => {
+    const m = createScrollMemory('all')
+    recordScroll(m, 1800, true)
+    const mix = view({ mixOnly: true })
+    expect(switchView(m, mix)).toBe(0)
+    restoreLanded(m, 0)
+    recordScroll(m, 400, true) // he scrolled the suggestions
+    expect(switchView(m, 'all')).toBe(1800)
+    restoreLanded(m, 1800)
+    expect(switchView(m, mix)).toBe(0) // the same song played again: top again, not 400
+    expect(opensAtTop(mix)).toBe(true)
+    expect(opensAtTop(view())).toBe(false)
+    expect(opensAtTop(view({ dupOnly: true }))).toBe(false)
   })
 })

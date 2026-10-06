@@ -14,9 +14,10 @@
  *   they record nothing;
  * - the owner's hand (wheel, click, key) ends a pending restore at once and his position is what is kept;
  * - a restore that times out (the list got shorter while he was away) records nothing: the clamp is not where he was;
- * - a view seen for the first time is NOT scrolled anywhere — the box keeps its offset, as the browser leaves it.
- *   Forcing the top there is a jump too (the 03/10 check `scripts/verify-library-scroll-keeps.mjs` holds the offset
- *   across PLAY).
+ * - the suggestions always open at their top (v0.9.42, Shalom 06/10: "you don't bring me to the top of the list and I
+ *   always have to scroll there") — they are ranked best first, and the offset he had in the library means nothing in
+ *   them. Pause or the song ending still brings the library back to where he left it;
+ * - any other view seen for the first time is not scrolled anywhere — the box keeps its offset, as the browser leaves it.
  *
  * What is deliberately NOT a separate view: a search, a sort, a crate, a column filter. Those make a new list out of the
  * same view, and the browser's clamp is what the owner sees — the same as before v0.9.39.
@@ -48,7 +49,14 @@ export function listViewKey(v: {
 }): string {
   if (v.similarTo) return `similar:${v.similarTo}`
   const base = v.dupOnly ? 'dups' : 'all'
-  return v.mixOnly ? `mix:${base}:${v.deckIds.map((id) => id ?? '-').join('|')}` : base
+  return v.mixOnly ? `${MIX_PREFIX}${base}:${v.deckIds.map((id) => id ?? '-').join('|')}` : base
+}
+
+const MIX_PREFIX = 'mix:'
+
+/** The suggestions open at the top every time (v0.9.42): the best matches are ranked first. */
+export function opensAtTop(view: string): boolean {
+  return view.startsWith(MIX_PREFIX)
 }
 
 /** A scroll event. `hasRows` false = a transient empty list, whose 0 says nothing about where the owner was. */
@@ -58,13 +66,14 @@ export function recordScroll(m: ScrollMemory, top: number, hasRows: boolean): vo
 }
 
 /**
- * The table switched lists. Returns the offset to put back — where the owner left this view — or null when there is
- * nothing to restore (the same view, or a view never seen before, which keeps the box's offset as it is).
+ * The table switched lists. Returns the offset to put back — the top for the suggestions, where the owner left any other
+ * view — or null when there is nothing to restore (the same view, or a view never seen before, which keeps the box's
+ * offset as it is).
  */
 export function switchView(m: ScrollMemory, view: string): number | null {
   if (view === m.view) return null
   m.view = view
-  m.pending = m.byView.get(view) ?? null
+  m.pending = opensAtTop(view) ? 0 : (m.byView.get(view) ?? null)
   return m.pending
 }
 
