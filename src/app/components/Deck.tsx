@@ -263,6 +263,7 @@ export function Deck({ deckId }: { deckId: DeckId }) {
               otherVocalSide={otherVocalSide}
               syncMult={ctl.handoffSyncMultiplier(otherDeckId, deckId)}
               onHandoff={(voice) => ctl.startVocalHandoffAt(otherDeckId, deckId, voice)}
+              onVocalSwap={(entry) => ctl.startVocalSwapAt(otherDeckId, deckId, entry)}
               phraseJoin={(pos) => ctl.deckPhraseJoin(otherDeckId, pos)}
               onSelect={(sec) => {
                 // Starts where the other deck's next phrase starts (v0.9.17; the next yellow line until then). No

@@ -112,8 +112,8 @@ export function handoffEndInB(plan: HandoffPlan, bGrid: BeatGrid): number {
 }
 const EPS = 1e-6
 
-/** A's stretches with no voice that are not over yet at `fromSec`, each as [from, to) in A seconds. */
-function quietStretches(side: HandoffSide, fromSec: number): { from: number; to: number; afterVoice: boolean }[] {
+/** A's stretches with no voice that are not over yet at `fromSec`, each as [from, to) in A seconds. Also the vocal swap's (`core/vocal-swap-mix.ts`). */
+export function quietStretches(side: HandoffSide, fromSec: number): { from: number; to: number; afterVoice: boolean }[] {
   const runs = voiceRuns(side.timeline, side.durationSec)
   const out: { from: number; to: number; afterVoice: boolean }[] = []
   let prev = 0

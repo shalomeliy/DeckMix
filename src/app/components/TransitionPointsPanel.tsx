@@ -9,6 +9,7 @@ import {
 import type { BeatGrid, DeckId } from '@/core/types'
 import { TRANSITION_CROSSFADE_SEC } from '@/core/constants'
 import { HANDOFF_NEEDS_STRAIGHT_SYNC, MAX_FADE_BARS, MIN_BARS_AFTER_MIX, bVoiceStarts, enoughSongAfterMix, handoffEndInB, planHandoff, plainMixEndInB, plainTransitionClashSec, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
+import { SWAP_BARS, planVocalSwap, swapEntries, type SwapEntry, type VocalSwapPlan } from '@/core/vocal-swap-mix'
 import { Pill } from '@/app/components/controls'
 
 /**
@@ -96,6 +97,8 @@ interface Props {
   onHandoff: (voice: BVoiceStart) => void
   /** v0.9.17: where an energy point would join the other deck, and why there (`ctl.deckPhraseJoin`); null without a grid. */
   phraseJoin: (otherPositionSec: number) => { sec: number; why: string } | null
+  /** A vocal-swap row was clicked (`ctl.startVocalSwapAt`): planned again from the live position. */
+  onVocalSwap: (entry: SwapEntry) => void
 }
 
 /** Shown at most: the earliest ones. A row is a click target on a ~710 px screen, and the energy points still have to fit under them. */
@@ -123,6 +126,28 @@ function handoffRows(other: HandoffSide, otherPosSec: number, self: HandoffSide)
 /** What the panel says about rows it left out because the song ends too soon after them. */
 const tooLateText = (n: number) => `${n === 1 ? 'נקודה אחת לא מוצגת' : `${n} נקודות לא מוצגות`}: השיר נגמר פחות מ-${MIN_BARS_AFTER_MIX} תיבות אחרי שהמיקס מסתיים`
 
+/**
+ * The vocal-swap rows: one per voice of the incoming song it can come in on, each planned against the playing song, earliest first
+ * (`core/vocal-swap-mix.ts`). `note` is why there is none, or what was left out — never an empty section.
+ */
+function swapRows(other: HandoffSide, otherPosSec: number, self: HandoffSide, otherDeckId: DeckId): { rows: { entry: SwapEntry; plan: VocalSwapPlan }[]; note: string | null } {
+  const { entries, short, early, late } = swapEntries(self)
+  const rows: { entry: SwapEntry; plan: VocalSwapPlan }[] = []
+  for (const entry of entries) {
+    const plan = planVocalSwap(other, otherPosSec, self, entry)
+    if (plan) rows.push({ entry, plan })
+  }
+  rows.sort((x, y) => x.plan.joinSec - y.plan.joinSec || x.entry.voiceSec - y.entry.voiceSec)
+  const left: string[] = []
+  if (short) left.push(`${short} קצרות מ-2 תיבות`)
+  if (early) left.push(`${early} בתחילת השיר`)
+  if (late) left.push(`${late} קרובות לסוף השיר`)
+  const leftText = left.length ? `כניסות שירה שלא מוצגות: ${left.join(', ')}` : null
+  if (rows.length) return { rows, note: leftText }
+  if (entries.length) return { rows, note: `החלפת שירה: אין בדק ${otherDeckId} עד סוף השיר רגע בלי שירה שמחזיק ${SWAP_BARS} תיבות${leftText ? ` (${leftText})` : ''}` }
+  return { rows, note: `החלפת שירה: אין בשיר הזה כניסת שירה מתאימה${leftText ? ` (${leftText})` : ''}` }
+}
+
 const hasVoice = (side: HandoffSide) => side.timeline.cells.some((c) => c !== 0)
 
 export function TransitionPointsPanel({
@@ -141,6 +166,7 @@ export function TransitionPointsPanel({
   syncMult,
   onHandoff,
   phraseJoin,
+  onVocalSwap,
 }: Props) {
   // bands stays null until *this deck's* load-time analysis resolves
   // (`controls.ts`'s `loadTrackToDeck`) — independent of the track's
@@ -178,6 +204,11 @@ export function TransitionPointsPanel({
     () => (sides && syncMult === 1 && hasVoice(sides.self) ? handoffRows(sides.other, otherPositionBucketSec, sides.self) : { rows: [], tooLate: 0 }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [vocalSide, otherVocalSide, otherPositionBucketSec, syncMult],
+  )
+  const swap = useMemo(
+    () => (sides && syncMult === 1 && hasVoice(sides.self) ? swapRows(sides.other, otherPositionBucketSec, sides.self, otherDeckId) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [vocalSide, otherVocalSide, otherPositionBucketSec, syncMult, otherDeckId],
   )
   // Why there is no handoff row, in words — the panel never just leaves the section out.
   const handoffNote = !sides
@@ -241,6 +272,33 @@ export function TransitionPointsPanel({
             <div className="px-2 text-2xs text-grid-muted">{`ועוד ${rows.length - MAX_HANDOFF_ROWS} מאוחרות יותר — יופיעו כשהשיר יתקדם`}</div>
           )}
           {tooLate > 0 && <div className="px-2 text-2xs text-grid-muted" data-testid="handoff-too-late">{tooLateText(tooLate)}</div>}
+        </div>
+      )}
+      {/* The vocal swap (owner, 05/10): A's voice and instruments go, B's voice comes in alone over A's bass, then the bass swap. */}
+      <div className="mb-1 label">{`החלפת שירה — ${SWAP_BARS} תיבות`}</div>
+      {!swap ? (
+        <div className="mb-2 text-2xs text-grid-muted" data-testid="swap-note">{handoffNote?.replace('מסירת שירה', 'החלפת שירה').replace('המסירה', 'המיקס')}</div>
+      ) : (
+        <div className="mb-2 flex flex-col gap-1" data-testid="swap-rows">
+          {swap.rows.slice(0, MAX_HANDOFF_ROWS).map(({ entry, plan }) => (
+            <button
+              key={entry.voiceSec}
+              type="button"
+              onClick={() => onVocalSwap(entry)}
+              className="rounded-[var(--radius-sm)] text-left transition-opacity hover:opacity-80"
+            >
+              <Pill tone="idle" label={`מתחיל כשדק ${otherDeckId} ב-${fmtSec(plan.joinSec)} · שר לבד מ-${fmtSec(plan.bVoiceSec)}`} />
+              <span className="mt-0.5 flex items-center gap-1 px-2 text-2xs text-grid-muted">
+                <span className="h-1 w-1 shrink-0 rounded-full" style={{ background: 'var(--color-live)' }} />
+                {plan.onVoiceEnd ? `דק ${otherDeckId} מסיים לשיר ב-${fmtSec(plan.joinSec)}` : `דק ${otherDeckId} שקט ב-${fmtSec(plan.joinSec)}`}
+                {` · בעוד ${fmtSec(plan.joinSec - otherPositionBucketSec)} · ${Math.round(plan.endSec - plan.joinSec)} שנ'`}
+              </span>
+            </button>
+          ))}
+          {swap.rows.length > MAX_HANDOFF_ROWS && (
+            <div className="px-2 text-2xs text-grid-muted">{`מוצגות ${MAX_HANDOFF_ROWS} כניסות השירה הראשונות של השיר הזה; עוד ${swap.rows.length - MAX_HANDOFF_ROWS} לא מוצגות`}</div>
+          )}
+          {swap.note && <div className="px-2 text-2xs text-grid-muted" data-testid="swap-left-out">{swap.note}</div>}
         </div>
       )}
       <div className="mb-2 label">Transition points — based on energy</div>

@@ -237,6 +237,8 @@ export interface AppState {
     handoffSec: number | null
     /** v0.9.17: `waitingUntilSec` is a phrase start of the outgoing deck (an energy point or a Mix-in pad), not an excellent pair's exit second. */
     onPhrase: boolean
+    /** The vocal swap (`core/vocal-swap-mix.ts`) rides on the handoff fields; this only picks its name on screen. `handoffSec` is then where B's voice comes in. */
+    swap?: boolean
   } | null
 
   /**
