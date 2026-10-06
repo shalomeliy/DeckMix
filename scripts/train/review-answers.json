@@ -48,6 +48,14 @@
    "toSec": 180.0,
    "truth": "silence",
    "said": "06/10: נהימה או סלסול ברקע, לא שירה"
+  },
+  {
+   "song": "אבי אבורומי - קראתי לך בית (Dj Camelion Extended Mix) - 128 BPM",
+   "contentHash": "e3562664d6e9701a7fa37b36215a82162eeee664f4a0f87c9fbf9b560f03a5f7",
+   "fromSec": 40.0,
+   "toSec": 47.0,
+   "truth": "singing",
+   "said": "06/10 בערב: יש שם שירה, אתה טעית"
   }
  ]
 }
