@@ -15,8 +15,12 @@ Three kinds, each counted, the short ones too (nothing dropped silently):
              its count shifts. The bar length is the "- 128 BPM" in the song's name, else the one that puts every gap between his marks on
              whole bars (they are snapped to the yellow bar lines); a song where neither works is counted as "tempo unknown".
 """
-import json, re
+import json, os, re
 import numpy as np
+
+# The places he already answered "my mark is right" (06/10 on): a listed place asked twice is a list he stops reading. Matched by the
+# file's hash, so a renamed or re-tagged file keeps its answer; overlap with the new place is enough.
+ANSWERS = os.path.join(os.path.dirname(__file__), "review-answers.json")
 
 SURE_VOICE, SURE_NONE = 0.75, 0.15  # how sure the held-out model must be (smoothed probability) to be listed
 MIN_SEC = 4.0  # about two bars at Mizrahi tempos: a single sure bar was mostly a shout or a sung hook he chose not to count
@@ -62,7 +66,8 @@ def bar_sec(name, edges):
 
 
 def write(path, genre, songs, Y, T, held, radius, edge, cell):
-    items, left_out, tempo_unknown, phrase_checked = [], 0, 0, 0
+    items, left_out, tempo_unknown, phrase_checked, answered = [], 0, 0, 0, 0
+    kept = json.load(open(ANSWERS, encoding="utf-8"))["answers"] if os.path.exists(ANSWERS) else []
     k = np.ones(2 * radius + 1)
     for h, s in enumerate(songs):
         y, t, p = Y[h], T[h], held[h]
@@ -78,6 +83,10 @@ def write(path, genre, songs, Y, T, held, radius, edge, cell):
                     continue
                 if (b - a) * cell < MIN_SEC:
                     left_out += 1
+                    continue
+                if any((ans["contentHash"] == s["contentHash"] if s.get("contentHash") else ans["song"] == s["name"]) and ans["fromSec"] < b * cell and a * cell < ans["toSec"]
+                       and ans["truth"] == ("silence" if want == 0 else "singing") for ans in kept):
+                    answered += 1  # counted, never silently gone
                     continue
                 conf = float(np.mean(q[a:b]) if want == 0 else 1 - np.mean(q[a:b]))
                 items.append({"kind": "model", "song": s["name"], "fromSec": round(a * cell, 1), "toSec": round(b * cell, 1),
@@ -108,7 +117,7 @@ def write(path, genre, songs, Y, T, held, radius, edge, cell):
     items.sort(key=lambda it: (order[it["kind"]], -it.get("sure", 0), it["song"], it["fromSec"]))
     doc = {"genre": genre, "songs": len(songs), "items": items,
            "counts": {kind: sum(it["kind"] == kind for it in items) for kind in order},
-           "leftOut": {"shortOrUnsure": left_out, "phraseTempoUnknown": tempo_unknown, "phraseChecked": phrase_checked},
+           "leftOut": {"alreadyAnswered": answered, "shortOrUnsure": left_out, "phraseTempoUnknown": tempo_unknown, "phraseChecked": phrase_checked},
            "rules": {"sureVoice": SURE_VOICE, "sureNone": SURE_NONE, "minSec": MIN_SEC, "edgeCells": edge}}
     json.dump(doc, open(path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(f"review list {path}: {doc['counts']}; left out {doc['leftOut']}")

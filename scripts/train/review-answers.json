@@ -1,0 +1,53 @@
+{
+ "about": "v0.9.37: places on the review list where Shalom listened again and kept his mark. review_marks.py never lists them again.",
+ "answers": [
+  {
+   "song": "אייל גולן - מתגעגע (Hasod Remix)",
+   "contentHash": "a3d987f52ceec28e67f6cb6cde451ee9fcdd6f22d86ea6de590258c4e3a82588",
+   "fromSec": 167.0,
+   "toSec": 171.5,
+   "truth": "silence",
+   "said": "06/10: טעית, אין שם שירה"
+  },
+  {
+   "song": "עדן חסון - צוחקת ובוכה (Dj Camelion Extended Remix) V2 - 132 BPM",
+   "contentHash": "597ddf759d1886217c383d789c3e90ca4da34977883e48ccc153a1b53e14835b",
+   "fromSec": 52.5,
+   "toSec": 58.0,
+   "truth": "singing",
+   "said": "06/10: טעית, יש שם שירה"
+  },
+  {
+   "song": "עומר אדם - טקילה (Dj Camelion Extended Mix) - 128 BPM",
+   "contentHash": "ee213c51b520809267bccb629eb5e6bda073d84ad46d314d6c079318d3967f8f",
+   "fromSec": 21.0,
+   "toSec": 25.5,
+   "truth": "singing",
+   "said": "06/10: טעית, יש שם שירה שאי אפשר לקטוע בשקט"
+  },
+  {
+   "song": "יגל אושרי - לצאת מדיכאון (Hasod Remix)",
+   "contentHash": "427279354905a9f98a7a3e9a7858f2427f98157ee43946bacda0fe72ceb26e9d",
+   "fromSec": 126.0,
+   "toSec": 130.0,
+   "truth": "silence",
+   "said": "06/10: טעית, אין שם שירה"
+  },
+  {
+   "song": "Shluk meketzev - Talisman и Maor Edri",
+   "contentHash": "5b594c580c2339791cc3519c2a7386598b046674e8c2cfe6e3040aadfd763aca",
+   "fromSec": 0.0,
+   "toSec": 4.5,
+   "truth": "silence",
+   "said": "06/10: נהימה או סלסול ברקע, לא שירה"
+  },
+  {
+   "song": "Shluk meketzev - Talisman и Maor Edri",
+   "contentHash": "5b594c580c2339791cc3519c2a7386598b046674e8c2cfe6e3040aadfd763aca",
+   "fromSec": 166.5,
+   "toSec": 180.0,
+   "truth": "silence",
+   "said": "06/10: נהימה או סלסול ברקע, לא שירה"
+  }
+ ]
+}

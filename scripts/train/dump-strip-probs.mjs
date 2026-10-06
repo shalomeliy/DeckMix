@@ -58,7 +58,7 @@ for (const m of marks.marks) {
   const durationSec = n / SR
   const rows = cellFeatureRows(r.features, durationSec)
   const { probs, genreKnown } = cellProbabilities(rows, m.genre ?? "", model)
-  out.push({ name: m.name, genre: m.genre ?? '', durationSec, genreKnown, regions: m.regions, probs: Array.from(probs, (p) => +p.toFixed(4)), ...(withRows ? { rows: rows.map((r) => r.map((v) => +v.toFixed(5))), labels: Array.from(manualLabels(m.regions, durationSec)).slice(0, probs.length) } : {}) })
+  out.push({ name: m.name, contentHash: m.contentHash, genre: m.genre ?? '', durationSec, genreKnown, regions: m.regions, probs: Array.from(probs, (p) => +p.toFixed(4)), ...(withRows ? { rows: rows.map((r) => r.map((v) => +v.toFixed(5))), labels: Array.from(manualLabels(m.regions, durationSec)).slice(0, probs.length) } : {}) })
   console.log(`${m.name}: ${durationSec.toFixed(1)} s, ${probs.length} cells`)
 }
 fs.writeFileSync(outPath, JSON.stringify(out))
