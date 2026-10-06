@@ -178,3 +178,99 @@ describe('applyOwnerArtist', () => {
     expect(applyOwnerArtist(same, {})).toBe(same)
   })
 })
+
+/**
+ * v0.9.43. The side of the dash: every name below is one of the owner's real
+ * files (measured 06/10 on all 345). Before, each of these came out wrong.
+ */
+describe('suggestArtists — which side of the dash is the artist (v0.9.43)', () => {
+  const techno = (i: number, artist: string) => ({ ...t(`Song ${i} - ${artist}.m4a`, { artist }), path: 'Techno/' + `Song ${i} - ${artist}.m4a` })
+  const technoFolder = Array.from({ length: 9 }, (_, i) => techno(i, i % 2 ? 'Korolova' : 'Anyma'))
+  const inTechno = (name: string, over: Partial<Track> = {}) => {
+    const track = { ...t(name, over), path: 'Techno/' + name }
+    return suggestArtists([track, ...technoFolder]).byTrack.get(track.id)
+  }
+
+  it('a folder where the artist is on the right 9 times of 9: right wins, and is offered alone', () => {
+    expect(inTechno('Samsara - Anyma and Sevdaliza.m4a')?.map((o) => o.artist)).toEqual(['Anyma and Sevdaliza'])
+    expect(inTechno('Pictures Of You - Anyma.m4a')?.[0].artist).toBe('Anyma')
+  })
+
+  it('a version in brackets after the artist, or a feature in brackets, is not part of the artist', () => {
+    expect(inTechno('Alone - Ofer Nisim (ft Maya).m4a')?.[0].artist).toBe('Ofer Nisim')
+    expect(first('Everybody Needs a Man (feat. Maya Simantov) - Offer Nissim.m4a')?.artist).toBe('Offer Nissim')
+  })
+
+  it('a left side that ends like a version name is the title: "Mi Zot Remix - Anna Zak"', () => {
+    expect(first('Mi Zot Remix - Anna Zak.wav')?.artist).toBe('Anna Zak')
+    expect(first('Work Remix- Rihanna ft. Drake.mp3')?.artist).toBe('Rihanna ft. Drake')
+    expect(first('Party Animal Remix- Charly Black.mp3')?.artist).toBe('Charly Black')
+  })
+
+  it('the title tag says which side is the song', () => {
+    expect(first('Humble - Kendrick Lamar.mp3'.replace('.mp3', '.mp3')) ?.artist).toBe('Humble') // nothing to go on: left, as before
+    const track = t('Humble - Kendrick Lamar.mp3', { title: 'A Milli Humble (Or Pilo BlackFix)' })
+    expect(suggestArtists([track]).byTrack.get(track.id)?.[0].artist).toBe('Kendrick Lamar')
+    const abba = t('Gimme! Gimme! Gimme! - ABBA.mp3', { title: 'ABBA - Gimme! Gimme! Gimme! (Matan Richter Edit)' })
+    expect(suggestArtists([abba]).byTrack.get(abba.id)?.[0].artist).toBe('ABBA')
+  })
+
+  it('the artist already in the library on the right wins over an unknown left', () => {
+    const o = suggestArtists([t('Samsara - Anyma.m4a'), t('x.m4a', { artist: 'Anyma' })])
+    expect(o.byTrack.get('t' + (n - 1))?.[0]).toMatchObject({ artist: 'Anyma', source: 'name-known' })
+  })
+
+  it('a third piece never becomes the artist: the left stays', () => {
+    expect(first('Argy & Omnya - Aria - Buskilaz Remix -Gidi Assayag Edit[VIP Djs].mp3')?.artist).toBe('Argy & Omnya')
+    expect(first('Dj Kass - Scooby Doo PaPa (Samuel Pomata) - Yossi Levi Edit.mp3')?.artist).toBe('Dj Kass')
+    expect(first('Snoop Dogg ft. Pharrell Williams - Drop It Like It s Hot (Lules Dancehall Remix) - 12A - 92.mp3')?.artist).toBe('Snoop Dogg ft. Pharrell Williams')
+  })
+
+  it('when the evidence is mixed both are offered (⇄), the likelier first', () => {
+    const track = t('Aria (Remix) - ARGY & ANYMA.mp3', { title: 'ARGY & ANYMA - Aria (Ehud Saban Remix)' })
+    const opts = suggestArtists([track]).byTrack.get(track.id)!
+    expect(opts[0].artist).toBe('ARGY & ANYMA')
+  })
+
+  it('a title with a version tag after a dash is not offered as the artist', () => {
+    expect(first('I Adore You (Argy & Mor Avrahami) MST - ITAY FIX[VIP Djs].mp3')).toBeUndefined()
+    expect(first('Boom - Anyma Remix.mp3')?.artist).toBe('Boom')
+  })
+})
+
+describe('suggestArtists — a tag that is a pack or a remixer (v0.9.43)', () => {
+  it('"TeaMix Vol.19" counts as no artist, and the file name gets to suggest', () => {
+    const track = t('Tyga - Rack City (DJ Kuper Edit).mp3', { artist: 'TeaMix Vol.19' })
+    const r = suggestArtists([track])
+    expect(r.needs.has(track.id)).toBe(true)
+    expect(r.suspect).toBe(1)
+    expect(r.byTrack.get(track.id)?.[0].artist).toBe('Tyga')
+  })
+
+  it('a name that appears only inside the file name\'s brackets is the remixer, not the artist', () => {
+    const track = t('Joey Montana - Picky (Moshe Buskila Remix).mp3', { artist: 'Moshe Buskila' })
+    expect(suggestArtists([track]).byTrack.get(track.id)?.[0].artist).toBe('Joey Montana')
+    const fine = t('Joey Montana - Picky (Moshe Buskila Remix).mp3', { artist: 'Joey Montana' })
+    expect(suggestArtists([fine]).needs.size).toBe(0)
+  })
+
+  it('an artist the owner accepted is never called junk, and a junk tag is not "known"', () => {
+    const mine = t('x - y.mp3', { artist: 'TeaMix Vol.19', artistSource: 'owner' })
+    expect(suggestArtists([mine]).needs.size).toBe(0)
+    const junk = t('a.mp3', { artist: 'TeaMix Vol.19' })
+    expect(first('TeaMix Vol.19 - Song.mp3', [junk])?.source).toBe('name')
+  })
+})
+
+describe('v0.9.43 review fixes', () => {
+  it('two weak votes alone never make a single, bulk-acceptable right-side answer', () => {
+    const folder = Array.from({ length: 5 }, (_, i) => ({ ...t(`S${i} - Anyma.m4a`, { artist: 'Anyma' }), path: 'F/' + `S${i} - Anyma.m4a` }))
+    const track = { ...t('Eternity - Chris and Bob.m4a'), path: 'F/x.m4a' }
+    const o = suggestArtists([track, ...folder]).byTrack.get(track.id)!
+    expect(o.length).toBe(2)
+  })
+  it('a name credited in (feat. …) is not called the remixer', () => {
+    const track = t('Song (feat. Drake) - X.mp3', { artist: 'Drake' })
+    expect(suggestArtists([track]).needs.size).toBe(0)
+  })
+})

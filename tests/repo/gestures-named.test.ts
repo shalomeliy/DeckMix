@@ -51,6 +51,9 @@ const NAMED: Record<string, Named[]> = {
     { token: 'onDoubleClick=', count: 1, exempt: 'stops a row double-click on the artist suggestion ✓/✕ buttons from loading the track' },
     { token: 'onKeyDown=', count: 1, exempt: 'Enter saves the artist typed into the "type artist…" box, Esc empties it' },
     { token: 'onDoubleClick=', count: 1, exempt: 'stops a double-click on the ↶ undo of an owner-set artist from loading the track' },
+    // v0.9.43: the Title header's right edge
+    { token: 'onDoubleClick=', count: 1, gesture: 'library.titleWidth' },
+    { token: 'onKeyDown=', count: 1, gesture: 'library.titleWidth' },
   ],
   // v0.9.36: the Genre ▾ list (v0.9.24) moved here, shared with every column's ▾
   'src/app/components/ColumnFilter.tsx': [

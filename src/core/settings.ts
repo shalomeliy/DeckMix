@@ -84,6 +84,8 @@ export interface Settings {
   eqDb: number
   /** Library row text size, as a multiplier of the base size. */
   libraryTextScale: number
+  /** Title column width in % of the table (v0.9.43). Set by dragging the header's edge; the Artist column gives up what Title takes. */
+  libraryTitleWidth: number
   /** Ceiling on canvas repaints per second. */
   maxFps: number
   /** Draw the waveform at the screen's real pixel density. Sharper, costlier. */
@@ -138,6 +140,7 @@ export const DEFAULTS: Settings = {
   waveformColorByEq: true,
   eqDb: EQ_DB,
   libraryTextScale: 1,
+  libraryTitleWidth: 20,
   maxFps: 60,
   hiResCanvas: true,
   bpmDecimals: 1,

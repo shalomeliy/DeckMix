@@ -271,6 +271,14 @@ const HINT_BASE = {
       { key: '↑ / ↓ on the focused bar', does: 'bigger / normal' },
     ],
   },
+  'library.titleWidth': {
+    text: 'The right edge of the Title header sets how wide the Title column is, so a long song name can be read in full. The Artist column gives up what Title takes; every other column keeps its width. It stays the width you left it.',
+    gestures: [
+      { mouse: 'Drag the Title header’s right edge', does: 'Title wider / narrower' },
+      { mouse: 'Double-click the edge', does: 'back to the normal width' },
+      { key: '← / → on the focused edge', does: 'narrower / wider' },
+    ],
+  },
   'library.checkSource': {
     text: 'Check this track’s BPM and key against Beatport. Opens a Beatport search for the artist and title in a new tab, and this panel, where you type what Beatport shows. Nothing changes until you press Update. Values you type lose the * or ? mark and survive a rescan; Back to original drops them. Turn the ↗ on or off in Settings › Library.',
     gestures: [

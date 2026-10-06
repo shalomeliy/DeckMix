@@ -38,6 +38,7 @@ import {
 } from '@/core/recommend'
 import { getExcellentFollowUps } from '@/platform/mix-pairs-idb/store'
 import { settings } from '@/platform/settings-idb/store'
+import { DEFAULTS } from '@/core/settings'
 import { useSettings } from '@/app/hooks/useSettings'
 import { useStore } from '@/app/state/store'
 import type { KeyMode } from '@/core/settings'
@@ -163,7 +164,10 @@ export function Library() {
   const [checking, setChecking] = useState<string | null>(null)
   // Which key notation to show. DJs are split between musical and Camelot and
   // nobody wants to relearn theirs, so it's a preference that sticks.
-  const { keyMode, libraryTextScale, sourceCheck, artistSuggestions } = useSettings()
+  const { keyMode, libraryTextScale, libraryTitleWidth, sourceCheck, artistSuggestions } = useSettings()
+  /** v0.9.43: the Title width while the header edge is being dragged; saved on release. */
+  const [titleDrag, setTitleDrag] = useState<number | null>(null)
+  const titlePct = Math.min(TITLE_MAX_PCT, Math.max(TITLE_MIN_PCT, titleDrag ?? libraryTitleWidth))
   /**
    * Three clicks cycle a column: asc -> desc -> off (back to scan order).
    * Clicking a *different* column always starts it fresh at asc, rather
@@ -798,7 +802,7 @@ export function Library() {
   const preMixList = dupOnly
     ? duplicatesView(sortedFiltered, dupReport.byTrack, library.sortKey == null)
     : artistOnly
-      ? sortedFiltered.filter((t) => !t.artist)
+      ? sortedFiltered.filter((t) => artistReport?.needs.has(t.id) ?? !t.artist)
       : sortedFiltered
   const activeCrate = library.activeCrateId ? (crates.get(library.activeCrateId) ?? null) : null
   const list = similarTo
@@ -1254,9 +1258,9 @@ export function Library() {
                 setArtistOnly((v) => !v)
                 setDupOnly(false)
               }}
-              title={`Tracks whose file carries no artist. ${artistReport.byTrack.size} have a suggestion (from the file name, or the same song in another file); ${artistReport.noHint} have none — type those in. Nothing is written to your files.`}
+              title={`Tracks whose file carries no artist${artistReport.suspect > 0 ? `, or an artist tag that is a pack or a remixer (${artistReport.suspect})` : ''}. ${artistReport.byTrack.size} have a suggestion (from the file name, or the same song in another file); ${artistReport.noHint} have none — type those in. Nothing is written to your files.`}
             >
-              {artistReport.missing} no artist
+              {artistReport.missing} {artistReport.suspect > 0 ? 'no / odd artist' : 'no artist'}
             </Button>
           )}
           {/*
@@ -1491,12 +1495,14 @@ export function Library() {
                     not go to Artist, it collected in the Type column as a dead
                     band between Artist and MP3. Fixed layout is what makes the
                     number mean what it says. */}
-                <Th className="w-[20%] pl-3 text-left" sortKey="title" activeSort={activeSort} onSort={handleSort}
+                <Th className="relative pl-3 text-left" style={{ width: `${titlePct}%` }}
+                  resize={<TitleResizeHandle pct={titlePct} onDrag={setTitleDrag} onCommit={(v) => { setTitleDrag(null); void settings.set('libraryTitleWidth', v) }} />}
+                  sortKey="title" activeSort={activeSort} onSort={handleSort}
                   searchColumn="title" searchActive={searchColumn === 'title'} onSearch={pickSearchColumn}
                   extra={<ColumnFilterButton column="title" tracks={library.tracks} filters={library.columnFilters} keyMode={keyMode} />}>
                   Title
                 </Th>
-                <Th className="w-[21%] text-left" sortKey="artist" activeSort={activeSort} onSort={handleSort}
+                <Th className="text-left" style={{ width: `${TITLE_ARTIST_PCT - titlePct}%` }} sortKey="artist" activeSort={activeSort} onSort={handleSort}
                   searchColumn="artist" searchActive={searchColumn === 'artist'} onSearch={pickSearchColumn}
                   extra={<ColumnFilterButton column="artist" tracks={library.tracks} filters={library.columnFilters} keyMode={keyMode} />}>
                   Artist
@@ -1620,7 +1626,7 @@ export function Library() {
                   // list as clutter beside every title; the header button still
                   // counts them, so nothing goes unsaid.
                   duplicate={dupOnly ? dupReport.byTrack.get(t.id) : undefined}
-                  artistOptions={artistOnly && !t.artist ? (artistReport?.byTrack.get(t.id) ?? []) : undefined}
+                  artistOptions={artistOnly && artistReport?.needs.has(t.id) ? (artistReport.byTrack.get(t.id) ?? []) : undefined}
                   artistUndo={artistSuggestions}
                   duplicateNote={(() => {
                     const g = dupOnly ? dupReport.byTrack.get(t.id) : undefined
@@ -1665,10 +1671,16 @@ function Th({
   searchActive = false,
   onSearch,
   extra,
+  style,
+  resize,
 }: {
   children: React.ReactNode
   /** v0.9.24: one more header control after the ⌕ (the Genre ▾ filter). */
   extra?: React.ReactNode
+  /** v0.9.43: a width that is not one of the fixed classes (the Title column is draggable). */
+  style?: React.CSSProperties
+  /** v0.9.43: the grab handle on the header's right edge. */
+  resize?: React.ReactNode
   className?: string
   sortKey?: SortKey
   activeSort?: { key: SortKey; dir: SortDir } | null
@@ -1679,12 +1691,13 @@ function Th({
   onSearch?: (c: SearchColumn) => void
 }) {
   if (!sortKey || !onSort) {
-    return <th className={`label py-1.5 font-semibold ${className}`}>{children}</th>
+    return <th className={`label py-1.5 font-semibold ${className}`} style={style}>{children}</th>
   }
   const active = activeSort?.key === sortKey
   return (
     <th
       className={`label py-1.5 font-semibold ${className}`}
+      style={style}
       aria-sort={active ? (activeSort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
     >
       <button
@@ -1701,7 +1714,74 @@ function Th({
       </button>
       {searchColumn && onSearch && <SearchColumnButton column={searchColumn} active={searchActive} onSearch={onSearch} />}
       {extra}
+      {resize}
     </th>
+  )
+}
+
+/**
+ * Title + Artist share 41% of the table (they were 20 + 21), so dragging the
+ * Title header's right edge widens Title at Artist's expense and every other
+ * column keeps its width: under `table-fixed` the percentages must add to 100,
+ * and moving them between two columns is the one change that keeps that true.
+ * The limits keep either name readable.
+ */
+const TITLE_ARTIST_PCT = 41
+const TITLE_MIN_PCT = 14
+const TITLE_MAX_PCT = 32
+
+/** The grab strip on the Title header's right edge (v0.9.43, Shalom 06/10: "the title must be able to grow to the right"). Double-click puts it back. */
+function TitleResizeHandle({ pct, onDrag, onCommit }: { pct: number; onDrag: (v: number) => void; onCommit: (v: number) => void }) {
+  const drag = useRef<{ startX: number; startPct: number; tableW: number; pointerId: number; last: number } | null>(null)
+  const clamp = (v: number) => Math.min(TITLE_MAX_PCT, Math.max(TITLE_MIN_PCT, Math.round(v * 2) / 2))
+  return (
+    <span
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the Title column"
+      aria-valuenow={Math.round(pct)}
+      aria-valuemin={TITLE_MIN_PCT}
+      aria-valuemax={TITLE_MAX_PCT}
+      tabIndex={0}
+      title="Drag to make Title wider or narrower (Artist gives up the room). Double-click to reset."
+      className="absolute inset-y-0 right-0 z-10 w-2 cursor-col-resize touch-none hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none"
+      onPointerDown={(e) => {
+        if (e.button !== 0) return
+        const table = e.currentTarget.closest('table')
+        if (!table) return
+        drag.current = { startX: e.clientX, startPct: pct, tableW: table.getBoundingClientRect().width, pointerId: e.pointerId, last: pct }
+        e.currentTarget.setPointerCapture(e.pointerId)
+        e.stopPropagation()
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current
+        if (!d || d.pointerId !== e.pointerId || d.tableW <= 0) return
+        d.last = clamp(d.startPct + ((e.clientX - d.startX) / d.tableW) * 100)
+        onDrag(d.last)
+      }}
+      onPointerUp={() => {
+        const d = drag.current
+        drag.current = null
+        if (d && d.last !== d.startPct) onCommit(d.last)
+        else if (d) onDrag(d.startPct)
+      }}
+      onPointerCancel={() => {
+        drag.current = null
+        onDrag(pct)
+      }}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => {
+        e.stopPropagation()
+        onCommit(DEFAULTS.libraryTitleWidth)
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowRight') onCommit(clamp(pct + 1))
+        else if (e.key === 'ArrowLeft') onCommit(clamp(pct - 1))
+        else return
+        e.preventDefault()
+        e.stopPropagation()
+      }}
+    />
   )
 }
 
@@ -2218,7 +2298,7 @@ function Row({
       </td>
       {artistOptions ? (
         <td className="max-w-0 py-1.5 pr-2" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-          <ArtistSuggestionCell trackId={track.id} options={artistOptions} />
+          <ArtistSuggestionCell trackId={track.id} options={artistOptions} current={track.artist} />
         </td>
       ) : (
         <td className="max-w-0 truncate py-1.5 pr-2 text-grid-muted">
@@ -2486,12 +2566,20 @@ const ARTIST_BULK_SOURCES: ReadonlySet<ArtistSource> = new Set(['name-known', 'n
  * never merged into a "most likely" one. A row with no suggestion at all gets
  * a box to type the artist in — those are the ones nothing can guess.
  */
-function ArtistSuggestionCell({ trackId, options }: { trackId: string; options: ArtistOption[] }) {
+function ArtistSuggestionCell({ trackId, options, current }: { trackId: string; options: ArtistOption[]; current?: string }) {
   const [index, setIndex] = useState(0)
+  // v0.9.43: a row listed because its tag looks wrong (a pack name, the remixer) keeps that tag in view, struck through, so the owner sees what the suggestion would replace.
+  const wrong = current ? (
+    <span className="shrink-0 truncate text-2xs text-grid-dim line-through" title={`The file's artist tag, "${current}", looks like a pack or a remixer, not the artist`}>
+      {current}
+    </span>
+  ) : null
   if (options.length === 0) {
     return (
       // Enter only, never on blur: a click elsewhere mid-word saved the half-typed
       // name as his artist (change-reviewer, 06/10). Esc empties the box.
+      <span className="flex min-w-0 items-center gap-1">
+      {wrong}
       <input
         type="text"
         aria-label="Type the artist"
@@ -2509,6 +2597,7 @@ function ArtistSuggestionCell({ trackId, options }: { trackId: string; options: 
           }
         }}
       />
+      </span>
     )
   }
   const option = options[index % options.length]
@@ -2518,6 +2607,7 @@ function ArtistSuggestionCell({ trackId, options }: { trackId: string; options: 
   }
   return (
     <span className="flex min-w-0 items-center gap-1" title={`Suggested: ${option.artist} — ${sourceLabel(option)}`}>
+      {wrong}
       <span className="min-w-0 truncate italic text-grid-dim">{option.artist}</span>
       <span className="shrink-0 text-2xs text-grid-dim">· {ARTIST_SOURCE_TAG[option.source]}</span>
       {options.length > 1 && (
@@ -2600,7 +2690,7 @@ function ArtistAcceptStrip({ report, visibleIds }: { report: ReturnType<typeof s
     <div className="flex flex-wrap items-center gap-2 border-b border-hairline bg-surface-1 px-2 py-1 text-2xs text-grid-dim">
       <span className="label font-bold text-grid-muted">Artist suggestions</span>
       <span>
-        {report.missing} with no artist · {report.byTrack.size} suggested · {report.noHint} with no hint (type those in)
+        {report.missing} with no artist{report.suspect > 0 ? ` (${report.suspect} with a tag that looks wrong: a pack or a remixer)` : ''} · {report.byTrack.size} suggested · {report.noHint} with no hint (type those in)
       </span>
       <span className="text-grid-dim">· saved in DeckMix only, your files are not changed</span>
       {[...groups].map(([tag, items]) => (
