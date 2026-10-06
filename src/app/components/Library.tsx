@@ -1547,9 +1547,13 @@ export function Library() {
                   removableFromCrateId={removableFromCrateId}
                   loadedOnA={aHash != null && aHash === t.contentHash}
                   loadedOnB={bHash != null && bHash === t.contentHash}
-                  duplicate={dupReport.byTrack.get(t.id)}
+                  // v0.9.32: the badge and its "3:38 · WAV" note belong to the
+                  // Duplicates-only view. The owner (06/10) read it in the plain
+                  // list as clutter beside every title; the header button still
+                  // counts them, so nothing goes unsaid.
+                  duplicate={dupOnly ? dupReport.byTrack.get(t.id) : undefined}
                   duplicateNote={(() => {
-                    const g = dupReport.byTrack.get(t.id)
+                    const g = dupOnly ? dupReport.byTrack.get(t.id) : undefined
                     return g ? describeDuplicate(t, g, trackById) : undefined
                   })()}
                 />
