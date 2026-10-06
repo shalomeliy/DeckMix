@@ -179,5 +179,8 @@ describe('readTags — Hebrew written into a Latin-1 ID3 frame', () => {
     expect((await readTags(mp3(id3Tag('TPE1', 'Beyoncé')))).artist).toBe('Beyoncé')
     expect((await readTags(mp3(id3Tag('TPE1', 'Café Olé')))).artist).toBe('Café Olé')
     expect((await readTags(mp3(id3Tag('TPE1', 'Röyksopp')))).artist).toBe('Röyksopp')
+    // short and all-lowercase: 2 of its 3 letters sit where 1255 has Hebrew (change-reviewer, 06/10)
+    expect((await readTags(mp3(id3Tag('TPE1', 'été')))).artist).toBe('été')
+    expect((await readTags(mp3(id3Tag('TPE1', 'Zoé')))).artist).toBe('Zoé')
   })
 })

@@ -105,12 +105,16 @@ export async function setOwnerTempoKey(contentHash: string, patch: OwnerTempoKey
  * `update`, like `setOwnerTempoKey`, so a play stamp landing in the same
  * instant is not lost. Throws on failure, same contract as `setTrackNote`.
  */
-export async function setOwnerArtist(contentHash: string, answer: { accept: string } | { reject: string }): Promise<void> {
+export async function setOwnerArtist(
+  contentHash: string,
+  answer: { accept: string } | { reject: string } | { clear: true },
+): Promise<void> {
   let written: TrackMeta | null = null
   await update<Record<string, TrackMeta>>(KEY, (stored) => {
     const all = { ...(stored ?? {}) }
     const meta = { ...all[contentHash] }
     if ('accept' in answer) meta.artist = answer.accept
+    else if ('clear' in answer) delete meta.artist
     else meta.artistRejected = [...new Set([...(meta.artistRejected ?? []), answer.reject])]
     all[contentHash] = meta
     written = meta

@@ -299,6 +299,13 @@ export interface AppState {
     unreadable: number
     /** v0.9.41: the tag pass has finished — only then does "no artist" mean the file has none */
     tagsRead: boolean
+    /**
+     * v0.9.41: the hash pass is over, so every track the owner already answered
+     * (keyed by content hash) carries his answer. Before it, a rejected name is
+     * offered again and an accepted artist reads as missing — and "✓ all" would
+     * overwrite his own answers with them (change-reviewer, 06/10).
+     */
+    hashesRead: boolean
     /** which column the table is sorted by (v0.8.0) — null means scan order, today's default */
     sortKey: SortKey | null
     sortDir: SortDir
@@ -490,6 +497,7 @@ export const useStore = create<AppState>((set) => ({
     bootDetail: null,
     unreadable: 0,
     tagsRead: false,
+    hashesRead: false,
     sortKey: null,
     sortDir: 'asc',
     activeCrateId: null,

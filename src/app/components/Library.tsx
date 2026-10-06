@@ -416,7 +416,10 @@ export function Library() {
     const scan = { cancelled: false }
     tagScan.current = scan
 
-    setLibrary({ scanning: true, folderName: name, scanMsg: 'Scanning…', bootDetail: null })
+    // tagsRead/hashesRead down now, not when applyTags starts: the fresh, untagged
+    // list below would otherwise sit under the previous scan's "true" and read as
+    // a library with no artists at all (change-reviewer, 06/10).
+    setLibrary({ scanning: true, folderName: name, scanMsg: 'Scanning…', bootDetail: null, tagsRead: false, hashesRead: false })
 
     let tracks: Track[]
     let skipped: Record<string, number>
@@ -546,6 +549,9 @@ export function Library() {
       // tracks are on screen now, so the startup sentence must give way
       boot: 'loaded',
       scanMsg: `+${fresh.length} · reading tags…`,
+      // same reason as runScan: the added tracks are untagged and unhashed yet
+      tagsRead: false,
+      hashesRead: false,
     })
     await applyGenreOverrides(scan)
     // Sampler slots saved from a previous session (v0.6.0) key on content
@@ -684,7 +690,12 @@ export function Library() {
         // queue settles (below) is what actually reports for real.
         if ([...patch.values()].some((p) => p.contentHash)) void ctl.resolveSamplerSlots({ silent: true })
       },
-      { signal: scan, needsFirst: lacksBpmOrKey, priorityReady: tagged },
+      {
+        signal: scan,
+        needsFirst: lacksBpmOrKey,
+        priorityReady: tagged,
+        onHashed: () => useStore.getState().setLibrary({ hashesRead: true }),
+      },
     )
   }
 
@@ -772,11 +783,13 @@ export function Library() {
   const dupReport = useMemo(() => findDuplicates(library.tracks), [library.tracks])
   const trackById = useMemo(() => new Map(library.tracks.map((t) => [t.id, t])), [library.tracks])
   const sortedFiltered = ctl.sortedFilteredTracks()
-  // v0.9.41: null until the tag pass is done — before it, a track whose tag is
-  // still unread looks exactly like one with no artist.
+  // v0.9.41: null until the tag pass AND the hash pass are done. Before the
+  // tags, a track whose tag is still unread looks exactly like one with no
+  // artist; before the hashes, the owner's own answers are not on the tracks
+  // yet, so what he rejected would be offered again.
   const artistReport = useMemo(
-    () => (library.tagsRead ? suggestArtists(library.tracks) : null),
-    [library.tracks, library.tagsRead],
+    () => (library.tagsRead && library.hashesRead ? suggestArtists(library.tracks) : null),
+    [library.tracks, library.tagsRead, library.hashesRead],
   )
   const preMixList = dupOnly
     ? duplicatesView(sortedFiltered, dupReport.byTrack, library.sortKey == null)
@@ -1405,7 +1418,7 @@ export function Library() {
       {artistOnly && artistReport && (
         <ArtistAcceptStrip
           report={artistReport}
-          visibleIds={new Set(preMixList.map((t) => t.id))}
+          visibleIds={new Set(list.map((t) => t.id))}
         />
       )}
 
@@ -2200,7 +2213,9 @@ function Row({
           <ArtistSuggestionCell trackId={track.id} options={artistOptions} />
         </td>
       ) : (
-        <td className="max-w-0 truncate py-1.5 pr-2 text-grid-muted">{track.artist}</td>
+        <td className="max-w-0 truncate py-1.5 pr-2 text-grid-muted">
+          {track.artistSource === 'owner' ? <OwnerArtist trackId={track.id} artist={track.artist ?? ''} /> : track.artist}
+        </td>
       )}
       {/*
         A native <select> rather than a plain cell that swaps to one on click:
@@ -2443,11 +2458,18 @@ function EmptyState({
 /** v0.9.41: the short word beside a suggestion; the tooltip has the whole sentence (`sourceLabel`). */
 const ARTIST_SOURCE_TAG: Record<ArtistSource, string> = {
   'name-known': 'known',
-  'known-prefix': 'known',
+  'known-prefix': 'known start',
   'same-song': 'same song',
   name: 'file name',
   pixabay: 'Pixabay',
 }
+/**
+ * Sources that get a "✓ all" button. Not 'known-prefix' (a guess from how the
+ * name starts) or 'same-song' (matched on the title alone, so a generic one —
+ * "Intro", "Original Mix" — pulls an unrelated artist): those are one row at a
+ * time, where the owner sees what he is saying yes to (change-reviewer, 06/10).
+ */
+const ARTIST_BULK_SOURCES: ReadonlySet<ArtistSource> = new Set(['name-known', 'name', 'pixabay'])
 
 /**
  * The Artist cell of the "no artist" view (v0.9.41): the suggestion, set apart
@@ -2460,18 +2482,23 @@ function ArtistSuggestionCell({ trackId, options }: { trackId: string; options: 
   const [index, setIndex] = useState(0)
   if (options.length === 0) {
     return (
+      // Enter only, never on blur: a click elsewhere mid-word saved the half-typed
+      // name as his artist (change-reviewer, 06/10). Esc empties the box.
       <input
         type="text"
         aria-label="Type the artist"
-        placeholder="type artist…"
+        placeholder="type artist, Enter…"
+        title="Enter saves it as the artist · Esc cancels"
         className="w-full min-w-0 rounded-[var(--radius-xs)] bg-surface-2 px-1 text-grid-text placeholder:text-grid-dim"
         onKeyDown={(e) => {
           e.stopPropagation()
-          if (e.key === 'Enter') e.currentTarget.blur()
-        }}
-        onBlur={(e) => {
-          const artist = e.currentTarget.value.trim()
-          if (artist) void ctl.answerArtistSuggestions([{ trackId, artist, accept: true }])
+          if (e.key === 'Escape') {
+            e.currentTarget.value = ''
+            e.currentTarget.blur()
+          } else if (e.key === 'Enter') {
+            const artist = e.currentTarget.value.trim()
+            if (artist) void ctl.answerArtistSuggestions([{ trackId, artist, accept: true }])
+          }
         }}
       />
     )
@@ -2519,6 +2546,33 @@ function ArtistSuggestionCell({ trackId, options }: { trackId: string; options: 
 }
 
 /**
+ * An artist the owner set in DeckMix (v0.9.41), with the way back: one wrong
+ * "✓ all" otherwise stayed for good, since his answer beats any tag the file
+ * gets later (change-reviewer, 06/10). Undo puts the row back among the
+ * suggestions; it does not reject the name.
+ */
+function OwnerArtist({ trackId, artist }: { trackId: string; artist: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-1" title={`${artist} — you set this in DeckMix; your file is not changed`}>
+      <span className="min-w-0 truncate">{artist}</span>
+      <button
+        type="button"
+        className="shrink-0 rounded-[var(--radius-xs)] px-1 text-2xs text-grid-dim hover:bg-surface-3 hover:text-grid-text"
+        aria-label={`Undo the artist ${artist}`}
+        title="Undo — remove the artist you set here"
+        onClick={(e) => {
+          e.stopPropagation()
+          void ctl.clearOwnerArtist(trackId)
+        }}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
+        ↶
+      </button>
+    </span>
+  )
+}
+
+/**
  * The "no artist" view's top strip (v0.9.41): how many are missing, how many
  * have a suggestion and how many have none — the last is said, not left to be
  * noticed — and one "accept all" per kind of source. Only rows on screen are
@@ -2527,7 +2581,8 @@ function ArtistSuggestionCell({ trackId, options }: { trackId: string; options: 
 function ArtistAcceptStrip({ report, visibleIds }: { report: ReturnType<typeof suggestArtists>; visibleIds: ReadonlySet<string> }) {
   const groups = new Map<string, { trackId: string; artist: string }[]>()
   for (const [trackId, opts] of report.byTrack) {
-    if (!visibleIds.has(trackId)) continue
+    // two different answers are the owner's to pick between, never the first one by default
+    if (!visibleIds.has(trackId) || opts.length > 1 || !ARTIST_BULK_SOURCES.has(opts[0].source)) continue
     const tag = ARTIST_SOURCE_TAG[opts[0].source]
     const g = groups.get(tag) ?? []
     g.push({ trackId, artist: opts[0].artist })
@@ -2545,7 +2600,7 @@ function ArtistAcceptStrip({ report, visibleIds }: { report: ReturnType<typeof s
           key={tag}
           variant="toggle"
           size="sm"
-          title={`Accept the first suggestion on all ${items.length} rows on screen whose suggestion is "${tag}"`}
+          title={`Accept the suggestion on all ${items.length} rows on screen whose one suggestion is "${tag}" — rows with two different suggestions are left for you`}
           onClick={() => void ctl.answerArtistSuggestions(items.map((i) => ({ ...i, accept: true })))}
         >
           ✓ all {items.length} {tag}

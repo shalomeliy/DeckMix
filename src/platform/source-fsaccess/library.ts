@@ -408,6 +408,8 @@ export async function queueLibraryAnalysis(
     needsFirst?: (trackId: string) => boolean
     /** settles once `needsFirst` can answer — the tag pass. Awaited before the first decode. */
     priorityReady?: Promise<unknown>
+    /** called once every track has been hashed (or failed to), after the last hash flush */
+    onHashed?: () => void
   } = {},
 ): Promise<void> {
   const concurrency = opts.concurrency ?? 2
@@ -454,6 +456,7 @@ export async function queueLibraryAnalysis(
     }
     await Promise.all(Array.from({ length: Math.min(4, total) }, hasher))
     flush()
+    if (!opts.signal?.cancelled) opts.onHashed?.()
   }
 
   // Until the tags are in, every track looks like it lacks BPM and key, and

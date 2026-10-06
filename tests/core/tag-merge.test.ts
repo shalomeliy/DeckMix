@@ -112,6 +112,15 @@ describe('followLibraryKey (v0.8.35)', () => {
     const onDeck = track({ key: 'Dm', camelot: '7A', keySource: 'detected' })
     expect(followLibraryKey(onDeck, track())).toBe(onDeck)
   })
+
+  it('v0.9.41: an artist the owner accepts, or undoes, reaches the loaded deck — and the key is kept', () => {
+    const onDeck = track({ key: 'Am', camelot: '8A' })
+    const accepted = followLibraryKey(onDeck, track({ key: 'Am', camelot: '8A', artist: 'Argy', artistSource: 'owner' }))
+    expect(accepted).toMatchObject({ artist: 'Argy', artistSource: 'owner', key: 'Am' })
+    const undone = followLibraryKey(accepted, track({ key: 'Am', camelot: '8A' }))
+    expect(undone.artist).toBeUndefined()
+    expect(undone.artistSource).toBeUndefined()
+  })
 })
 
 // What the store's `setLibrary` runs. Before v0.8.35 it touched the library

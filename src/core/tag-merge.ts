@@ -75,15 +75,21 @@ export function withLatestKey(track: Track, latest: Track | undefined): Track {
  * not touch this track's key does not re-render the deck.
  */
 export function followLibraryKey(deckTrack: Track, latest: Track | undefined): Track {
+  if (!latest) return deckTrack
+  let out = deckTrack
   if (
-    !latest ||
-    (latest.key === deckTrack.key &&
-      latest.camelot === deckTrack.camelot &&
-      latest.keySource === deckTrack.keySource &&
-      latest.keyUncertain === deckTrack.keyUncertain)
+    latest.key !== deckTrack.key ||
+    latest.camelot !== deckTrack.camelot ||
+    latest.keySource !== deckTrack.keySource ||
+    latest.keyUncertain !== deckTrack.keyUncertain
   )
-    return deckTrack
-  return withLatestKey(deckTrack, latest)
+    out = withLatestKey(deckTrack, latest)
+  // v0.9.41: the artist too — one the owner accepts (or undoes) for a loaded
+  // track otherwise stayed off the deck until it was loaded again
+  // (change-reviewer, 06/10).
+  if (latest.artist !== out.artist || latest.artistSource !== out.artistSource)
+    out = { ...out, artist: latest.artist, artistSource: latest.artistSource }
+  return out
 }
 
 /**

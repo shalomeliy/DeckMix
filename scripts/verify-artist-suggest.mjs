@@ -10,6 +10,8 @@
  * 3. Each suggestion says where it came from; a track with no hint gets a box.
  * 4. ✓ keeps the artist (in IndexedDB too), ✕ never offers it again, typing works,
  *    and "✓ all … known" accepts the known ones.
+ * 5. After a reload with hashing held back, nothing is offered until the saved
+ *    answers are back on the tracks; then ↶ undoes an accepted artist.
  * Harness (tagged WAVs, in-memory IndexedDB) is `verify-deck-pin.mjs`'s.
  */
 import { chromium } from 'playwright'
@@ -91,7 +93,14 @@ function harness(tracks) {
     kind: 'file', name,
     getFile: async () => {
       const bytes = Uint8Array.from(atob(files[name]), (c) => c.charCodeAt(0));
-      return new File([bytes], name, { type: 'audio/wav' });
+      const file = new File([bytes], name, { type: 'audio/wav' });
+      // A whole-file read (the hash pass) held back, byte-range reads (tags) not:
+      // the order a big real library gives, where tags finish long before hashes.
+      if (sessionStorage.getItem('__slowHash')) {
+        const whole = file.arrayBuffer.bind(file);
+        file.arrayBuffer = () => new Promise((r) => setTimeout(r, 4000)).then(whole);
+      }
+      return file;
     },
   });
   const makeDir = (name) => ({
@@ -219,14 +228,29 @@ await scenario('artist suggestions', TRACKS, async (page) => {
   ok('back in the plain list the accepted artist is in the Artist column', plain.includes('Noa Kirel'), plain)
 
   // A fresh scan: the artist has to come back from IndexedDB, not from the page's memory.
+  // Hashing held back, so the tags are in long before the saved answers are.
+  await page.evaluate(() => sessionStorage.setItem('__slowHash', '1'))
   await page.reload({ waitUntil: 'domcontentloaded' })
   const after = page.getByRole('button', { name: /no artist$/ })
+  await page.waitForTimeout(2500)
+  const early = await after.count()
+  const tagsIn = ((await row(page, 'Tagged One').textContent()) ?? '').includes('אושר כהן')
+  ok('before the saved answers are back, no "no artist" count is offered (tags already read)', early === 0 && tagsIn, `button ${early}, tags ${tagsIn}`)
   await after.waitFor({ timeout: 15000 }).catch(() => {})
-  await page.waitForTimeout(3000)
+  await page.waitForTimeout(1000)
   const again = (await row(page, 'Pantera').textContent()) ?? ''
   ok('after a rescan the accepted artist is back', again.includes('Noa Kirel'), again.slice(0, 60))
   const count = ((await after.textContent().catch(() => '')) ?? '').trim()
   ok('after a rescan only the rejected-and-untyped track is missing', count === '1 no artist', count)
+
+  await row(page, 'Pantera').getByRole('button', { name: 'Undo the artist Noa Kirel' }).click()
+  await page.waitForTimeout(500)
+  const undone = ((await after.textContent().catch(() => '')) ?? '').trim()
+  ok('↶ undo takes the artist off the row and out of IndexedDB', undone === '2 no artist' && !(await metaArtist(page, 'Noa Kirel')), undone)
+  await after.click()
+  await page.waitForTimeout(300)
+  const back = (await row(page, 'Pantera').textContent()) ?? ''
+  ok('…and the row is back among the suggestions', back.includes('Noa Kirel') && back.includes('file name'), back)
 })
 
 await browser.close()

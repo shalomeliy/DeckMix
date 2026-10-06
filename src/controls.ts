@@ -4825,6 +4825,27 @@ export async function answerArtistSuggestions(answers: { trackId: string; artist
   }
 }
 
+/**
+ * Undo an artist the owner set in DeckMix (v0.9.41) — the row goes back to
+ * having no artist, and to its suggestions. Same shape as the answers above:
+ * the screen first, then the store, and a failure said out loud.
+ */
+export async function clearOwnerArtist(trackId: string): Promise<void> {
+  const { library, setLibrary, setNotice } = useStore.getState()
+  const track = library.tracks.find((t) => t.id === trackId)
+  if (!track || track.artistSource !== 'owner') return
+  setLibrary({ tracks: library.tracks.map((t) => (t.id === trackId ? { ...t, artist: undefined, artistSource: undefined } : t)) })
+  try {
+    await setOwnerArtist(await ensureContentHash(trackId), { clear: true })
+  } catch (err) {
+    setNotice({
+      text: `Undo of the artist "${track.artist}" shown but not saved — it comes back on the next scan: ${err instanceof Error ? err.message : String(err)}`,
+      tone: 'warn',
+      source: 'library',
+    })
+  }
+}
+
 /** The track's content hash, computed once on demand and kept on the track — same path as `persistTrackNote`. */
 async function ensureContentHash(trackId: string): Promise<string> {
   const track = useStore.getState().library.tracks.find((t) => t.id === trackId)

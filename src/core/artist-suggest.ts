@@ -205,7 +205,10 @@ export function optionsFor(track: Track, known: Known, tagged: readonly Track[])
  */
 export function suggestArtists(tracks: readonly Track[], rejected: (t: Track) => readonly string[] = (t) => t.artistRejected ?? []): ArtistSuggestions {
   const tagged = tracks.filter((t) => t.artist)
-  const known = knownArtists(tagged)
+  // "known" means the files say so. An artist the owner accepted from a file
+  // name would otherwise promote that same guess on every other file to
+  // "known", and into its "✓ all" (change-reviewer, 06/10).
+  const known = knownArtists(tagged.filter((t) => t.artistSource !== 'owner'))
   const byTrack = new Map<string, ArtistOption[]>()
   let missing = 0
   let noHint = 0

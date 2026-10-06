@@ -51,15 +51,23 @@ const hebrew1255 = new TextDecoder('windows-1255')
  * accent here and there ("Beyoncé", "Café Olé"); a Hebrew one is mostly those
  * bytes. So: most letters in that range, and none of the accented capitals
  * (0xC0–0xDF) that Latin text has and Hebrew 1255 does not (there they are
- * vowel points, which song tags do not carry).
+ * vowel points, which song tags do not carry). And none glued to a Latin
+ * letter: a short accented word passed the ratio — "été" is 2 of 3, and read
+ * as "יtי" (change-reviewer, 06/10). An accent sits inside a Latin word; a
+ * Hebrew word meets a Latin one across a space.
  */
+const isAsciiLetter = (c: number | undefined) => c != null && ((c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a))
 function looksLikeHebrew1255(b: Uint8Array): boolean {
   let letters = 0
   let hebrew = 0
-  for (const c of b) {
+  for (let i = 0; i < b.length; i++) {
+    const c = b[i]
     if (c >= 0xc0 && c <= 0xdf) return false
-    if (c >= 0xe0 && c <= 0xfa) hebrew++
-    if ((c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || c >= 0xe0) letters++
+    if (c >= 0xe0 && c <= 0xfa) {
+      if (isAsciiLetter(b[i - 1]) || isAsciiLetter(b[i + 1])) return false
+      hebrew++
+    }
+    if (isAsciiLetter(c) || c >= 0xe0) letters++
   }
   return hebrew >= 2 && hebrew / letters >= 0.6
 }

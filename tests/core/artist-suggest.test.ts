@@ -134,6 +134,15 @@ describe('suggestArtists — the other sources', () => {
   })
 })
 
+describe('suggestArtists — what counts as known', () => {
+  it('an artist the owner accepted from a file name does not make the same guess "known" elsewhere', () => {
+    const accepted = t('Argy - Tataki.mp3', { artist: 'Argy', artistSource: 'owner' })
+    expect(first('Argy - Aria.mp3', [accepted])?.source).toBe('name')
+    const tagged = t('x.mp3', { artist: 'Argy' })
+    expect(first('Argy - Aria.mp3', [accepted, tagged])?.source).toBe('name-known')
+  })
+})
+
 describe('suggestArtists — counting', () => {
   it('counts every track with no artist, and the ones with no hint, so none vanish from view', () => {
     const r = suggestArtists([t('Baila Conmigo (Willy William Remix [Cover Audio]).mp3'), t('136.mp3'), t('Argy - Tataki.mp3'), t('x.mp3', { artist: 'Argy' })])
