@@ -36,7 +36,9 @@ for (const m of marks.marks) {
     byHash ??= new Map(files.map((p) => [crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex'), p]))
     f = byHash.get(m.contentHash) ?? null
   }
-  f ??= files.find((p) => path.parse(p).name === m.name)
+  // By name only when the export has no hash (older exports). 06/10: a Mizrahi song he had deleted shared its name with a House file
+  // that was still there, so a name fallback trained his Mizrahi marks on the House file's audio.
+  else f = files.find((p) => path.parse(p).name === m.name)
   if (!f) { missing.push(m.name); continue }
   let raw
   try {
