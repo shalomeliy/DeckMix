@@ -157,6 +157,9 @@ export function Deck({ deckId }: { deckId: DeckId }) {
   const effectiveBpm = deck.bpm != null ? deck.bpm * (1 + deck.tempo * tempoRange) : null
   const deltaPct = deck.tempo * tempoRange * 100
   const remain = deck.durationSec - deck.positionSec
+  // "Save tempo" (v0.9.46) is offered only when there is something to save: the fader sits away from what this track loads at, and a hand
+  // put it there — not SYNC, a mix or a glide back (`tempoByHand`), whose number belongs to the pairing (the 20/09 bug).
+  const tempoUnsaved = !!deck.track && !deck.syncActive && deck.tempoByHand && Math.abs(deck.tempo - (deck.savedTempo ?? 0)) > 1e-4
 
   // Built once, placed in either layout below: the full one, or the compact
   // one while the track list is pulled up (v0.9.34).
@@ -384,6 +387,24 @@ export function Deck({ deckId }: { deckId: DeckId }) {
               `anyPlaying`). See workshop-output/FEATURE_SPEC_BARSYNC.md —
               SYNC locks beat phase, never bar phase, so this is a live,
               by-ear correction, not something the app can do silently. */}
+          {/* Beside the "BPM +x%" line, not under it: a row here pushed the waveform, the pads and the track list 22px down every
+              time the fader moved (measured, v0.9.46), on a deck that already fills the 710px screen. */}
+          {tempoUnsaved && (
+            <div className="absolute right-full top-[21px] mr-1 whitespace-nowrap">
+              <button
+                type="button"
+                onClick={() => void ctl.saveDeckTempo(deckId)}
+                title={
+                  Math.abs(deck.tempo) < 1e-4
+                    ? 'Forget the tempo saved for this track: it loads at its own speed again'
+                    : 'Keep this tempo for this track: it starts here every time it loads. Nothing is kept unless you press this.'
+                }
+                className="rounded-[var(--radius-xs)] px-1 py-0.5 text-2xs text-grid-muted transition-colors hover:bg-surface-2 hover:text-grid-text"
+              >
+                {Math.abs(deck.tempo) < 1e-4 ? 'Forget tempo' : 'Save tempo'}
+              </button>
+            </div>
+          )}
           {deck.syncActive && otherPlaying && (
             <div className="mt-1 flex items-center justify-end gap-1">
               <button

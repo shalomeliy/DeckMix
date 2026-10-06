@@ -41,6 +41,7 @@ export type NoticeSource =
   | 'history'
   | 'mixRating'
   | 'tagging'
+  | 'tempo'
 
 /**
  * v0.5.5's natural-language control bar — see `controls.ts`'s AI section
@@ -93,6 +94,8 @@ function emptyDeck(id: DeckId): DeckState {
     beatGridConfirmed: true,
     barOneUnsure: false,
     bpmOrigin: null,
+    savedTempo: null,
+    tempoByHand: false,
     syncActive: false,
     tempo: 0,
     peaks: null,

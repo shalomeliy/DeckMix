@@ -69,7 +69,7 @@ import { matchesColumnFilters, normalizeFilter, type ColumnFilters, type FilterC
 import { matchesSearch, type SearchColumn } from '@/core/library-search'
 import { sortTracks } from '@/core/library-sort'
 import { getCues, putCues } from '@/platform/cues-idb/store'
-import { getTempo, putTempo } from '@/platform/tempo-idb/store'
+import { clearTempo, getTempo, putTempo } from '@/platform/tempo-idb/store'
 import { getGridCorrection, putGridCorrection } from '@/platform/grid-corrections-idb/store'
 import { ownerCorrection, reconcileSavedGrid, resolveGridCorrection } from '@/core/grid-corrections'
 import { getExcellentPoints, markExcellent } from '@/platform/mix-ratings-idb/store'
@@ -460,6 +460,8 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     peaks: null,
     bands: null,
     tempo: storedTempo ?? 0,
+    savedTempo: storedTempo,
+    tempoByHand: false,
     hotCues,
     cuePointSec,
     excellentMixPoints,
@@ -467,6 +469,13 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     loopRange: null,
     keySyncShift: null,
   })
+  // Never silent (v0.9.46): a track that starts off its own speed says so, and says it is his saved choice.
+  // Never over a warning already on screen — the first load once wiped the "audio device not connected" one (see the clearNotice above).
+  const shown = useStore.getState().notice
+  if (storedTempo != null && Math.abs(storedTempo) > 1e-4 && (!shown || shown.tone === 'info' || shown.source === 'load' || shown.source === 'tempo')) {
+    const pct = storedTempo * settings.values.tempoRange * 100
+    setNotice({ text: `"${track.title ?? track.name}" starts at ${pct > 0 ? '+' : ''}${pct.toFixed(1)}% — the tempo you saved for it.`, tone: 'info', source: 'tempo' })
+  }
   void onTrackLoadedForVocalMarks(deckId, contentHash)
   // A (re)load can change this deck's bpm/tempo as much as touching the
   // tempo fader does — found by change-reviewer (v0.8.6): loading a track
@@ -667,11 +676,6 @@ export function ejectDeck(deckId: DeckId) {
   if (activeTransition && (activeTransition.fromDeckId === deckId || activeTransition.toDeckId === deckId)) {
     return refuse(`Deck ${deckId} is part of a running transition — cancel it before ejecting.`)
   }
-  // The tempo save is debounced 400ms and reads `deck.track` when it fires —
-  // after an eject that is null, and a fader nudge just before ⏏ would be
-  // dropped. Flushed now, while the track is still on the deck.
-  window.clearTimeout(persistTempoTimers[deckId])
-  void persistTempoForDeck(deckId)
   // Same "just left a deck" treatment `loadTrackToDeck` gives a replaced
   // track, so it doesn't pop straight back up as a suggestion.
   markRecentlyRemoved(st.track.id)
@@ -1598,7 +1602,7 @@ export function shiftDeckByBeat(deckId: DeckId, direction: 1 | -1) {
  * then set `syncActive: true` themselves right after, so that path is not
  * affected — only a caller that patches `tempo` alone, i.e. a manual touch.
  */
-export function setTempo(deckId: DeckId, tempo: number, opts: { persist?: boolean } = {}) {
+export function setTempo(deckId: DeckId, tempo: number, opts: { byHand?: boolean } = {}) {
   // Safe against this same function's own internal callers (syncDeck /
   // setMasterDeck, re-matching the *incoming* or *outgoing* deck's tempo):
   // during an active transition those only ever target `toDeckId`, and by
@@ -1610,34 +1614,47 @@ export function setTempo(deckId: DeckId, tempo: number, opts: { persist?: boolea
   cancelTempoGlide(deckId)
   const t = Math.max(-1, Math.min(1, tempo))
   engine.decks[deckId].setTempo(t)
-  useStore.getState().patchDeck(deckId, { tempo: t, syncActive: false })
+  // Only a hand's number is offered to "Save tempo" (v0.9.46): SYNC's, a mix's and a glide's belong to the pairing.
+  useStore.getState().patchDeck(deckId, { tempo: t, syncActive: false, tempoByHand: opts.byHand !== false })
   if (useStore.getState().masterDeckId === deckId) refreshFxTimeForMasterTempo()
-  // A tempo SYNC derived from whichever deck was master is that pairing's
-  // number, not this track's — remembering it made the track come back later at
-  // an unrelated offset. Only a hand-set fader value is worth keeping.
-  if (opts.persist !== false) schedulePersistTempo(deckId)
+  // Nothing is remembered from here (v0.9.46): a speed is kept only when the owner presses "Save tempo" (`saveDeckTempo`).
 }
 
-const persistTempoTimers: Record<DeckId, number> = { A: 0, B: 0 }
-/** Debounced like `schedulePersistSamplerBank` — a fader drag calls `setTempo` many times a second, and a write per tick would hammer IndexedDB for no benefit over the value it settles on. */
-function schedulePersistTempo(deckId: DeckId) {
-  window.clearTimeout(persistTempoTimers[deckId])
-  persistTempoTimers[deckId] = window.setTimeout(() => void persistTempoForDeck(deckId), 400)
-}
-
-async function persistTempoForDeck(deckId: DeckId): Promise<void> {
-  const { decks, setNotice } = useStore.getState()
+/**
+ * "Save tempo" (v0.9.46): this track starts at this fader position every time it loads. The only writer of `tempo-idb` — until v0.9.46
+ * every hand move of the fader was kept, and Shalom did not want a speed remembered without being asked (06/10). Refused while the deck
+ * is synced or gliding: that number is the pairing's or the mix's, not this track's (the 20/09 bug, pinned at another song's +8%). The
+ * fader at 0 saves "the song's own speed", i.e. forgets. Said on screen either way.
+ */
+export async function saveDeckTempo(deckId: DeckId): Promise<void> {
+  const { decks, setNotice, patchDeck } = useStore.getState()
   const deck = decks[deckId]
+  const name = deck.track?.title ?? deck.track?.name
   const hash = deck.track?.contentHash
-  if (!hash) return // not yet identified (fresh scan, or hashing failed) — nothing to key the write on
+  if (!deck.track) return
+  if (deck.syncActive || tempoGlides[deckId] || !deck.tempoByHand) {
+    setNotice({ text: `Deck ${deckId}'s tempo came from ${deck.syncActive ? 'SYNC' : tempoGlides[deckId] ? 'a glide back' : 'SYNC or the mix'} — it is the mix's, not "${name}"'s, so it was not saved.`, tone: 'warn', source: 'tempo' })
+    return
+  }
+  if (!hash) {
+    setNotice({ text: `"${name}" has no identity yet, so its tempo cannot be saved — try again once it has finished loading.`, tone: 'warn', source: 'tempo' })
+    return
+  }
+  const tempo = deck.tempo
+  const forget = Math.abs(tempo) < 1e-4
   try {
-    await putTempo(hash, deck.tempo)
-  } catch (err) {
+    await (forget ? clearTempo(hash) : putTempo(hash, tempo))
+    if (useStore.getState().decks[deckId].track?.contentHash === hash) patchDeck(deckId, { savedTempo: forget ? null : tempo })
+    const pct = tempo * settings.values.tempoRange * 100
     setNotice({
-      text: `Tempo for "${deck.track?.title ?? deck.track?.name}" wasn't saved: ${err instanceof Error ? err.message : String(err)}`,
-      tone: 'warn',
-      source: 'load',
+      text: forget
+        ? `"${name}" will start at its own speed again.`
+        : `"${name}" will start at ${pct > 0 ? '+' : ''}${pct.toFixed(1)}% every time it loads.`,
+      tone: 'info',
+      source: 'tempo',
     })
+  } catch (err) {
+    setNotice({ text: `Tempo for "${name}" wasn't saved: ${err instanceof Error ? err.message : String(err)}`, tone: 'warn', source: 'tempo' })
   }
 }
 
@@ -3351,7 +3368,7 @@ function ensureGlideTicker() {
       const elapsed = now - g.startSec
       const tempo = glideTempoAt(g.from, 0, elapsed, GLIDE_BACK_SEC)
       engine.decks[id].setTempo(tempo)
-      useStore.getState().patchDeck(id, { tempo })
+      useStore.getState().patchDeck(id, { tempo, tempoByHand: false })
       if (useStore.getState().masterDeckId === id) refreshFxTimeForMasterTempo()
       // Same tick, including the last one — following from the 1 s sync loop
       // left a follower 1 s behind, in audible steps, and stranded it there
@@ -3424,7 +3441,7 @@ function followGlidingMaster(glidingId: DeckId) {
       })
     }
     engine.decks[id].setTempo(tempo)
-    patchDeck(id, { tempo })
+    patchDeck(id, { tempo, tempoByHand: false })
   }
 }
 
@@ -3536,7 +3553,7 @@ export function syncDeck(deckId: DeckId) {
     refreshFxTimeForMasterTempo()
   }
   const tempo = syncTempoFor(master.bpm, master.tempo, st.bpm, settings.values.tempoRange)
-  setTempo(deckId, tempo, { persist: false })
+  setTempo(deckId, tempo, { byHand: false })
   patchDeck(deckId, { syncActive: true })
   ensureSyncLoop()
   // Said out loud: the two BPM readouts now differ by 2×, which reads as "SYNC
@@ -3574,7 +3591,7 @@ export function setMasterDeck(deckId: DeckId) {
   const mine = st.bpm
   if (!master.bpm || !mine) return
   const tempo = syncTempoFor(master.bpm, master.tempo, mine, settings.values.tempoRange)
-  setTempo(other, tempo, { persist: false })
+  setTempo(other, tempo, { byHand: false })
   patchDeck(other, { syncActive: true })
   ensureSyncLoop()
 }

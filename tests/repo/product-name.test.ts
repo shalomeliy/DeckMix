@@ -59,7 +59,9 @@ const STORAGE_KEYS = [
   // v0.9.11: the blind re-check of already-answered vocal clips; new in this version, so nothing old to migrate.
   'deckmix:tag:vocalmarks:', // v0.9.11: regions the owner drew on a clip's spectrogram
   'deckmix:tag:vocalreview:',
-  'deckmix:tempo2:',
+  // v0.9.46: `tempo3`, written only by "Save tempo". `tempo2` (every fader move, saved unasked) is left orphaned on purpose —
+  // Shalom did not want those speeds back (06/10). The rename still carries it (`core/storage-rename.ts`); nothing reads it.
+  'deckmix:tempo3:',
   'deckmix:trackMeta',
 ]
 

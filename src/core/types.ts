@@ -203,6 +203,10 @@ export interface DeckState {
   syncActive: boolean
   /** tempo fader value, -1..1 mapped to +/- range (see TEMPO_RANGE) */
   tempo: number
+  /** The fader position the owner saved for this track with "Save tempo" (v0.9.46), or `null` — then it loads at its own speed. */
+  savedTempo: number | null
+  /** The fader's current value was set by a hand (screen, FLX4, keyboard, AI) — not by SYNC, a mix or a glide (v0.9.46). Only then is "Save tempo" offered. */
+  tempoByHand: boolean
   /** normalised waveform peaks for rendering (min/max interleaved) */
   peaks: Float32Array | null
   /** per-bucket low/mid/high energy, 3 per bucket — colours the waveform */
