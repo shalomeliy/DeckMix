@@ -45,7 +45,7 @@ import {
 } from '@/core/beatgrid'
 import { exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
 import { eqMixFrame, incomingUnderA, plainEqMixPlan, type BassSwapStyle, type EqBand, type EqBands, type EqMixPlan } from '@/core/eq-mix'
-import { HANDOFF_NEEDS_STRAIGHT_SYNC, handoffSide, nextPhraseStartSec, planHandoff, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
+import { HANDOFF_NEEDS_STRAIGHT_SYNC, MIN_BARS_AFTER_MIX, enoughSongAfterMix, handoffSide, nextPhraseStartSec, planHandoff, plainMixEndInB, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
 import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
 import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
 import { MIN_REGION_SEC, barLineAtOrBeforeSec, closeOpenMark, drawnBarGrid, moveRegionEdge, undoLastEnd, type VocalManualTag } from '@/core/sound/vocal-manual'
@@ -738,6 +738,10 @@ export async function startExcellentPairTransition(
     setNotice({ text: passedExitText(fromDeckId, exitSec), tone: 'warn', source: 'mixRating' })
     return
   }
+  // v0.9.26: checked before the load too, so a pair that can only be refused does not leave its track on the other deck. Leniently: the
+  // library's BPM is the tag's (or the owner's), which can be half the grid's — read as is, it would double the bars and refuse a pair the
+  // deck accepts. So double it (and 240 with none): this one refuses only what no reading saves. The real rule is the check after the load.
+  if (refuseTooLateEntry(target, entrySec, toTrack.durationSec ?? 0, { bpm: toTrack.bpm ? toTrack.bpm * 2 : 240 }, 'mixRating')) return
   // v0.8.17 (Shalom): a loaded but idle track on the other deck is replaced —
   // it's a less-fitting pick, and the strip exists to swap in the better one.
   // A *playing* track is still refused: replacing it cuts live music.
@@ -782,6 +786,8 @@ export async function startExcellentPairTransition(
     })
     return
   }
+  const loaded = useStore.getState().decks[target]
+  if (refuseTooLateEntry(target, entrySec, loaded.durationSec, loaded.beatGrid, 'mixRating')) return
   // A pair rated before v0.8.16 never saved where the outgoing deck was —
   // mixing on the next bar is the old behaviour, named rather than silent.
   const oldPairNote =
@@ -1638,6 +1644,7 @@ export function pressHotCue(deckId: DeckId, index: number) {
   const cue = decks[deckId].hotCues.find((c) => c.index === index)
   const otherDeckId: DeckId = deckId === 'A' ? 'B' : 'A'
   if (shouldTriggerMixEntry(cue, decks[deckId].playing, decks[otherDeckId].playing)) {
+    if (refuseTooLateEntry(deckId, cue!.positionSec, decks[deckId].durationSec, decks[deckId].beatGrid, 'sync')) return
     // The same start as the panel's click (v0.9.17: on A's next phrase start, not its next bar).
     startAutoTransitionOnPhrase(otherDeckId, deckId, cue!.positionSec)
     return
@@ -3995,6 +4002,23 @@ export function deckPhraseJoin(deckId: DeckId, positionSec: number): { sec: numb
 /** One bar in track seconds — the unit `exitWaitStatus` measures its window in. */
 function barSecOf(grid: BeatGrid): number {
   return BEATS_PER_BAR * (60 / grid.bpm)
+}
+
+/**
+ * v0.9.26: the 24 bars of v0.9.23 for a mix that starts from a second saved earlier — a "Mix in" pad and an excellent pair. Until then only
+ * the panel's own rows were held to it, so a pad saved before v0.9.23 (or a pair rated on a mix that ended near B's end) could still start a
+ * mix B could not finish: the owner's 05/10 screenshot, by another door. Refused and said, never started short. True when refused.
+ * `durationSec` 0 (not known yet) passes. Only the pair's check before its load can see that, and it checks again after; a pad cannot,
+ * since a deck's saved cues are put on it only after the track is decoded.
+ */
+function refuseTooLateEntry(toDeckId: DeckId, entrySec: number, durationSec: number, grid: Pick<BeatGrid, 'bpm'> | null, source: 'sync' | 'mixRating'): boolean {
+  if (!(durationSec > 0) || enoughSongAfterMix(durationSec, grid, plainMixEndInB(entrySec, grid, TRANSITION_CROSSFADE_SEC))) return false
+  useStore.getState().setNotice({
+    text: `המעבר לא התחיל — אם דק ${toDeckId} ייכנס מ-${formatMinSec(entrySec)}, השיר שלו ייגמר פחות מ-${MIN_BARS_AFTER_MIX} תיבות אחרי שהמיקס מסתיים.`,
+    tone: 'warn',
+    source,
+  })
+  return true
 }
 
 function passedHandoffText(fromDeckId: DeckId, joinSec: number): string {

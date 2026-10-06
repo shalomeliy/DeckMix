@@ -78,7 +78,7 @@ export function handoffSide(
   return { timeline, grid, durationSec }
 }
 
-const barSec = (grid: BeatGrid) => (60 / grid.bpm) * BEATS_PER_BAR
+const barSec = (grid: Pick<BeatGrid, 'bpm'>) => (60 / grid.bpm) * BEATS_PER_BAR
 
 /**
  * v0.9.23: how much of the incoming song must still be left once a Mix Assist transition is over. The owner (05/10, a screenshot): a
@@ -91,9 +91,19 @@ export const MIN_BARS_AFTER_MIX = 24
 const FALLBACK_BAR_SEC = 2
 
 /** The incoming song still has `MIN_BARS_AFTER_MIX` of its own bars after `mixEndSec` (its own track seconds). */
-export function enoughSongAfterMix(durationSec: number, grid: BeatGrid | null, mixEndSec: number): boolean {
-  const bar = grid ? barSec(grid) : FALLBACK_BAR_SEC
+export function enoughSongAfterMix(durationSec: number, grid: Pick<BeatGrid, 'bpm'> | null, mixEndSec: number): boolean {
+  const bar = grid && grid.bpm > 0 ? barSec(grid) : FALLBACK_BAR_SEC
   return durationSec - mixEndSec >= MIN_BARS_AFTER_MIX * bar - EPS
+}
+
+/**
+ * Where a plain (energy-point) transition is over, in B's own seconds, when B enters at `entrySec` with a `crossfadeSec` fade. The fade is
+ * seconds of the room's time, not of B's: with SYNC, B covers more of its own seconds when it is sped up, and the entry moves up to half a
+ * bar to land on a bar line. Half again of the fade and one bar of B cover both; the 24-bar margin is the real rule. v0.9.26: one function
+ * for the panel's energy points, a saved "Mix in" pad and an excellent pair — the last two skipped the check until then.
+ */
+export function plainMixEndInB(entrySec: number, grid: Pick<BeatGrid, 'bpm'> | null, crossfadeSec: number): number {
+  return entrySec + crossfadeSec * 1.5 + (grid && grid.bpm > 0 ? barSec(grid) : FALLBACK_BAR_SEC)
 }
 
 /** Where a handoff is over, in B's own seconds: B's voice comes in on the handoff, and A goes down over `fadeBars` bars after it. */

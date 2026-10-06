@@ -71,12 +71,14 @@ function makeWav(segments, sampleRate) {
 }
 
 const SAMPLE_RATE = 8000
-// 5s quiet intro -> "energy-builds" candidate at sec 5 -> 30s loud body, long
+// 5s quiet intro -> "energy-builds" candidate at sec 5 -> loud body, long
 // enough that the 8s crossfade plus setup delays never reach the tail guard.
+// 80 s, not 30 (v0.9.26): since v0.9.23 an entry point needs 24 bars of the
+// song left after the mix, or it is counted on screen instead of offered.
 const TRACK_WAV = makeWav(
   [
     { sec: 5, amplitude: 800 },
-    { sec: 30, amplitude: 8000 },
+    { sec: 80, amplitude: 8000 },
   ],
   SAMPLE_RATE,
 )
@@ -233,8 +235,10 @@ ok(
 // Waits on the prompt itself, up to 15 s: since v0.8.14 the crossfade only
 // starts on deck A's next bar line (up to ~1.9 s later), so a fixed 8.5 s
 // passed alone and failed inside the full suite (found 2026-09-24).
+// 35 s, not 15 (v0.9.26): since v0.9.17 it starts on deck A's next phrase
+// start — up to 8 bars, ~16 s at 120 BPM — and then fades for 8 s.
 const ratingPrompt = page.getByText(/How did that exit from/)
-await ratingPrompt.waitFor({ timeout: 15000 }).catch(() => {})
+await ratingPrompt.waitFor({ timeout: 35000 }).catch(() => {})
 ok('a rating prompt appears once the crossfade completes', (await ratingPrompt.count()) === 1)
 
 await page.getByRole('button', { name: 'Excellent', exact: true }).click()

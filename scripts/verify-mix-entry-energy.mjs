@@ -67,7 +67,9 @@ function makeWav(segments, sampleRate) {
 }
 
 const SAMPLE_RATE = 8000
-const FLAT_WAV = makeWav([{ sec: 20, amplitude: 8000 }], SAMPLE_RATE)
+// 60 s, not 20 (v0.9.26): since v0.9.17 a Mix-in pad waits for deck A's next phrase start (8 bars counted from its first yellow line),
+// so deck A has to still be playing well after that.
+const FLAT_WAV = makeWav([{ sec: 60, amplitude: 8000 }], SAMPLE_RATE)
 const CANDIDATE_WAV = makeWav(
   [
     { sec: 5, amplitude: 800 }, // quiet intro — "energy-builds" candidate lands here (sec 5)
@@ -168,7 +170,7 @@ const buildsButton = candidateButtons.filter({ hasText: 'energy builds' })
 await buildsButton.first().click()
 await page.waitForTimeout(400)
 
-const mixInPad = deckB.getByRole('button', { name: /^Start mix from Mix in · \d/ })
+const mixInPad = deckB.getByRole('button', { name: /^Start mix from Mix in · 0:05/ })
 const padCount = await mixInPad.count()
 // Since v0.8.14 (bdcb913, Shalom's decision) the "Mix in" pad is saved only
 // when the finished mix is rated Excellent — a candidate click alone starts
@@ -214,14 +216,64 @@ await page.waitForTimeout(300)
 const beforePress = (await deckB.getByRole('button', { name: /^(play|pause)$/i }).innerText()).toUpperCase()
 ok('setup: deck B is paused before pressing the saved pad', beforePress === 'PLAY', beforePress)
 
+// v0.9.26: a saved pad too close to the song's end is refused and said, not mixed. Before this, only the panel's own rows were held to
+// v0.9.23's 24 bars; a pad saved earlier (or before v0.9.23) started a mix B could not finish. Candidate.wav is 96 s; a pad at 1:25 leaves
+// it about 11 s after an entry there, far short of 24 bars.
+await page.evaluate(async () => {
+  const ctl = await import('/src/controls.ts')
+  const { mixEntryLabel } = await import('/src/core/hotcues.ts')
+  ctl.saveMixEntryHotCue('B', 85, mixEntryLabel(85))
+})
+await page.waitForTimeout(200)
+const latePad = deckB.getByRole('button', { name: /^Start mix from Mix in · 1:25/ })
+ok('setup: a late "Mix in" pad (1:25) shows on deck B', (await latePad.count()) === 1)
+await latePad.first().click()
+await page.waitForTimeout(400)
+const lateNotice = await page.getByText(/המעבר לא התחיל — אם דק B ייכנס מ-1:25, השיר שלו ייגמר פחות מ-24 תיבות/).count()
+const lateState = await page.evaluate(async () => {
+  const { useStore } = await import('/src/app/state/store.ts')
+  const s = useStore.getState()
+  return { active: !!s.activeTransition, playing: s.decks.B.playing }
+})
+ok(
+  'pressing a pad too close to the end refuses the mix and says why (v0.9.26)',
+  lateNotice === 1 && !lateState.active && !lateState.playing,
+  `notice: ${lateNotice}, transition: ${lateState.active}, B playing: ${lateState.playing}`,
+)
+
+// The same refusal for an excellent pair from the library's strip (`startExcellentPairTransition`), entered at 1:25 of Candidate.wav.
+const pairState = await page.evaluate(async () => {
+  const ctl = await import('/src/controls.ts')
+  const { useStore } = await import('/src/app/state/store.ts')
+  const s0 = useStore.getState()
+  s0.setNotice(null)
+  const b = s0.decks.B.track
+  await ctl.startExcellentPairTransition('A', s0.decks.A.track.contentHash, b, b.contentHash, 85, undefined)
+  const s = useStore.getState()
+  return { notice: s.notice?.text ?? null, active: !!s.activeTransition, playing: s.decks.B.playing }
+})
+ok(
+  'an excellent pair that enters too close to the end is refused and says why (v0.9.26)',
+  /המעבר לא התחיל — אם דק B ייכנס מ-1:25/.test(pairState.notice ?? '') && !pairState.active && !pairState.playing,
+  JSON.stringify(pairState),
+)
+
 // Pressing the saved "Mix <time>" pad (v0.4.7 `pressHotCue`) should re-run the
 // full automatic transition — seek + phase-align + play — not just park the
 // playhead the way a plain hot cue does.
 await mixInPad.first().click()
-// Since v0.8.14 the transition this pad starts waits for deck A's next bar
-// line (up to one bar, 1.875 s at 128 BPM) before deck B plays; a fixed
-// 500 ms read that wait as "didn't start" (found 2026-09-24).
-await deckB.getByRole('button', { name: /^pause$/i }).waitFor({ timeout: 4000 }).catch(() => {})
+// Since v0.9.17 the transition this pad starts waits for deck A's next phrase start (8 bars, ~15 s at 128 BPM), not its next bar line
+// (v0.8.14). The 4 s wait written for a bar line read that as "didn't start" — the two reds on main before v0.9.26. The wait is read
+// from the app (the phrase second it waits for) and the timeout covers it, so a pad that never starts still fails.
+const waitInfo = await page.evaluate(async () => {
+  const { useStore } = await import('/src/app/state/store.ts')
+  const { engine } = await import('/src/platform/audio-webaudio/engine.ts')
+  const t = useStore.getState().activeTransition
+  return { until: t?.waitingUntilSec ?? null, aPos: engine.decks.A.position }
+})
+ok('pressing the saved pad starts a transition that waits for deck A\'s phrase start (v0.9.17)', waitInfo.until != null, JSON.stringify(waitInfo))
+const waitMs = waitInfo.until != null ? Math.max(0, (waitInfo.until - waitInfo.aPos) * 1000) + 4000 : 4000
+await deckB.getByRole('button', { name: /^pause$/i }).waitFor({ timeout: waitMs }).catch(() => {})
 const afterPress = (await deckB.getByRole('button', { name: /^(play|pause)$/i }).innerText()).toUpperCase()
 ok(
   'pressing the saved "Mix <time>" pad starts deck B playing (full transition, not just a seek)',
