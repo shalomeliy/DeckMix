@@ -251,6 +251,25 @@ await scenario('artist suggestions', TRACKS, async (page) => {
   await page.waitForTimeout(300)
   const back = (await row(page, 'Pantera').textContent()) ?? ''
   ok('…and the row is back among the suggestions', back.includes('Noa Kirel') && back.includes('file name'), back)
+
+  // v0.9.41b: Settings can turn the whole thing off (Shalom 06/10)
+  await page.evaluate(async () => {
+    const { settings } = await window.__import('/src/platform/settings-idb/store.ts')
+    await settings.set('artistSuggestions', false)
+  })
+  await page.waitForTimeout(500)
+  const offButton = await page.getByRole('button', { name: /no artist$/ }).count()
+  const offCells = await page.locator('tbody').getByRole('button', { name: /^Accept / }).count()
+  const offStrip = await page.getByText('Artist suggestions').count()
+  ok('turned off in Settings: no button, no strip, no suggestions in the rows', offButton === 0 && offCells === 0 && offStrip === 0, `button ${offButton}, cells ${offCells}, strip ${offStrip}`)
+  const kept = (await row(page, 'פלסטרים').textContent()) ?? ''
+  ok('…and an artist he already accepted stays, with no ↶', kept.includes('אושר כהן') && (await row(page, 'פלסטרים').getByRole('button', { name: /^Undo the artist/ }).count()) === 0, kept.slice(0, 80))
+  await page.evaluate(async () => {
+    const { settings } = await window.__import('/src/platform/settings-idb/store.ts')
+    await settings.set('artistSuggestions', true)
+  })
+  await page.waitForTimeout(500)
+  ok('turned back on, the button is back', (await page.getByRole('button', { name: /no artist$/ }).count()) === 1)
 })
 
 await browser.close()

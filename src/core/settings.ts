@@ -108,6 +108,11 @@ export interface Settings {
   taggingMode: boolean
   /** v0.9.10b: the "vocal started / ended" buttons under each deck's vocal strip. Off by default: a live set has no use for them. */
   vocalMarking: boolean
+  /**
+   * v0.9.41b: the library's "N no artist" button and its suggestions (`core/artist-suggest.ts`). On by default, it is
+   * Shalom's own request; he asked (06/10) to be able to turn it off. Artists he already accepted stay either way.
+   */
+  artistSuggestions: boolean
   /** v0.9.18: how Mix Assist swaps the two basses (`core/eq-mix.ts`). Instant by default (Shalom, 05/10), gradual by choice here. */
   bassSwap: BassSwapStyle
   /**
@@ -145,6 +150,7 @@ export const DEFAULTS: Settings = {
   sourceCheck: false,
   taggingMode: false,
   vocalMarking: false,
+  artistSuggestions: true,
   bassSwap: 'instant',
   mixAssistKeySync: 2,
 }
@@ -476,6 +482,13 @@ export const FIELDS: Field[] = [
     key: 'vocalMarking',
     label: 'Mark vocals by hand',
     help: 'Adds buttons under each deck\'s vocal strip: press "vocal started" and "vocal ended" while the song plays, as many times as the song needs. Your marks are kept for that song for good and override the computer\'s guess. When you press "finished marking", everything you did not mark becomes empty.',
+    group: 'library',
+  },
+  {
+    kind: 'toggle',
+    key: 'artistSuggestions',
+    label: 'Suggest a missing artist',
+    help: 'Adds a "no artist" button above the list. It shows only the songs whose file has no artist, with a suggestion from the file name you can accept (✓) or reject (✕), or a box to type one in. Nothing is written to your files. Artists you already accepted stay when this is off.',
     group: 'library',
   },
 

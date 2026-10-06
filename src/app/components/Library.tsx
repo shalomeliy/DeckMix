@@ -163,7 +163,7 @@ export function Library() {
   const [checking, setChecking] = useState<string | null>(null)
   // Which key notation to show. DJs are split between musical and Camelot and
   // nobody wants to relearn theirs, so it's a preference that sticks.
-  const { keyMode, libraryTextScale, sourceCheck } = useSettings()
+  const { keyMode, libraryTextScale, sourceCheck, artistSuggestions } = useSettings()
   /**
    * Three clicks cycle a column: asc -> desc -> off (back to scan order).
    * Clicking a *different* column always starts it fresh at asc, rather
@@ -788,9 +788,13 @@ export function Library() {
   // artist; before the hashes, the owner's own answers are not on the tracks
   // yet, so what he rejected would be offered again.
   const artistReport = useMemo(
-    () => (library.tagsRead && library.hashesRead ? suggestArtists(library.tracks) : null),
-    [library.tracks, library.tagsRead, library.hashesRead],
+    () => (artistSuggestions && library.tagsRead && library.hashesRead ? suggestArtists(library.tracks) : null),
+    [artistSuggestions, library.tracks, library.tagsRead, library.hashesRead],
   )
+  // Turned off in Settings while the view is open: the view goes with it, never a filter left on with no button to clear it.
+  useEffect(() => {
+    if (!artistSuggestions) setArtistOnly(false)
+  }, [artistSuggestions])
   const preMixList = dupOnly
     ? duplicatesView(sortedFiltered, dupReport.byTrack, library.sortKey == null)
     : artistOnly
@@ -1617,6 +1621,7 @@ export function Library() {
                   // counts them, so nothing goes unsaid.
                   duplicate={dupOnly ? dupReport.byTrack.get(t.id) : undefined}
                   artistOptions={artistOnly && !t.artist ? (artistReport?.byTrack.get(t.id) ?? []) : undefined}
+                  artistUndo={artistSuggestions}
                   duplicateNote={(() => {
                     const g = dupOnly ? dupReport.byTrack.get(t.id) : undefined
                     return g ? describeDuplicate(t, g, trackById) : undefined
@@ -2000,6 +2005,7 @@ function Row({
   duplicate,
   duplicateNote,
   artistOptions,
+  artistUndo,
 }: {
   track: Track
   selected: boolean
@@ -2022,6 +2028,8 @@ function Row({
   duplicateNote?: DuplicateNote
   /** v0.9.41: set only in the "no artist" view — the suggestions for this row, best first; `[]` means none, so the cell offers typing one in. */
   artistOptions?: ArtistOption[]
+  /** v0.9.41b: ↶ beside an artist the owner set — only while the feature is on in Settings */
+  artistUndo?: boolean
 }) {
   const key = keyLabel(track, keyMode)
   const tone = keyColor(track.camelot)
@@ -2214,7 +2222,7 @@ function Row({
         </td>
       ) : (
         <td className="max-w-0 truncate py-1.5 pr-2 text-grid-muted">
-          {track.artistSource === 'owner' ? <OwnerArtist trackId={track.id} artist={track.artist ?? ''} /> : track.artist}
+          {artistUndo && track.artistSource === 'owner' ? <OwnerArtist trackId={track.id} artist={track.artist ?? ''} /> : track.artist}
         </td>
       )}
       {/*
