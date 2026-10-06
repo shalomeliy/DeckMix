@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { beatFractionToSeconds, BIT_CRUSH_BITS, crushSample, equalPowerMix, FX_EFFECTS, FX_TIME_STEPS } from '@/core/fx'
+import { beatFractionToSeconds, BIT_CRUSH_BITS, crossfaderGains, crushSample, equalPowerMix, FX_EFFECTS, FX_TIME_STEPS } from '@/core/fx'
 
 describe('beatFractionToSeconds', () => {
   // 128 BPM => 60/128 = 0.46875 sec/beat, exact values a wrong formula would miss.
@@ -125,5 +125,23 @@ describe('crushSample', () => {
 
   it('BIT_CRUSH_BITS is a small, fixed, musically-crushed depth', () => {
     expect(BIT_CRUSH_BITS).toBe(4)
+  })
+})
+
+describe('crossfaderGains', () => {
+  it("'power' is equalPowerMix — the owner's hand never hears a different crossfader", () => {
+    for (const t of [0, 0.2, 0.5, 0.9, 1]) {
+      const { dry, wet } = equalPowerMix(t)
+      expect(crossfaderGains(t)).toEqual({ a: dry, b: wet })
+    }
+  })
+  it("'full-middle' has both decks at full in the middle, and each side alone at its end", () => {
+    expect(crossfaderGains(0.5, 'full-middle')).toEqual({ a: 1, b: 1 })
+    expect(crossfaderGains(0, 'full-middle')).toEqual({ a: 1, b: 0 })
+    const end = crossfaderGains(1, 'full-middle')
+    expect(end.a).toBeCloseTo(0)
+    expect(end.b).toBe(1)
+    // On the way in, still a power curve: a quarter of the way is −3 dB, not a straight line's −6.
+    expect(crossfaderGains(0.25, 'full-middle').b).toBeCloseTo(Math.SQRT1_2)
   })
 })

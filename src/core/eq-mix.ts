@@ -85,8 +85,9 @@ export function incomingUnderA(own: EqBands): EqBands {
  * the boost side the owner's `eqDb` setting). Counting a boosted knob in cut units put each side at only −1.1 dB halfway from +0.5 — 1.55×
  * the power of one bass, the mud this swap exists to prevent (independent review, 05/10).
  */
-function swapCurve(own: number, t: number, dir: 'down' | 'up', boostDb: number): number {
+export function swapCurve(own: number, t: number, dir: 'down' | 'up', boostDb: number): number {
   const amp = dir === 'down' ? Math.cos((clamp01(t) * Math.PI) / 2) : Math.sin((clamp01(t) * Math.PI) / 2)
+  if (amp >= 1) return own
   if (amp <= 0) return EQ_KILL
   const db = (own >= 0 ? own * boostDb : own * EQ_CUT_DB) + 20 * Math.log10(amp)
   const knob = db >= 0 ? db / boostDb : db / EQ_CUT_DB

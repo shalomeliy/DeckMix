@@ -46,7 +46,7 @@ import {
 import { exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
 import { eqMixFrame, incomingUnderA, plainEqMixPlan, type BassSwapStyle, type EqBand, type EqBands, type EqMixPlan } from '@/core/eq-mix'
 import { HANDOFF_NEEDS_STRAIGHT_SYNC, MIN_BARS_AFTER_MIX, enoughSongAfterMix, handoffSide, nextPhraseStartSec, planHandoff, plainMixEndInB, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
-import { planVocalSwap, swapIncoming, vocalSwapFrame, type SwapEntry, type VocalSwapPlan } from '@/core/vocal-swap-mix'
+import { SWAP_CROSSFADER_CURVE, planVocalSwap, swapIncoming, vocalSwapFrame, type SwapEntry, type VocalSwapPlan } from '@/core/vocal-swap-mix'
 import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
 import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
 import { MIN_REGION_SEC, barLineAtOrBeforeSec, closeOpenMark, drawnBarGrid, moveRegionEdge, undoLastEnd, type VocalManualTag } from '@/core/sound/vocal-manual'
@@ -3597,7 +3597,8 @@ function cancelTransitionIfEitherDeckTouched(deckId: DeckId) {
 /**
  * Seek-then-sync (ROADMAP.md v0.4.6): the incoming deck is aligned and
  * started while the crossfader still sits fully on the outgoing deck (so the
- * join is inaudible), then handed to the existing `syncDeck`/`ensureSyncLoop`
+ * join is inaudible; the vocal swap's B is the exception — it starts on its
+ * voice line and is heard from that moment), then handed to the existing `syncDeck`/`ensureSyncLoop`
  * for continuous correction exactly like a manually-pressed SYNC would be.
  * From there a `clock`-driven loop (the same shared rAF source
  * `ensureSyncLoop` itself subscribes to) drives the EQ and the crossfader
@@ -3606,7 +3607,10 @@ function cancelTransitionIfEitherDeckTouched(deckId: DeckId) {
  * via `engine.setCrossfader` — the exact equal-power law
  * `core/transition.ts`'s own `crossfadeGains` documents and
  * `tests/core/transition.test.ts` pins, so the autonomous fade sounds like
- * the same crossfader curve the user's hand already knows.
+ * the same crossfader curve the user's hand already knows. The vocal swap
+ * alone runs on `full-middle` (`core/fx.ts`, `SWAP_CROSSFADER_CURVE`): both
+ * decks at full level in the middle, because each is EQ'd down to the half
+ * of a song the other lacks.
  *
  * Refuses (with a notice, never a silent no-op) rather than start a
  * transition it cannot phase-align or that would land on a deck that is not
@@ -3646,7 +3650,7 @@ export function startAutoTransition(
   waitIsPhrase = false,
   /**
    * The vocal swap (`core/vocal-swap-mix.ts`): rides on `handoff` (A's position drives it, from the join line to the end), and only the
-   * knobs differ — B starts with its MID alone, and the frames are `vocalSwapFrame`'s instead of the EQ mix's.
+   * knobs differ — B starts with everything but its LOW, on the `full-middle` crossfader curve, and the frames are `vocalSwapFrame`'s instead of the EQ mix's.
    */
   vocalSwap: VocalSwapPlan | null = null,
 ) {
@@ -3813,7 +3817,7 @@ export function startAutoTransition(
       const tr = activeTransition
       if (!tr?.eq) return
       const frame = vocalSwap
-        ? vocalSwapFrame(vocalSwap, fromEngine.position, barSecFrom, { a: tr.eq.own.from, b: tr.eq.own.to })
+        ? vocalSwapFrame(vocalSwap, fromEngine.position, barSecFrom, { a: tr.eq.own.from, b: tr.eq.own.to }, cfg.eqDb)
         : eqMixFrame(
             mixPlan,
             handoff ? fromEngine.position : t - startedAtSec,
@@ -3829,7 +3833,7 @@ export function startAutoTransition(
       // maps `progress` onto whichever half of that range moves *away* from
       // `fromDeckId`, in either direction.
       const x = fromDeckId === 'A' ? -1 + 2 * progress : 1 - 2 * progress
-      engine.setCrossfader(x)
+      engine.setCrossfader(x, vocalSwap ? SWAP_CROSSFADER_CURVE : 'power')
       useStore.getState().patchMixer({ crossfader: x })
       if (progress >= 1) finishTransition()
     })
@@ -3937,7 +3941,7 @@ export function startVocalHandoff(fromDeckId: DeckId, toDeckId: DeckId, plan: Ha
 
 /**
  * A vocal-swap row of the Mix Assist panel was clicked (`core/vocal-swap-mix.ts`). Planned again from the live position, as the handoff is.
- * B waits paused until A's voice-end line, starts there silently two bars before its own voice, and the knobs and the crossfader do the rest.
+ * B waits paused until A's voice-end line, starts there on its own voice line (heard at once), and the knobs and the crossfader do the rest.
  */
 export function startVocalSwapAt(fromDeckId: DeckId, toDeckId: DeckId, entry: SwapEntry) {
   if (handoffSyncMultiplier(fromDeckId, toDeckId) !== 1) {

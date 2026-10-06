@@ -57,6 +57,26 @@ export function equalPowerMix(t: number): { dry: number; wet: number } {
   }
 }
 
+/**
+ * The crossfader's two curves (v0.9.31). `power` is `equalPowerMix`, what the owner's hand has always moved: −3 dB on each deck in the
+ * middle, right for two full songs. `full-middle` is a club mixer's sharp curve — each deck at full level from the far side up to the
+ * middle — and only the vocal swap uses it: there each deck is EQ'd down to the part of the song the other one lacks (A's bass, B's
+ * everything else), so the two halves add up to one whole song only when NEITHER is turned down. On the power curve the same mix sat at
+ * −3 dB for two bars and jumped back up on the swap; the owner heard that as "the volume goes to 0" (06/10).
+ */
+export type CrossfaderCurve = 'power' | 'full-middle'
+
+/** Each deck's gain at crossfader `t` (0 = A only, 1 = B only). */
+export function crossfaderGains(t: number, curve: CrossfaderCurve = 'power'): { a: number; b: number } {
+  if (curve === 'power') {
+    const { dry, wet } = equalPowerMix(t)
+    return { a: dry, b: wet }
+  }
+  const c = Math.max(0, Math.min(1, t))
+  // Still a quarter turn on each half, so a deck fades in or out on the power curve, not on a straight line that sounds late.
+  return { a: Math.sin((Math.min(1, 2 * (1 - c)) * Math.PI) / 2), b: Math.sin((Math.min(1, 2 * c) * Math.PI) / 2) }
+}
+
 /** Bit Crusher's bit depth — fixed, not user-adjustable, same "fixed DSP constant" role as Delay/Echo's `FEEDBACK_GAIN` in `platform/audio-webaudio/fx.ts`. 4 bits reads as clearly "crushed"/digital without going fully unmusical (1-bit territory). */
 export const BIT_CRUSH_BITS = 4
 

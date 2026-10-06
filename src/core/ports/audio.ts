@@ -1,4 +1,5 @@
 import type { DeckId } from '@/core/types'
+import type { CrossfaderCurve } from '@/core/fx'
 
 /**
  * Audio output, as the rest of the app is allowed to see it.
@@ -53,7 +54,8 @@ export interface AudioBackend {
   setMasterVolume(v: number): void
   setCueVolume(v: number): void
   setCueMix(v: number): void
-  setCrossfader(x: number): void
+  /** `curve` is `power` everywhere but the vocal swap (`core/fx.ts`). */
+  setCrossfader(x: number, curve?: CrossfaderCurve): void
   /** true when the device exposes 4+ channels, so cue rides its own pair */
   readonly isMultichannel: boolean
   /** seconds, monotonic — the authority the Clock is built on */

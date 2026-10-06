@@ -3,7 +3,7 @@ import { Deck } from '@/platform/audio-webaudio/deck'
 import { FxRack } from '@/platform/audio-webaudio/fx'
 import { SamplerEngine } from '@/platform/audio-webaudio/sampler'
 import { bootLatencyHint } from '@/platform/settings-idb/boot-latency'
-import { equalPowerMix } from '@/core/fx'
+import { crossfaderGains, type CrossfaderCurve } from '@/core/fx'
 import { RecorderTap } from '@/platform/audio-webaudio/recorder-tap'
 // Bundled and transpiled by Vite, handed to addModule as a URL. The processor
 // itself imports nothing: an AudioWorkletGlobalScope has no DOM, so a single
@@ -412,9 +412,9 @@ export class AudioEngine {
     this.cueBus.gain.setTargetAtTime(1 - this.cueMix, now, 0.01)
   }
 
-  /** Equal-power crossfader. -1 => A only, +1 => B only. */
-  setCrossfader(x: number) {
-    const { dry: a, wet: b } = equalPowerMix((x + 1) / 2)
+  /** Crossfader. -1 => A only, +1 => B only. Equal-power unless `curve` says otherwise (`core/fx.ts`). */
+  setCrossfader(x: number, curve: CrossfaderCurve = 'power') {
+    const { a, b } = crossfaderGains((x + 1) / 2, curve)
     const now = this.ctx.currentTime
     this.decks.A.faderGain.gain.setTargetAtTime(a, now, 0.005)
     this.decks.B.faderGain.gain.setTargetAtTime(b, now, 0.005)

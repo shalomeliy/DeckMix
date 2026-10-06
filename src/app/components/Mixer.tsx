@@ -239,8 +239,8 @@ export function Mixer() {
         >
           {activeTransition.handoffSec != null
             ? activeTransition.waitingForBar && activeTransition.waitingUntilSec != null
-              ? `דק ${activeTransition.toDeckId} נכנס כשדק ${activeTransition.fromDeckId} יגיע ל-${ctl.formatMinSec(activeTransition.waitingUntilSec)} · ${activeTransition.swap ? 'שירה לבד' : 'מסירה'} ב-${ctl.formatMinSec(activeTransition.handoffSec)} · ביטול`
-              : `${activeTransition.swap ? 'החלפת שירה, שירה לבד' : 'מסירת שירה'} ב-${ctl.formatMinSec(activeTransition.handoffSec)} · ביטול`
+              ? `דק ${activeTransition.toDeckId} נכנס כשדק ${activeTransition.fromDeckId} יגיע ל-${ctl.formatMinSec(activeTransition.waitingUntilSec)} · ${activeTransition.swap ? 'החלפת שירה' : `מסירה ב-${ctl.formatMinSec(activeTransition.handoffSec)}`} · ביטול`
+              : `${activeTransition.swap ? 'החלפת שירה' : 'מסירת שירה'} ב-${ctl.formatMinSec(activeTransition.handoffSec)} · ביטול`
             : activeTransition.waitingUntilSec != null
             ? `Waiting for ${ctl.formatMinSec(activeTransition.waitingUntilSec)} · cancel`
             : activeTransition.waitingForBar

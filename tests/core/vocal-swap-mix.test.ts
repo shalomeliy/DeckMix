@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { EQ_KILL } from '@/core/eq-mix'
+import { EQ_CUT_DB, EQ_DB } from '@/core/constants'
+import { EQ_KILL, type EqBands } from '@/core/eq-mix'
+import { crossfaderGains } from '@/core/fx'
 import { CELL_NONE, CELL_VOCAL, VOCAL_CELL_SEC, type VocalTimeline } from '@/core/sound/vocal-timeline'
 import { MIN_BARS_AFTER_MIX, PHRASE_BARS, type HandoffSide } from '@/core/vocal-handoff'
-import { SWAP_BARS, planVocalSwap, swapEntries, swapIncoming, vocalSwapFrame, type VocalSwapPlan } from '@/core/vocal-swap-mix'
+import { SWAP_BARS, SWAP_CROSSFADER_CURVE, planVocalSwap, swapEntries, swapIncoming, vocalSwapFrame, type VocalSwapPlan } from '@/core/vocal-swap-mix'
 
 function timeline(durationSec: number, voices: [number, number][]): VocalTimeline {
   const cells = new Uint8Array(Math.floor(durationSec / VOCAL_CELL_SEC)).fill(CELL_NONE)
@@ -30,41 +32,47 @@ describe('swapEntries', () => {
     const b = side(200, [[32.16, 90]], 120, 0.16)
     expect(swapEntries(b).entries[0].voiceSec).toBeCloseTo(32.16)
   })
+  it('a voice from the first half second, on a grid whose first line is later, enters on that first line, not before 0', () => {
+    const b = side(200, [[0, 40]], 120, 0.6)
+    expect(swapEntries(b).entries[0].voiceSec).toBeCloseTo(0.6)
+  })
+  it('B sings until the swap: a voice shorter than the 3 bars before it is left out', () => {
+    expect(swapEntries(side(200, [[32, 37.5]])).entries).toHaveLength(0)
+    expect(swapEntries(side(200, [[32, 38]])).entries).toHaveLength(1)
+  })
   it('counts, by reason, every voice it cannot use — none is dropped quietly', () => {
-    // 0.5–2 and 10–13.5: too short for two bars alone; 150–196: B is over right after the mix.
+    // 0.5–2 and 10–13.5: shorter than three bars from their line; 150–196: B is over right after the mix.
     const r = swapEntries(side(200, [[0.5, 2], [10, 13.5], [150, 196]]))
     expect(r.entries).toEqual([])
-    expect(r).toMatchObject({ short: 2, early: 0, late: 1 })
-    const early = swapEntries(side(200, [[2, 30]]))
-    expect(early.early).toBe(1)
+    expect(r).toMatchObject({ short: 2, late: 1 })
   })
   it(`keeps ${MIN_BARS_AFTER_MIX} bars of B after the mix`, () => {
-    // Mix ends 2.25 bars after the voice line: 4.5 s. 24 bars = 48 s.
-    expect(swapEntries(side(32 + 4.5 + 48, [[32, 60]])).entries).toHaveLength(1)
-    expect(swapEntries(side(32 + 4.5 + 47, [[32, 60]])).entries).toHaveLength(0)
+    // B starts on its voice line and the mix ends 3.25 bars later: 6.5 s. 24 bars = 48 s.
+    expect(swapEntries(side(32 + 6.5 + 48, [[32, 60]])).entries).toHaveLength(1)
+    expect(swapEntries(side(32 + 6.5 + 47, [[32, 60]])).entries).toHaveLength(0)
   })
 })
 
 describe('planVocalSwap', () => {
   const [entry] = swapEntries(B).entries
-  it("starts on the line A's voice ends on, and B is two bars before its voice", () => {
+  it("starts on the line A's voice ends on, with B on its own voice line at that same moment", () => {
     const p = planVocalSwap(A, 30, B, entry)!
-    expect(p).toMatchObject({ joinSec: 60, entrySec: 28, bVoiceSec: 32, voiceSec: 64, swapSec: 60 + SWAP_BARS * 2, onVoiceEnd: true })
-    expect(p.endSec).toBeCloseTo(68.5)
+    expect(p).toMatchObject({ joinSec: 60, entrySec: 32, bVoiceSec: 32, voiceSec: 60, swapSec: 60 + SWAP_BARS * 2, onVoiceEnd: true })
+    expect(p.endSec).toBeCloseTo(66.5)
   })
-  // He asked for "about 5–10 s". It is 4 bars and a beat: 7.0 s at 140, 8.0 at 128, 10.2 at 100 — a hair over 10 below ~102 BPM.
-  it('lasts about 5–10 seconds from 100 to 140 BPM (10.2 s at 100)', () => {
+  // He asked for "about 5–10 s". 3 bars and a beat: 5.6 s at 140, 6.1 at 128, 7.8 at 100.
+  it('lasts 5–10 seconds from 100 to 140 BPM', () => {
     for (const bpm of [100, 110, 122, 128, 140]) {
       const a = side(400, [[20, 60]], bpm)
       const b = side(400, [[40, 120]], bpm)
       const p = planVocalSwap(a, 0, b, swapEntries(b).entries[0])!
       const sec = p.endSec - p.joinSec
       expect(sec).toBeGreaterThanOrEqual(5)
-      expect(sec).toBeLessThanOrEqual(10.5) // 100 BPM: 4 bars and a beat = 10.2 s
+      expect(sec).toBeLessThanOrEqual(10)
     }
   })
   it('never lets A sing again before the mix is over, and waits a whole phrase when it would', () => {
-    // A's quiet after 60 is only 6 s (3 bars) before it sings at 66: too short, so the next voice end — 100.
+    // A's quiet after 60 is only 6 s before it sings at 66, and the mix takes 6.5: too short, so the next voice end — 100.
     const a = side(200, [[20, 60], [66, 100]])
     expect(planVocalSwap(a, 30, B, entry)!.joinSec).toBe(100)
     // Past A's voice end: a whole phrase after it, not the next bar.
@@ -81,21 +89,27 @@ describe('planVocalSwap', () => {
 describe('vocalSwapFrame', () => {
   const p: VocalSwapPlan = planVocalSwap(A, 30, B, swapEntries(B).entries[0])!
   const at = (pos: number) => vocalSwapFrame(p, pos, 2, own)
-  it("in order: A's MID, then A's HIGH, then B's voice over A's bass, then the swap", () => {
+  it("in order: A's MID with B coming in, then A's HIGH, then B's voice over A's bass, then the swap", () => {
     expect(at(59.9)).toEqual({ progress: 0, a: own.a, b: swapIncoming(own.b) })
-    expect(at(61).a.mid).toBeCloseTo(-0.5)
+    // Half a bar in: A's MID halfway down on the power curve (−3 dB, not the knob's straight midpoint), B halfway up.
+    expect(at(61).a.mid).toBeCloseTo(-3 / EQ_CUT_DB)
     expect(at(61).a.high).toBe(0)
+    expect(at(61).progress).toBeCloseTo(0.25)
     expect(at(62).a.mid).toBe(EQ_KILL)
-    expect(at(63).a.high).toBeCloseTo(-0.5)
+    expect(at(63).a.high).toBeCloseTo(-3 / EQ_CUT_DB)
     const alone = at(65)
     expect(alone.a).toEqual({ low: 0, mid: EQ_KILL, high: EQ_KILL })
-    expect(alone.b).toEqual({ low: EQ_KILL, mid: 0, high: EQ_KILL })
+    // B keeps its HIGH: its MID alone was what the owner heard as "muffled" (06/10).
+    expect(alone.b).toEqual({ low: EQ_KILL, mid: 0, high: 0 })
     expect(alone.progress).toBe(0.5)
-    expect(at(62).progress).toBe(0) // B is silent until its voice line
-    const after = at(68.2)
+    const after = at(66.25)
     expect(after.a.low).toBe(EQ_KILL)
     expect(after.b).toEqual(own.b)
     expect(at(p.endSec).progress).toBe(1)
+  })
+  it('B is heard from the first moment of the mix: no stretch where neither song plays', () => {
+    expect(crossfaderGains(at(60.1).progress, SWAP_CROSSFADER_CURVE).b).toBeGreaterThan(0.05)
+    expect(crossfaderGains(at(61).progress, SWAP_CROSSFADER_CURVE).b).toBeGreaterThan(0.7)
   })
   it('never two basses at once', () => {
     for (let t = 55; t <= 70; t += 0.05) {
@@ -111,6 +125,30 @@ describe('vocalSwapFrame', () => {
       expect(f.a.mid).toBeLessThanOrEqual(low.a.mid)
       expect(f.a.high).toBeLessThanOrEqual(low.a.high)
       expect(f.b.mid).toBe(low.b.mid)
+      expect(f.b.high).toBe(low.b.high)
     }
+  })
+
+  // The owner, 06/10: "you take the volume to 0, nothing is heard" — and "in a mix clear music is always heard". A model of what reaches
+  // the room: a song's power split into its three bands (bass .4, mids .45, highs .15 — a dance track, roughly), each band scaled by its
+  // knob in dB, each deck by its crossfader gain squared, the two decks adding as power. One whole song is 0 dB. v0.9.28 sat near −4 dB
+  // for two bars here (A's bass alone, B silent — and bass alone is much less than that on small speakers); v0.9.31 on the mixer's usual
+  // curve still sat at −3 dB for two bars and jumped on the swap.
+  const BAND = { low: 0.4, mid: 0.45, high: 0.15 }
+  const bandPower = (k: number) => 10 ** ((k >= 0 ? k * EQ_DB : k * EQ_CUT_DB) / 10)
+  const deckPower = (k: EqBands) => BAND.low * bandPower(k.low) + BAND.mid * bandPower(k.mid) + BAND.high * bandPower(k.high)
+  const roomDb = (pos: number, curve = SWAP_CROSSFADER_CURVE) => {
+    const f = at(pos)
+    const g = crossfaderGains(f.progress, curve)
+    return 10 * Math.log10(g.a ** 2 * deckPower(f.a) + g.b ** 2 * deckPower(f.b))
+  }
+  it('the room hears one whole song all the way through: never 1 dB under it, never 1.5 dB over', () => {
+    for (let t = 58; t <= 68; t += 0.02) {
+      expect(roomDb(t)).toBeGreaterThan(-1)
+      expect(roomDb(t)).toBeLessThan(1.5)
+    }
+  })
+  it("on the mixer's usual curve the same knobs would sag to −3 dB — why this mix uses its own", () => {
+    expect(roomDb(65, 'power')).toBeLessThan(-2.5)
   })
 })

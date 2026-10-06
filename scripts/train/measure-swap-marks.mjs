@@ -9,13 +9,14 @@
  *  - found: a plan exists;
  *  - seconds: join to end, min / median / max — the owner asked for 5–10;
  *  - clean, by an independent scan of his marks with his 2 s rule (not voiceRuns): A never sings from the join to the end, and B sings
- *    through its two bars alone — at least 90% of them, and at least 50%. A is checked strictly; B's share depends on where his marks
+ *    from the join to the swap (since v0.9.31 B is heard from the join) — at least 90% of it, and at least 50%. A is checked strictly; B's share depends on where his marks
  *    sit: since 04/10 a mark snaps to the yellow line before it, but many earlier (mostly Techno) marks sit mid-bar on this grid, and B
  *    then starts on the line before the voice, so part of its first bar alone is still quiet;
  *  - per song as B: how many of his songs offer at least one entry, and why the rest do not.
- * 05/10, his export of that day: 72 songs used (41 Techno, 31 House). As B: 59/72 offer an entry (6 no voice, 5 only early, 4 only late).
- * Found 75.2 / 82.5 / 75.2 / 82.6% (T→T, H→H, T→H, H→T); 7.0–8.4 s; A quiet 100%; B sings ≥90% of its two bars: 65.7 / 100 / 100 / 65.6%,
- * ≥50%: 100% everywhere. Before the half-second-cell fix in swapEntries the ≥90% figure was 6–17%.
+ * 06/10 (v0.9.31), his 05/10 export: 72 songs used (41 Techno, 31 House). As B: 64/72 offer an entry (6 no voice, 2 only late).
+ * Found 75.3 / 83.9 / 75.2 / 83.8% (T→T, H→H, T→H, H→T); 5.4–6.4 s; A quiet 100%; B sings ≥90% of the 3 bars before the swap:
+ * 79.9 / 100 / 100 / 80.0% (B Techno: the older mid-bar marks), ≥50%: 100% everywhere. v0.9.28 (4 bars, B two bars before its voice):
+ * 59/72, 7.0–8.4 s. Before the half-second-cell fix in swapEntries the ≥90% figure was 6–17%.
  */
 import fs from 'node:fs'
 import { effectiveTimeline } from '../../src/core/sound/vocal-manual.ts'
@@ -62,14 +63,14 @@ const q = (xs, p) => { const s = [...xs].sort((a, b) => a - b); return s.length 
 
 console.log(`songs: ${songs.length} (${songs.filter((s) => s.genre === 'Techno').length} Techno, ${songs.filter((s) => s.genre === 'House').length} House)`)
 let withEntry = 0
-const why = { short: 0, early: 0, late: 0, none: 0 }
+const why = { short: 0, late: 0, none: 0 }
 for (const s of songs) {
   const r = swapEntries(s.side)
   if (r.entries.length) withEntry++
   else if (!s.voiced.some(Boolean)) why.none++
-  else { why.short += r.short ? 1 : 0; why.early += r.early ? 1 : 0; why.late += r.late ? 1 : 0 }
+  else { why.short += r.short ? 1 : 0; why.late += r.late ? 1 : 0 }
 }
-console.log(`as B: ${withEntry}/${songs.length} offer at least one entry; the rest — no voice at all ${why.none}, only short ${why.short}, only early ${why.early}, only late ${why.late}`)
+console.log(`as B: ${withEntry}/${songs.length} offer at least one entry; the rest — no voice at all ${why.none}, only short ${why.short}, only late ${why.late}`)
 
 for (const pair of [['Techno', 'Techno'], ['House', 'House'], ['Techno', 'House'], ['House', 'Techno']]) {
   let clicks = 0, found = 0, clean = 0, half = 0
@@ -93,7 +94,7 @@ for (const pair of [['Techno', 'Techno'], ['House', 'House'], ['Techno', 'House'
         let aQuiet = true
         for (let t = best.joinSec; t < best.endSec; t += 0.05) if (voicedAt(a, t)) { aQuiet = false; break }
         let sung = 0, n = 0
-        for (let t = best.voiceSec; t < best.swapSec; t += 0.05, n++) if (voicedAt(b, best.bVoiceSec + (t - best.voiceSec) * ratio)) sung++
+        for (let t = best.joinSec; t < best.swapSec; t += 0.05, n++) if (voicedAt(b, best.bVoiceSec + (t - best.voiceSec) * ratio)) sung++
         if (aQuiet && sung / n >= 0.9) clean++
         if (aQuiet && sung / n >= 0.5) half++
       }
@@ -101,6 +102,6 @@ for (const pair of [['Techno', 'Techno'], ['House', 'House'], ['Techno', 'House'
   }
   const mmss = (x) => `${Math.floor(x / 60)}:${String(Math.round(x % 60)).padStart(2, '0')}`
   console.log(`\n${pair[0]} -> ${pair[1]}: ${clicks} clicks (B with an entry)`)
-  console.log(`  swap found: ${pct(found, clicks)} | A quiet and B sings ≥90% of its two bars: ${pct(clean, found)} | ≥50%: ${pct(half, found)}`)
+  console.log(`  swap found: ${pct(found, clicks)} | A quiet and B sings ≥90% of the 3 bars before the swap: ${pct(clean, found)} | ≥50%: ${pct(half, found)}`)
   console.log(`  seconds join->end: min ${Math.min(...secs).toFixed(1)}, median ${q(secs, 0.5).toFixed(1)}, max ${Math.max(...secs).toFixed(1)} | wait click->join median ${mmss(q(waits, 0.5))}, 90% ${mmss(q(waits, 0.9))}`)
 }

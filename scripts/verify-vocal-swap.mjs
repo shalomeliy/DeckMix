@@ -4,9 +4,11 @@
  *
  * Two synthetic House songs in OPFS (no real music touched), FINISHED hand marks in the store: A sings 8–30 s, B sings 40–70 s. A plays
  * from 20 s, B is loaded paused. Sampled every 50 ms through one click on the panel's vocal-swap row:
- *  - B waits paused for A's voice-end line, then starts two bars before its own voice, silent (crossfader still fully on A);
- *  - A's MID goes down over the first bar, its HIGH over the second; then B's voice comes in alone (its LOW and HIGH killed) with the
- *    crossfader at the middle and A's LOW still open; on the swap A's LOW shuts, B's knobs come back, the crossfader goes to B;
+ *  - B waits paused for A's voice-end line, then starts on its own voice line at that moment, and is heard at once (v0.9.31);
+ *  - A's MID goes down over the first bar while the crossfader brings B up, A's HIGH over the second; then B's voice over A's bass (B's LOW
+ *    killed, its MID and HIGH open) with the crossfader at the middle and BOTH decks' real fader gains at full (the `full-middle` curve,
+ *    read off the engine's gain nodes — the store's crossfader number cannot show it); on the swap A's LOW shuts, B's knobs come back, the
+ *    crossfader goes to B;
  *  - never both LOWs open while both decks are audible; join to end 5–10 s; at the end A paused and every knob back; nothing throws.
  */
 import { chromium } from 'playwright'
@@ -103,6 +105,7 @@ if (setup.error) {
     await rows.first().click()
     const run = await page.evaluate(async () => {
       const { useStore } = await window.mod('/src/app/state/store.ts')
+      const { engine } = await window.mod('/src/platform/audio-webaudio/engine.ts')
       const samples = []
       const end = Date.now() + 40000
       const t0 = performance.now()
@@ -110,7 +113,8 @@ if (setup.error) {
         const s = useStore.getState()
         const ch = s.mixer.channels
         samples.push({ ms: performance.now() - t0, a: s.decks.A.positionSec, b: s.decks.B.positionSec, x: s.mixer.crossfader, aPlaying: s.decks.A.playing, bPlaying: s.decks.B.playing, active: !!s.activeTransition,
-          aLow: ch.A.eqLow, aMid: ch.A.eqMid, aHigh: ch.A.eqHigh, bLow: ch.B.eqLow, bMid: ch.B.eqMid, bHigh: ch.B.eqHigh })
+          aLow: ch.A.eqLow, aMid: ch.A.eqMid, aHigh: ch.A.eqHigh, bLow: ch.B.eqLow, bMid: ch.B.eqMid, bHigh: ch.B.eqHigh,
+          gA: engine.decks.A.faderGain.gain.value, gB: engine.decks.B.faderGain.gain.value })
         if (!s.activeTransition && samples.length > 5) break
         await new Promise((r) => setTimeout(r, 50))
       }
@@ -120,18 +124,22 @@ if (setup.error) {
     })
     const S = run.samples
     const firstB = S.find((s) => s.bPlaying)
-    ok("B waits for A's voice-end line (the yellow line at or after 30 s), then starts two bars before the yellow line its voice (40 s) is on", !!firstB && firstB.a >= 30 - 0.05 && firstB.a < 30 + barA && firstB.b > 40 - 3 * barA && firstB.b <= 40 - 2 * barA + 0.1,
+    ok("B waits for A's voice-end line (the yellow line at or after 30 s), then starts on the yellow line its voice (40 s) is on", !!firstB && firstB.a >= 30 - 0.05 && firstB.a < 30 + barA && firstB.b > 40 - barA - 0.1 && firstB.b <= 40 + 0.6,
       firstB ? `B started with A at ${firstB.a.toFixed(2)} s, B at ${firstB.b.toFixed(2)} s` : 'B never played')
     const join = firstB?.a ?? 30
-    const silent = S.filter((s) => s.bPlaying && s.a < join + 2 * barA - 0.1)
-    ok('the first two bars: B is playing but silent (crossfader fully on A)', silent.length > 5 && silent.every((s) => s.x === -1), `${silent.length} samples, crossfader ${silent[0]?.x}`)
-    const bar1end = S.filter((s) => s.a > join + barA + 0.1 && s.a < join + 2 * barA - 0.1)
-    ok("A's MID is down after the first bar, its HIGH going down in the second", bar1end.length > 3 && bar1end.every((s) => s.aMid === -1 && s.aHigh < 0 && s.aLow === 0),
-      bar1end[0] ? `A low ${bar1end[0].aLow}, mid ${bar1end[0].aMid}, high ${bar1end[0].aHigh.toFixed(2)}` : '')
-    const alone = S.filter((s) => s.a > join + 2 * barA + barA / 4 + 0.1 && s.a < join + 4 * barA - 0.1)
-    ok("B's voice alone over A's bass: crossfader middle, A LOW only, B MID only, B in its voice", alone.length > 5 && alone.every((s) => Math.abs(s.x) < 0.01 && s.aLow === 0 && s.aMid === -1 && s.aHigh === -1 && s.bLow === -1 && s.bMid === 0 && s.bHigh === -1 && s.b >= firstB.b + 2 * barA - 0.3 && s.b < 70),
+    const early = S.filter((s) => s.bPlaying && s.a > join + barA / 4 && s.a < join + barA / 2)
+    ok('B is heard from the first beat: its fader already up a beat in (no silent stretch)', early.length > 0 && early.every((s) => s.gB > 0.3),
+      early[0] ? `${early.length} samples, B gain ${early[0].gB.toFixed(2)}, A gain ${early[0].gA.toFixed(2)}` : 'none')
+    const bar2 = S.filter((s) => s.a > join + barA + 0.1 && s.a < join + 2 * barA - 0.1)
+    ok("A's MID is down after the first bar, its HIGH going down in the second", bar2.length > 3 && bar2.every((s) => s.aMid === -1 && s.aHigh < 0 && s.aLow === 0),
+      bar2[0] ? `A low ${bar2[0].aLow}, mid ${bar2[0].aMid}, high ${bar2[0].aHigh.toFixed(2)}` : '')
+    const alone = S.filter((s) => s.a > join + 2 * barA + 0.1 && s.a < join + 3 * barA - 0.1)
+    ok("B's voice over A's bass: crossfader middle, A LOW only, B everything but LOW, B in its voice", alone.length > 5 && alone.every((s) => Math.abs(s.x) < 0.01 && s.aLow === 0 && s.aMid === -1 && s.aHigh === -1 && s.bLow === -1 && s.bMid === 0 && s.bHigh === 0 && s.b >= firstB.b + 2 * barA - 0.3 && s.b < 70),
       alone[0] ? `${alone.length} samples: x ${alone[0].x.toFixed(3)}, A ${alone[0].aLow}/${alone[0].aMid}/${alone[0].aHigh}, B ${alone[0].bLow}/${alone[0].bMid}/${alone[0].bHigh}, B at ${alone[0].b.toFixed(2)} s` : 'none')
-    const after = S.filter((s) => s.active && s.a > join + 4 * barA + 0.1)
+    const middle = S.filter((s) => s.a > join + barA + 0.2 && s.a < join + 3 * barA - 0.1)
+    ok('both decks at full level in the middle (engine gains, not −3 dB each)', middle.length > 5 && middle.every((s) => s.gA > 0.97 && s.gB > 0.97),
+      middle[0] ? `${middle.length} samples, lowest A ${Math.min(...middle.map((s) => s.gA)).toFixed(3)}, lowest B ${Math.min(...middle.map((s) => s.gB)).toFixed(3)}` : 'none')
+    const after = S.filter((s) => s.active && s.a > join + 3 * barA + 0.1)
     ok('on the swap: A LOW shuts, B whole again, crossfader on its way to B', after.length > 0 && after.every((s) => s.aLow === -1 && s.bLow === 0 && s.bHigh === 0 && s.x >= 0),
       after[0] ? `A low ${after[0].aLow}, B ${after[0].bLow}/${after[0].bMid}/${after[0].bHigh}, x ${after[0].x.toFixed(2)}` : 'no sample in the last beat')
     const both = S.filter((s) => s.aPlaying && s.bPlaying && s.x > -1 && s.x < 1 && s.aLow > -1 && s.bLow > -1)
@@ -139,7 +147,7 @@ if (setup.error) {
     const audibleFrom = S.find((s) => s.bPlaying)
     const lastActive = [...S].reverse().find((s) => s.active)
     const sec = audibleFrom && lastActive ? (lastActive.ms - audibleFrom.ms) / 1000 : NaN
-    ok('join to end lasts about 5–10 seconds (4 bars and a beat)', sec >= 5 && sec <= 10.5, `${sec.toFixed(2)} s at ${setup.gridA.bpm.toFixed(1)} BPM`)
+    ok('join to end lasts 5–10 seconds (3 bars and a beat)', sec >= 5 && sec <= 10, `${sec.toFixed(2)} s at ${setup.gridA.bpm.toFixed(1)} BPM`)
     ok('the mix finished: B playing, A paused, crossfader on B, every knob back', run.final.bPlaying && !run.final.aPlaying && run.final.x > 0.99 && run.final.eq.every((v) => v === 0), JSON.stringify(run.final))
   }
 }

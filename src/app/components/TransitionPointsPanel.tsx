@@ -274,7 +274,7 @@ export function TransitionPointsPanel({
           ))}
         </div>
       )}
-      {/* The vocal swap (owner, 05/10): A's voice and instruments go, B's voice comes in alone over A's bass, then the bass swap. */}
+      {/* The vocal swap (owner, 05/10): A's voice goes as B's comes in, A's instruments go, B's voice over A's bass, then the bass swap. */}
       <div className="mb-1 label">{`החלפת שירה — ${SWAP_BARS} תיבות`}</div>
       {!swap ? (
         <div className="mb-2 text-2xs text-grid-muted" data-testid="swap-note">{handoffNote?.replace('מסירת שירה', 'החלפת שירה').replace('המסירה', 'המיקס')}</div>
@@ -287,7 +287,7 @@ export function TransitionPointsPanel({
               onClick={() => onVocalSwap(entry)}
               className="rounded-[var(--radius-sm)] text-left transition-opacity hover:opacity-80"
             >
-              <Pill tone="idle" label={`מתחיל כשדק ${otherDeckId} ב-${fmtSec(plan.joinSec)} · שר לבד מ-${fmtSec(plan.bVoiceSec)}`} />
+              <Pill tone="idle" label={`מתחיל כשדק ${otherDeckId} ב-${fmtSec(plan.joinSec)} · נכנס מהשירה שלו ב-${fmtSec(plan.bVoiceSec)}`} />
               <span className="mt-0.5 flex items-center gap-1 px-2 text-2xs text-grid-muted">
                 <span className="h-1 w-1 shrink-0 rounded-full" style={{ background: 'var(--color-live)' }} />
                 {plan.onVoiceEnd ? `דק ${otherDeckId} מסיים לשיר ב-${fmtSec(plan.joinSec)}` : `דק ${otherDeckId} שקט ב-${fmtSec(plan.joinSec)}`}
