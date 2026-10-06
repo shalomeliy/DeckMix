@@ -42,6 +42,11 @@ export interface Track {
    * analysis, or no BPM.
    */
   bpmSource?: 'owner'
+  /**
+   * v0.9.47: the speed the owner saved for this track ("Save tempo"), as a rate — `bpm` stays the file's own count (grids, tags and
+   * analysis are in the file's time); the row shows `bpm × playRate`, and recommendations match on that.
+   */
+  playRate?: number
   /** Set with `keySource: 'detected'` when the audio barely picked this key over the next one (`UNCERTAIN_MARGIN`). */
   keyUncertain?: boolean
   /**
@@ -203,8 +208,8 @@ export interface DeckState {
   syncActive: boolean
   /** tempo fader value, -1..1 mapped to +/- range (see TEMPO_RANGE) */
   tempo: number
-  /** The fader position the owner saved for this track with "Save tempo" (v0.9.46), or `null` — then it loads at its own speed. */
-  savedTempo: number | null
+  /** The speed saved for this track (v0.9.47, `TrackMeta.playRate`): the fader's centre. 1 = the file's own speed. */
+  baseRate: number
   /** The fader's current value was set by a hand (screen, FLX4, keyboard, AI) — not by SYNC, a mix or a glide (v0.9.46). Only then is "Save tempo" offered. */
   tempoByHand: boolean
   /** normalised waveform peaks for rendering (min/max interleaved) */

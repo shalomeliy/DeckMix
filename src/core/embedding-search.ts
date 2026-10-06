@@ -4,6 +4,7 @@
  * §3): hybrid blending against BPM/genre is deferred until there is a real
  * result set to check it against, not added speculatively.
  */
+import { rowBpm } from '@/core/constants'
 import type { Track } from '@/core/types'
 
 /** `NaN` on a zero vector is deliberate — a zero embedding is not "unrelated" (0), it's undefined, and callers must not silently rank it as a mediocre match. */
@@ -86,16 +87,17 @@ export function findSimilarTracks(seedId: string, tracks: Track[], opts: { limit
   const seedTrack = tracks.find((t) => t.id === seedId)
   if (!seedTrack?.embedding || !seedTrack.contentHash) return []
 
-  const seedBpm = seedTrack.bpm ?? null
+  // v0.9.47: the BPM the row shows (a saved speed included), so the ±8% gate and the chip agree with the column
+  const seedBpm = rowBpm(seedTrack) ?? null
   const idByHash = new Map<string, string>()
   const genreByHash = new Map<string, string | null>()
   const candidates: SimilarityCandidate[] = []
   for (const t of tracks) {
     if (!t.embedding || !t.contentHash) continue
-    if (seedBpm != null && t.contentHash !== seedTrack.contentHash && (t.bpm == null || !bpmCompatible(seedBpm, t.bpm))) continue
+    if (seedBpm != null && t.contentHash !== seedTrack.contentHash && (rowBpm(t) == null || !bpmCompatible(seedBpm, rowBpm(t)!))) continue
     if (!idByHash.has(t.contentHash)) idByHash.set(t.contentHash, t.id)
     genreByHash.set(t.contentHash, t.genre ?? null)
-    candidates.push({ contentHash: t.contentHash, embedding: t.embedding, bpm: t.bpm ?? null, genre: t.genre ?? null })
+    candidates.push({ contentHash: t.contentHash, embedding: t.embedding, bpm: rowBpm(t) ?? null, genre: t.genre ?? null })
   }
 
   const seed: SimilarityCandidate = {

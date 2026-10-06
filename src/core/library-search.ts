@@ -1,3 +1,4 @@
+import { rowBpm } from '@/core/constants'
 import type { Track } from '@/core/types'
 
 /**
@@ -16,7 +17,10 @@ export function matchesQuery(track: Track, rawQuery: string): boolean {
   if (!q) return true
 
   const range = parseBpmRange(q)
-  if (range) return track.bpm != null && track.bpm >= range.min && track.bpm <= range.max
+  if (range) {
+    const bpm = rowBpm(track)
+    return bpm != null && bpm >= range.min && bpm <= range.max
+  }
 
   return (
     track.path.toLowerCase().includes(q) ||
@@ -100,12 +104,13 @@ export function matchesColumnQuery(track: Track, column: SearchColumn, rawQuery:
       // the genre the column shows (a manual pick over the folder name); a track with none never matches a genre search
       return startsAWord(track.genre, q)
     case 'bpm': {
-      if (track.bpm == null) return false
+      const bpm = rowBpm(track)
+      if (bpm == null) return false
       const range = parseBpmRange(q)
-      if (range) return track.bpm >= range.min && track.bpm <= range.max
+      if (range) return bpm >= range.min && bpm <= range.max
       if (!/^\d+(\.\d*)?$/.test(q)) return false
       const dot = q.indexOf('.')
-      const shown = dot < 0 ? String(Math.round(track.bpm)) : track.bpm.toFixed(Math.max(1, q.length - dot - 1))
+      const shown = dot < 0 ? String(Math.round(bpm)) : bpm.toFixed(Math.max(1, q.length - dot - 1))
       return shown.startsWith(q)
     }
     case 'key': {

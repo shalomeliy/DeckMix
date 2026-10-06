@@ -154,12 +154,15 @@ export function Deck({ deckId }: { deckId: DeckId }) {
   // Tempo range and BPM precision are the user's from v0.2.5. The fader's
   // -1..1 value is unchanged by the range; what it means in percent is not.
   const { tempoRange, bpmDecimals } = useSettings()
-  const effectiveBpm = deck.bpm != null ? deck.bpm * (1 + deck.tempo * tempoRange) : null
+  // The fader's middle is the track's saved speed (v0.9.47, `baseRate`); the % beside the BPM is the fader's move off it.
+  const effectiveBpm = deck.bpm != null ? deck.bpm * deck.baseRate * (1 + deck.tempo * tempoRange) : null
   const deltaPct = deck.tempo * tempoRange * 100
   const remain = deck.durationSec - deck.positionSec
-  // "Save tempo" (v0.9.46) is offered only when there is something to save: the fader sits away from what this track loads at, and a hand
-  // put it there — not SYNC, a mix or a glide back (`tempoByHand`), whose number belongs to the pairing (the 20/09 bug).
-  const tempoUnsaved = !!deck.track && !deck.syncActive && deck.tempoByHand && Math.abs(deck.tempo - (deck.savedTempo ?? 0)) > 1e-4
+  // "Save tempo" (v0.9.46) is offered only when there is something to save: a hand moved the fader off the middle — not SYNC, a mix or a
+  // glide back (`tempoByHand`), whose number belongs to the pairing (the 20/09 bug). "Forget tempo": a saved speed, fader in the middle.
+  const centred = Math.abs(deck.tempo) < 1e-4
+  const tempoAction: 'save' | 'forget' | null =
+    !deck.track || deck.syncActive ? null : !centred && deck.tempoByHand ? 'save' : centred && Math.abs(deck.baseRate - 1) > 1e-4 ? 'forget' : null
 
   // Built once, placed in either layout below: the full one, or the compact
   // one while the track list is pulled up (v0.9.34).
@@ -389,19 +392,19 @@ export function Deck({ deckId }: { deckId: DeckId }) {
               by-ear correction, not something the app can do silently. */}
           {/* Beside the "BPM +x%" line, not under it: a row here pushed the waveform, the pads and the track list 22px down every
               time the fader moved (measured, v0.9.46), on a deck that already fills the 710px screen. */}
-          {tempoUnsaved && (
+          {tempoAction && (
             <div className="absolute right-full top-[21px] mr-1 whitespace-nowrap">
               <button
                 type="button"
-                onClick={() => void ctl.saveDeckTempo(deckId)}
+                onClick={() => void ctl.saveDeckTempo(deckId, { forget: tempoAction === 'forget' })}
                 title={
-                  Math.abs(deck.tempo) < 1e-4
-                    ? 'Forget the tempo saved for this track: it loads at its own speed again'
-                    : 'Keep this tempo for this track: it starts here every time it loads. Nothing is kept unless you press this.'
+                  tempoAction === 'forget'
+                    ? "Forget the speed saved for this track: it goes back to the file's own speed"
+                    : "Make this the track's own speed: the fader goes back to the middle, the BPM stays, and it plays at this speed every time. Nothing is kept unless you press this."
                 }
                 className="rounded-[var(--radius-xs)] px-1 py-0.5 text-2xs text-grid-muted transition-colors hover:bg-surface-2 hover:text-grid-text"
               >
-                {Math.abs(deck.tempo) < 1e-4 ? 'Forget tempo' : 'Save tempo'}
+                {tempoAction === 'forget' ? 'Forget tempo' : 'Save tempo'}
               </button>
             </div>
           )}

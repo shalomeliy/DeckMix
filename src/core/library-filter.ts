@@ -1,3 +1,4 @@
+import { rowBpm } from '@/core/constants'
 import type { Track } from '@/core/types'
 
 /**
@@ -95,7 +96,7 @@ function matchesRange(value: number | undefined, r: NumberRange): boolean {
  * "up to 7:30"). The same rule as the BPM column search (`library-search.ts`).
  */
 function rangeValue(t: Track, column: 'bpm' | 'durationSec'): number | undefined {
-  const v = column === 'bpm' ? t.bpm : t.durationSec
+  const v = column === 'bpm' ? rowBpm(t) : t.durationSec
   if (v == null || !isFinite(v) || v <= 0) return undefined
   return column === 'bpm' ? Math.round(v) : Math.floor(v)
 }

@@ -96,6 +96,7 @@ export class Deck {
   private _cueMonitor = false
   // on by default, as every DJ deck ships; the store's initial state matches
   private _vinylMode = true
+  private _baseRate = 1
   private _scratching = false
   /** what play state to return to when the hand comes off the platter */
   private _resumePlaying = false
@@ -223,7 +224,13 @@ export class Deck {
   }
 
   private get rate() {
-    return tempoToRate(this._tempo, settings.values.tempoRange)
+    return this._baseRate * tempoToRate(this._tempo, settings.values.tempoRange)
+  }
+
+  /** The track's saved speed (v0.9.47): the fader's centre. Applied exactly like a fader move — same rate, same key-lock correction. */
+  setBaseRate(r: number) {
+    this._baseRate = r > 0 ? r : 1
+    this.setTempo(this._tempo)
   }
 
   play() {

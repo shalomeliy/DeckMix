@@ -31,6 +31,8 @@ export interface DeckBackend {
   togglePlay(): void
   seek(sec: number): void
   setTempo(t: number): void
+  /** The track's saved speed (v0.9.47): the rate the fader's centre plays at. */
+  setBaseRate(r: number): void
   setLoop(startSec: number, endSec: number): void
   clearLoop(): void
   setEq(band: 'low' | 'mid' | 'high', v: number): void

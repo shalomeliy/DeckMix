@@ -22,6 +22,11 @@ export interface TrackMeta {
   artist?: string
   /** v0.9.41: suggestions he rejected for this track, as written. */
   artistRejected?: string[]
+  /**
+   * v0.9.47: the speed the owner saved for this track ("Save tempo"), as a playback rate — 0.92 = 8% slower. It becomes the track's own
+   * speed: the fader's centre, the BPM the deck and the row show, and what SYNC and the glide back count from. Absent = the file's speed.
+   */
+  playRate?: number
 }
 
 /**
@@ -121,4 +126,29 @@ export async function setOwnerArtist(
     return all
   })
   if (live && written) live.set(contentHash, written)
+}
+
+/** "Save tempo" / "Forget tempo" (v0.9.47): `null` removes it. `update`, like `setOwnerTempoKey`. Throws on failure, same contract. */
+export async function setPlayRate(contentHash: string, rate: number | null): Promise<void> {
+  let written: TrackMeta | null = null
+  await update<Record<string, TrackMeta>>(KEY, (stored) => {
+    const all = { ...(stored ?? {}) }
+    const meta = { ...all[contentHash] }
+    if (rate == null) delete meta.playRate
+    else meta.playRate = rate
+    all[contentHash] = meta
+    written = meta
+    return all
+  })
+  if (live && written) live.set(contentHash, written)
+}
+
+/**
+ * One track's saved speed, read fresh (a load does not wait for the library scan). `null` = none saved. Throws when the store cannot be
+ * read — "could not read" must not look like "nothing saved", or the track quietly plays at the file's speed (v0.9.47 review).
+ */
+export async function getPlayRate(contentHash: string): Promise<number | null> {
+  const stored = await get<Record<string, TrackMeta>>(KEY)
+  const r = stored?.[contentHash]?.playRate
+  return typeof r === 'number' && r > 0 ? r : null
 }

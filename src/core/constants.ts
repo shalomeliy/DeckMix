@@ -62,6 +62,33 @@ export function tempoToRate(tempo: number, range: number = TEMPO_RANGE): number 
 }
 
 /**
+ * A deck's playback rate: the speed saved for its track ("Save tempo", v0.9.47 — the fader's centre) times the fader. Every speed sum goes
+ * through here or `centreBpm`; a site that used `tempoToRate` alone would count a saved 138 as the file's 150 and SYNC it 8% off.
+ */
+export function deckRate(baseRate: number, tempo: number, range: number = TEMPO_RANGE): number {
+  return baseRate * tempoToRate(tempo, range)
+}
+
+/** The BPM a deck plays at with its fader in the middle: the file's count at the saved speed (v0.9.47). */
+export function centreBpm(bpm: number, baseRate: number): number {
+  return bpm * baseRate
+}
+
+/** A saved speed as the owner reads it: 0.92 -> "-8.0%". */
+export function speedPercent(rate: number): string {
+  const pct = (rate - 1) * 100
+  return `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`
+}
+
+/**
+ * The BPM a library row shows, and what its search, filter, sort and the mix suggestions use (v0.9.47): the file's count times the speed
+ * the owner saved for it. Shalom saved a slower speed and the row went on saying 150 — every reader of the row has to agree with it.
+ */
+export function rowBpm(t: { bpm?: number; playRate?: number }): number | undefined {
+  return t.bpm == null ? undefined : t.bpm * (t.playRate ?? 1)
+}
+
+/**
  * Tempo fader value that makes a deck (native `deckBpm`) play at the same
  * *audible* speed as the master. The master's audible BPM is its native BPM
  * times its own tempo rate — matching its native BPM alone left a deck 6 BPM off

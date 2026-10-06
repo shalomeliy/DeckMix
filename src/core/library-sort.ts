@@ -1,3 +1,4 @@
+import { rowBpm } from '@/core/constants'
 import type { Track } from '@/core/types'
 
 /**
@@ -29,7 +30,7 @@ function sortValue(t: Track, key: SortKey): string | number | undefined {
       // v0.9.36: the file type ("mp3", "wav"), the same text the column shows
       return t.kind.toLowerCase()
     case 'bpm':
-      return t.bpm
+      return rowBpm(t)
     case 'key':
       return camelotOrder(t.camelot)
     case 'durationSec':

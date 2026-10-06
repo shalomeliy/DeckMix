@@ -26,6 +26,9 @@ import {
   HOT_CUE_COLORS,
   RECENTLY_REMOVED_WINDOW_SEC,
   syncTempoFor,
+  centreBpm,
+  speedPercent,
+  deckRate,
   halfDoubleMultiplier,
   syncMultiplier,
   tempoToRate,
@@ -59,6 +62,8 @@ import {
   setTrackNote as persistTrackNoteByHash,
   setOwnerArtist,
   setOwnerTempoKey,
+  getPlayRate,
+  setPlayRate,
 } from '@/platform/track-meta-idb/store'
 import {
   deleteCrateRecord,
@@ -69,7 +74,7 @@ import { matchesColumnFilters, normalizeFilter, type ColumnFilters, type FilterC
 import { matchesSearch, type SearchColumn } from '@/core/library-search'
 import { sortTracks } from '@/core/library-sort'
 import { getCues, putCues } from '@/platform/cues-idb/store'
-import { clearTempo, getTempo, putTempo } from '@/platform/tempo-idb/store'
+import { clearTempo, getTempo } from '@/platform/tempo-idb/store'
 import { getGridCorrection, putGridCorrection } from '@/platform/grid-corrections-idb/store'
 import { ownerCorrection, reconcileSavedGrid, resolveGridCorrection } from '@/core/grid-corrections'
 import { getExcellentPoints, markExcellent } from '@/platform/mix-ratings-idb/store'
@@ -404,12 +409,22 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     c.kind == null && !isOrdinalLabel(c) ? { ...c, kind: 'mixEntry' as const } : c,
   )
   const cuePointSec = storedCues?.cuePointSec ?? 0
-  // v0.8.6 kept the previous track's fader position when nothing was saved
-  // ("like a physical fader"). Shalom found it wrong (20/09): the new track
-  // showed the old track's tempo offset, so its own BPM never appeared. `null`
-  // (never saved for this track, or hash unknown) now resets to 0 = the file's
-  // own BPM; only a value saved for this exact track overrides that.
-  const storedTempo = contentHash ? await getTempo(contentHash) : null
+  // The fader always starts in the middle (20/09: a new track showing the old one's offset never showed its own BPM). Since v0.9.47 the
+  // middle is the speed saved for this track ("Save tempo"), else the file's own.
+  // `null`: no identity (the hash failed) or the store could not be read. Then the row's own copy, merged at scan time, is used — the row
+  // said 138, so the deck must not quietly play 150 — and either way it is said on screen below.
+  const savedRate = contentHash ? await loadPlayRate(contentHash) : null
+  const rowCopy = useStore.getState().library.tracks.find((t) => t.id === track.id)?.playRate ?? track.playRate ?? null
+  const baseRate = savedRate ?? rowCopy ?? 1
+  const rateUnread = savedRate == null && (contentHash != null || rowCopy != null)
+  // The row says what the deck plays: a carried-over speed, or one the library's analysis pass has not merged yet, lands on it now.
+  if (contentHash && savedRate != null) {
+    const lib = useStore.getState().library
+    const rowRate = baseRate === 1 ? null : baseRate
+    if (lib.tracks.some((t) => t.contentHash === contentHash && (t.playRate ?? null) !== rowRate)) {
+      useStore.getState().setLibrary({ tracks: lib.tracks.map((t) => (t.contentHash === contentHash ? withPlayRate(t, rowRate) : t)) })
+    }
+  }
   // v0.5.4: same "not yet identified, not an error" treatment as `storedCues`.
   const excellentMixPoints = contentHash ? await getExcellentPoints(contentHash) : []
   // "First cue point" (Settings › Feel › On track load) means this saved CUE
@@ -440,7 +455,8 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
   // track, still synced and playing, can have a glide started on it — which
   // would then drag this new track from the old one's tempo (v0.8.39 review).
   cancelTempoGlide(deckId)
-  engine.decks[deckId].setTempo(storedTempo ?? 0)
+  engine.decks[deckId].setTempo(0)
+  engine.decks[deckId].setBaseRate(baseRate)
   // The key lock stays on across loads; a key sync move does not — it was planned for the last song. Left in the engine, the new song
   // played shifted under a button that read "Key sync" (independent review, 05/10).
   engine.decks[deckId].setKeyShift(0)
@@ -459,8 +475,8 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     syncActive: false,
     peaks: null,
     bands: null,
-    tempo: storedTempo ?? 0,
-    savedTempo: storedTempo,
+    tempo: 0,
+    baseRate,
     tempoByHand: false,
     hotCues,
     cuePointSec,
@@ -472,9 +488,22 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
   // Never silent (v0.9.46): a track that starts off its own speed says so, and says it is his saved choice.
   // Never over a warning already on screen — the first load once wiped the "audio device not connected" one (see the clearNotice above).
   const shown = useStore.getState().notice
-  if (storedTempo != null && Math.abs(storedTempo) > 1e-4 && (!shown || shown.tone === 'info' || shown.source === 'load' || shown.source === 'tempo')) {
-    const pct = storedTempo * settings.values.tempoRange * 100
-    setNotice({ text: `"${track.title ?? track.name}" starts at ${pct > 0 ? '+' : ''}${pct.toFixed(1)}% — the tempo you saved for it.`, tone: 'info', source: 'tempo' })
+  // Over a library warning too: a store that cannot be read also fails the "last played" stamp just before, and the speed heard matters more.
+  if (rateUnread && (!shown || shown.tone === 'info' || shown.source === 'load' || shown.source === 'tempo' || shown.source === 'library')) {
+    setNotice({
+      text:
+        rowCopy != null
+          ? `The saved speed for "${track.title ?? track.name}" could not be read fresh — it plays at the one the list shows (${speedPercent(rowCopy)} of the file).`
+          : `The saved speed for "${track.title ?? track.name}" could not be read — it plays at the file's own speed.`,
+      tone: 'warn',
+      source: 'tempo',
+    })
+  } else if (Math.abs(baseRate - 1) > 1e-4 && (!shown || shown.tone === 'info' || shown.source === 'load' || shown.source === 'tempo')) {
+    setNotice({
+      text: `"${track.title ?? track.name}" plays at the speed you saved for it (${speedPercent(baseRate)} of the file${track.bpm ? `, ${Number(centreBpm(track.bpm, baseRate).toFixed(1))} BPM` : ''}).`,
+      tone: 'info',
+      source: 'tempo',
+    })
   }
   void onTrackLoadedForVocalMarks(deckId, contentHash)
   // A (re)load can change this deck's bpm/tempo as much as touching the
@@ -683,6 +712,8 @@ export function ejectDeck(deckId: DeckId) {
   stopLoop(deckId)
   deck.unload()
   deck.setKeyShift(0)
+  // the saved speed is the track's, not the deck's: the next track brings its own
+  deck.setBaseRate(1)
   patchDeck(deckId, {
     track: null,
     keySyncShift: null,
@@ -702,6 +733,7 @@ export function ejectDeck(deckId: DeckId) {
     loopRange: null,
     scratching: false,
     excellentMixPoints: [],
+    baseRate: 1,
   })
   // A master with no track is a reference to nothing. The other deck's SYNC
   // is switched off with it: left lit, it would claim a lock it no longer
@@ -1371,7 +1403,7 @@ async function keySync(deckId: DeckId, maxShift: number, stillWanted: () => stri
     return { text: `Key sync צריך שיר בשני הדקים — ${empty.length === 2 ? 'שני הדקים ריקים' : `בדק ${empty[0]} אין שיר`}.`, tone: 'warn' }
   }
   const otherDeck = engine.decks[otherId]
-  const otherRate = tempoToRate(decks[otherId].tempo, settings.values.tempoRange)
+  const otherRate = deckRate(decks[otherId].baseRate, decks[otherId].tempo, settings.values.tempoRange)
   const plan = planKeySync(mine!.camelot, other!.camelot, heardSemitones(otherRate, otherDeck.keyLock, otherDeck.keyShift))
   if (!plan) {
     // a code that is there but is not Camelot counts as no key, and is named the same way
@@ -1621,18 +1653,45 @@ export function setTempo(deckId: DeckId, tempo: number, opts: { byHand?: boolean
 }
 
 /**
- * "Save tempo" (v0.9.46): this track starts at this fader position every time it loads. The only writer of `tempo-idb` — until v0.9.46
- * every hand move of the fader was kept, and Shalom did not want a speed remembered without being asked (06/10). Refused while the deck
- * is synced or gliding: that number is the pairing's or the mix's, not this track's (the 20/09 bug, pinned at another song's +8%). The
- * fader at 0 saves "the song's own speed", i.e. forgets. Said on screen either way.
+ * The speed saved for this track (v0.9.47), as a rate. A value v0.9.46 saved under `tempo3` — a fader position, an hour old when this
+ * changed — is carried over once at the range it was saved under (the current one; nobody changed it in between) and then removed.
+ * `null` = the store could not be read (the caller falls back to the row's copy and says so).
  */
-export async function saveDeckTempo(deckId: DeckId): Promise<void> {
-  const { decks, setNotice, patchDeck } = useStore.getState()
+async function loadPlayRate(contentHash: string): Promise<number | null> {
+  let rate: number | null
+  try {
+    rate = await getPlayRate(contentHash)
+  } catch (err) {
+    console.error('reading the saved speed failed', err)
+    return null
+  }
+  if (rate != null) return rate
+  const fader = await getTempo(contentHash)
+  if (fader == null) return 1
+  const carried = tempoToRate(fader, settings.values.tempoRange)
+  try {
+    await setPlayRate(contentHash, Math.abs(carried - 1) < 1e-4 ? null : carried)
+    await clearTempo(contentHash)
+  } catch (err) {
+    console.error('carrying a v0.9.46 saved tempo over failed', err)
+  }
+  return carried
+}
+
+/**
+ * "Save tempo" (v0.9.47): the speed the deck plays at now becomes this track's own — the fader goes back to the middle at the same
+ * speed, the deck and the row show the new BPM, and SYNC and the glide back count from it. Shalom (06/10): "the tempo should stay fixed if
+ * I decided that's its tempo", after v0.9.46 kept the fader down and the row at the file's 150. Only what a hand set (`tempoByHand`):
+ * SYNC's, a mix's and a glide's numbers belong to the pairing (the 20/09 bug). "Forget tempo" goes back to the file's speed. Said on screen.
+ */
+export async function saveDeckTempo(deckId: DeckId, opts: { forget?: boolean } = {}): Promise<void> {
+  const { decks, setNotice } = useStore.getState()
   const deck = decks[deckId]
-  const name = deck.track?.title ?? deck.track?.name
-  const hash = deck.track?.contentHash
-  if (!deck.track) return
-  if (deck.syncActive || tempoGlides[deckId] || !deck.tempoByHand) {
+  const track = deck.track
+  if (!track) return
+  const name = track.title ?? track.name
+  const hash = track.contentHash
+  if (!opts.forget && (deck.syncActive || tempoGlides[deckId] || !deck.tempoByHand)) {
     setNotice({ text: `Deck ${deckId}'s tempo came from ${deck.syncActive ? 'SYNC' : tempoGlides[deckId] ? 'a glide back' : 'SYNC or the mix'} — it is the mix's, not "${name}"'s, so it was not saved.`, tone: 'warn', source: 'tempo' })
     return
   }
@@ -1640,22 +1699,47 @@ export async function saveDeckTempo(deckId: DeckId): Promise<void> {
     setNotice({ text: `"${name}" has no identity yet, so its tempo cannot be saved — try again once it has finished loading.`, tone: 'warn', source: 'tempo' })
     return
   }
-  const tempo = deck.tempo
-  const forget = Math.abs(tempo) < 1e-4
+  const rate = opts.forget ? 1 : deckRate(deck.baseRate, deck.tempo, settings.values.tempoRange)
+  const isFile = Math.abs(rate - 1) < 1e-4
   try {
-    await (forget ? clearTempo(hash) : putTempo(hash, tempo))
-    if (useStore.getState().decks[deckId].track?.contentHash === hash) patchDeck(deckId, { savedTempo: forget ? null : tempo })
-    const pct = tempo * settings.values.tempoRange * 100
-    setNotice({
-      text: forget
-        ? `"${name}" will start at its own speed again.`
-        : `"${name}" will start at ${pct > 0 ? '+' : ''}${pct.toFixed(1)}% every time it loads.`,
-      tone: 'info',
-      source: 'tempo',
-    })
+    await setPlayRate(hash, isFile ? null : rate)
   } catch (err) {
     setNotice({ text: `Tempo for "${name}" wasn't saved: ${err instanceof Error ? err.message : String(err)}`, tone: 'warn', source: 'tempo' })
+    return
   }
+  const now = useStore.getState()
+  const { library, setLibrary, patchDeck } = now
+  setLibrary({ tracks: library.tracks.map((t) => (t.contentHash === hash ? withPlayRate(t, isFile ? null : rate) : t)) })
+  if (now.decks[deckId].track?.contentHash === hash) {
+    // Fader to the middle and the new centre in one tick: the speed heard does not change on Save (Forget is the one that moves it).
+    // Forget moves it, so it ends a mix this deck is leaving, exactly like a hand on the fader would.
+    if (opts.forget) cancelTransitionIfOutgoingDeckTouched(deckId)
+    cancelTempoGlide(deckId)
+    engine.decks[deckId].setTempo(0)
+    engine.decks[deckId].setBaseRate(isFile ? 1 : rate)
+    patchDeck(deckId, { tempo: 0, baseRate: isFile ? 1 : rate, tempoByHand: false })
+    if (now.masterDeckId === deckId) {
+      refreshFxTimeForMasterTempo()
+      // Forget changes the speed heard: a deck synced to this one keeps up, as it does with a glide (Save changes nothing, so this no-ops).
+      followGlidingMaster(deckId)
+    }
+  }
+  const bpm = deck.bpm ? ` (${Number(centreBpm(deck.bpm, isFile ? 1 : rate).toFixed(1))} BPM)` : ''
+  setNotice({
+    text: isFile ? `"${name}" plays at the file's own speed again${bpm}.` : `"${name}" now plays at this speed every time${bpm} — the tempo fader's middle.`,
+    tone: 'info',
+    source: 'tempo',
+  })
+}
+
+/** `playRate` on a library row (v0.9.47) — removed, not set to 1, so a row with nothing saved looks exactly like one from before. */
+function withPlayRate(t: Track, rate: number | null): Track {
+  if (rate == null) {
+    if (t.playRate == null) return t
+    const { playRate: _, ...rest } = t
+    return rest
+  }
+  return { ...t, playRate: rate }
 }
 
 /**
@@ -1879,8 +1963,8 @@ function releaseLoopRoll(deckId: DeckId) {
   if (!roll) return
   delete loopRollByDeck[deckId]
   const deck = engine.decks[deckId]
-  const tempo = useStore.getState().decks[deckId].tempo
-  const rate = tempoToRate(tempo, settings.values.tempoRange)
+  const { tempo, baseRate } = useStore.getState().decks[deckId]
+  const rate = deckRate(baseRate, tempo, settings.values.tempoRange)
   const elapsedSec = (engine.currentTime - roll.startedAtSec) * rate
   const target = loopRollReturnSec(roll.entrySec, elapsedSec, deck.duration)
   stopLoop(deckId)
@@ -2432,7 +2516,7 @@ export function setSamplerSyncEnabled(index: number, on: boolean) {
   patchSamplerSlot(index, { syncEnabled: on })
   if (slot.playing) {
     const master = masterDeckId ? decks[masterDeckId] : null
-    const masterBpm = master?.bpm ? master.bpm * tempoToRate(master.tempo, cfg.tempoRange) : null
+    const masterBpm = master?.bpm ? master.bpm * deckRate(master.baseRate, master.tempo, cfg.tempoRange) : null
     engine.sampler.setRate(index, samplerSyncRate(masterBpm, slot.bpm, on))
     if (on && slot.mode === 'loop') ensureSyncLoop()
   }
@@ -2508,7 +2592,7 @@ function pressSamplerPadNow(index: number): () => void {
     return () => {}
   }
   const master = masterDeckId ? decks[masterDeckId] : null
-  const masterBpm = master?.bpm ? master.bpm * tempoToRate(master.tempo, cfg.tempoRange) : null
+  const masterBpm = master?.bpm ? master.bpm * deckRate(master.baseRate, master.tempo, cfg.tempoRange) : null
   const rate = samplerSyncRate(masterBpm, slot.bpm, slot.syncEnabled)
 
   switch (slot.mode) {
@@ -2553,7 +2637,7 @@ export function toggleSamplerCueMonitor() {
 function masterPlayingBpm(): number | null {
   const { decks, masterDeckId } = useStore.getState()
   const master = masterDeckId ? decks[masterDeckId] : null
-  return master?.bpm ? master.bpm * tempoToRate(master.tempo, cfg.tempoRange) : null
+  return master?.bpm ? master.bpm * deckRate(master.baseRate, master.tempo, cfg.tempoRange) : null
 }
 
 export function setFxEffect(rack: 0 | 1, effect: number) {
@@ -3292,7 +3376,7 @@ function updateSyncedSamplerLoops() {
   const { masterDeckId, decks, sampler } = useStore.getState()
   if (!masterDeckId) return
   const master = decks[masterDeckId]
-  const masterBpm = master.bpm ? master.bpm * tempoToRate(master.tempo, cfg.tempoRange) : null
+  const masterBpm = master.bpm ? master.bpm * deckRate(master.baseRate, master.tempo, cfg.tempoRange) : null
   if (!masterBpm) return
   sampler.slots.forEach((slot, i) => {
     if (slot.mode !== 'loop' || !slot.syncEnabled || !slot.playing || !slot.bpm) return
@@ -3332,7 +3416,7 @@ function startTempoGlide(deckId: DeckId) {
   if (!st.track || Math.abs(st.tempo) < 1e-4) return
   tempoGlides[deckId] = { from: st.tempo, startSec: engine.currentTime }
   useStore.getState().setNotice({
-    text: `Deck ${deckId} is gliding back to its own tempo${st.bpm ? ` (${st.bpm.toFixed(1)} BPM)` : ''} over ${GLIDE_BACK_SEC} s. Touching its tempo fader or SYNC stops the glide.`,
+    text: `Deck ${deckId} is gliding back to its own tempo${st.bpm ? ` (${centreBpm(st.bpm, st.baseRate).toFixed(1)} BPM)` : ''} over ${GLIDE_BACK_SEC} s. Touching its tempo fader or SYNC stops the glide.`,
     tone: 'info',
     source: 'sync',
   })
@@ -3430,7 +3514,7 @@ function followGlidingMaster(glidingId: DeckId) {
     if (!st.syncActive || !st.bpm) continue
     // Clamped like setTempo: past the fader's end the readout would show a
     // speed the fader cannot. Said out loud, since the deck then stops keeping up.
-    const wanted = syncTempoFor(master.bpm, master.tempo, st.bpm, settings.values.tempoRange)
+    const wanted = syncTempoFor(centreBpm(master.bpm, master.baseRate), master.tempo, centreBpm(st.bpm, st.baseRate), settings.values.tempoRange)
     const tempo = Math.max(-1, Math.min(1, wanted))
     if (Math.abs(tempo - st.tempo) < 1e-4) continue
     if (tempo !== wanted && Math.abs(st.tempo) < 1) {
@@ -3466,7 +3550,7 @@ function runSyncCorrection() {
     const range = settings.values.tempoRange
     const mult =
       st.bpm && master.bpm
-        ? halfDoubleMultiplier(master.bpm * tempoToRate(master.tempo, range), st.bpm * tempoToRate(st.tempo, range))
+        ? halfDoubleMultiplier(master.bpm * deckRate(master.baseRate, master.tempo, range), st.bpm * deckRate(st.baseRate, st.tempo, range))
         : 1
     const deckGrid = mult === 1 ? st.beatGrid : { ...st.beatGrid, bpm: st.beatGrid.bpm * mult }
     const delta = phaseDeltaSec(deck.position, deckGrid, masterDeck.position, master.beatGrid)
@@ -3552,16 +3636,16 @@ export function syncDeck(deckId: DeckId) {
     useStore.setState({ masterDeckId: resolvedMaster })
     refreshFxTimeForMasterTempo()
   }
-  const tempo = syncTempoFor(master.bpm, master.tempo, st.bpm, settings.values.tempoRange)
+  const tempo = syncTempoFor(centreBpm(master.bpm, master.baseRate), master.tempo, centreBpm(st.bpm, st.baseRate), settings.values.tempoRange)
   setTempo(deckId, tempo, { byHand: false })
   patchDeck(deckId, { syncActive: true })
   ensureSyncLoop()
   // Said out loud: the two BPM readouts now differ by 2×, which reads as "SYNC
   // failed" unless something says why.
-  const mult = syncMultiplier(master.bpm * tempoToRate(master.tempo, settings.values.tempoRange), st.bpm, settings.values.tempoRange)
+  const mult = syncMultiplier(master.bpm * deckRate(master.baseRate, master.tempo, settings.values.tempoRange), centreBpm(st.bpm, st.baseRate), settings.values.tempoRange)
   if (mult !== 1) {
     setNotice({
-      text: `Deck ${deckId} synced ${mult === 2 ? 'half-time' : 'double-time'} to deck ${resolvedMaster} — ${Math.round(st.bpm)} BPM counts as ${Math.round(st.bpm * mult)}.`,
+      text: `Deck ${deckId} synced ${mult === 2 ? 'half-time' : 'double-time'} to deck ${resolvedMaster} — ${Math.round(centreBpm(st.bpm, st.baseRate))} BPM counts as ${Math.round(centreBpm(st.bpm, st.baseRate) * mult)}.`,
       tone: 'info',
       source: 'sync',
     })
@@ -3590,7 +3674,7 @@ export function setMasterDeck(deckId: DeckId) {
   const master = decks[deckId]
   const mine = st.bpm
   if (!master.bpm || !mine) return
-  const tempo = syncTempoFor(master.bpm, master.tempo, mine, settings.values.tempoRange)
+  const tempo = syncTempoFor(centreBpm(master.bpm, master.baseRate), master.tempo, centreBpm(mine, st.baseRate), settings.values.tempoRange)
   setTempo(other, tempo, { byHand: false })
   patchDeck(other, { syncActive: true })
   ensureSyncLoop()
@@ -3914,7 +3998,7 @@ export function startAutoTransition(
     const barSecFrom = barSecOf(fromGrid)
     // A handoff runs on A's own seconds, from the join to the plan's fade end, the bass swap on the handoff. A plain transition runs on the
     // wall clock (as before v0.9.18: `TRANSITION_CROSSFADE_SEC`), so its bar is A's bar at A's current tempo.
-    const barWallFrom = barSecFrom / tempoToRate(useStore.getState().decks[fromDeckId].tempo, cfg.tempoRange)
+    const barWallFrom = barSecFrom / deckRate(useStore.getState().decks[fromDeckId].baseRate, useStore.getState().decks[fromDeckId].tempo, cfg.tempoRange)
     const mixPlan: EqMixPlan = handoff
       ? { joinSec: joinedFromSec, swapSec: handoff.handoffSec, fadeEndSec: handoff.fadeEndSec }
       : plainEqMixPlan(TRANSITION_CROSSFADE_SEC, barWallFrom)
@@ -4096,7 +4180,7 @@ export function handoffSyncMultiplier(fromDeckId: DeckId, toDeckId: DeckId): 0.5
   const from = decks[fromDeckId]
   const to = decks[toDeckId]
   if (!from.bpm || !to.bpm) return 1
-  return syncMultiplier(from.bpm * tempoToRate(from.tempo, settings.values.tempoRange), to.bpm, settings.values.tempoRange)
+  return syncMultiplier(from.bpm * deckRate(from.baseRate, from.tempo, settings.values.tempoRange), centreBpm(to.bpm, to.baseRate), settings.values.tempoRange)
 }
 
 /** One deck's voice + grid for a handoff, read from the store the way the deck's vocal strip reads it. */

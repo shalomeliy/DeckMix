@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as ctl from '@/controls'
 import { GENRES } from '@/core/genres'
+import { rowBpm, speedPercent } from '@/core/constants'
 import { getGenreOverrides, getGenreOverridesByHash } from '@/platform/genre-overrides-idb/store'
 import { migrateGenreOverridesToHash } from '@/platform/genre-overrides-idb/migrate'
 import { getTrackMetaByHash } from '@/platform/track-meta-idb/store'
@@ -242,7 +243,7 @@ export function Library() {
   // selector next to a frame-rate field.
   const historyLen = useStore((s) => s.history.length)
   const excellentPairsRev = useStore((s) => s.excellentPairsRev)
-  const [aP, aB, aT, aId, aK, bP, bB, bT, bId, bK, aHash, bHash] = useStore(
+  const [aP, aB, aT, aId, aK, bP, bB, bT, bId, bK, aHash, bHash, aBase, bBase] = useStore(
     useShallow((s) => [
       s.decks.A.playing, s.decks.A.bpm, s.decks.A.tempo, s.decks.A.track?.id ?? null,
       s.decks.A.track?.camelot ?? null,
@@ -250,6 +251,8 @@ export function Library() {
       s.decks.B.track?.camelot ?? null,
       s.decks.A.track?.contentHash ?? null,
       s.decks.B.track?.contentHash ?? null,
+      s.decks.A.baseRate,
+      s.decks.B.baseRate,
     ]),
   )
   // Mix Assist (v0.4.6): a track that just came off a deck stays out of the
@@ -296,8 +299,8 @@ export function Library() {
     () =>
       mixRecommendations(
         [
-          { id: 'A', playing: aP, bpm: aB, tempo: aT, trackId: aId, camelot: aK, contentHash: aHash },
-          { id: 'B', playing: bP, bpm: bB, tempo: bT, trackId: bId, camelot: bK, contentHash: bHash },
+          { id: 'A', playing: aP, bpm: aB, tempo: aT, baseRate: aBase, trackId: aId, camelot: aK, contentHash: aHash },
+          { id: 'B', playing: bP, bpm: bB, tempo: bT, baseRate: bBase, trackId: bId, camelot: bK, contentHash: bHash },
         ],
         library.tracks,
         ctl.recentlyRemovedTrackIds(),
@@ -307,7 +310,7 @@ export function Library() {
         },
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- recentlyRemovedTick only forces a recheck of the time-based exclusion set, its value is never read
-    [aP, aB, aT, aId, aK, aHash, bP, bB, bT, bId, bK, bHash, library.tracks, recentlyRemovedTick, historyLen, excellentPairs],
+    [aP, aB, aT, aId, aK, aHash, aBase, bP, bB, bT, bId, bK, bHash, bBase, library.tracks, recentlyRemovedTick, historyLen, excellentPairs],
   )
   const recs = recommendations.matches
   const anyPlaying = aP || bP
@@ -673,6 +676,7 @@ export function Library() {
                   ...(override ? { genre: override } : {}),
                   ...(meta?.note != null ? { note: meta.note } : {}),
                   ...(meta?.lastPlayedAt != null ? { lastPlayedAt: meta.lastPlayedAt } : {}),
+                  ...(meta?.playRate != null ? { playRate: meta.playRate } : {}),
                 },
                 meta?.owner,
               ),
@@ -1036,7 +1040,7 @@ export function Library() {
             title="Similar = same tempo range (±8%, or half/double time), same genre first, then closest sound. Tracks with no BPM are left out. Click to see the whole library again."
           >
             Similar to: {similarToTrack.title ?? similarToTrack.name}
-            {similarToTrack.bpm != null && ` · ${Math.round(similarToTrack.bpm)} BPM`}
+            {similarToTrack.bpm != null && ` · ${Math.round(rowBpm(similarToTrack)!)} BPM`}
             {similarToTrack.genre && ` · ${similarToTrack.genre}`} ✕
           </button>
         )}
@@ -2363,9 +2367,18 @@ function Row({
           </a>
         )}
         {track.bpm ? (
-          <span title={track.bpmSource === 'owner' ? `${track.bpm} BPM — set by you` : undefined}>
-            {track.bpm.toFixed(0)}
+          <span
+            title={[
+              track.bpmSource === 'owner' ? `${track.bpm} BPM — set by you` : null,
+              track.playRate != null && track.playRate !== 1
+                ? `Plays at the speed you saved: ${rowBpm(track)!.toFixed(1)} BPM (${speedPercent(track.playRate)} of the file's ${track.bpm.toFixed(1)})`
+                : null,
+            ].filter(Boolean).join(' · ') || undefined}
+          >
+            {rowBpm(track)!.toFixed(0)}
+            {track.playRate != null && track.playRate !== 1 && <span className="text-accent" aria-hidden> *</span>}
             {track.bpmSource === 'owner' && <span className="sr-only"> (set by you)</span>}
+            {track.playRate != null && track.playRate !== 1 && <span className="sr-only"> (saved speed)</span>}
           </span>
         ) : track.analysisState === 'failed' ? (
           // v0.8.27: the 6px dot beside the name was the only sign, and a "–" here read as

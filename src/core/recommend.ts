@@ -1,4 +1,4 @@
-import { TEMPO_RANGE } from '@/core/constants'
+import { rowBpm, TEMPO_RANGE } from '@/core/constants'
 import { cosineSimilarity } from '@/core/embedding-search'
 import type { DeckId, Track } from '@/core/types'
 
@@ -129,6 +129,8 @@ export interface DeckMixState {
   playing: boolean
   bpm: number | null
   tempo: number
+  /** v0.9.47: the deck's saved speed (`DeckState.baseRate`) — the fader's centre. Absent = 1. */
+  baseRate?: number
   trackId: string | null
   /** Camelot code of the loaded track, when its tags carried a key */
   camelot?: string | null
@@ -173,8 +175,8 @@ export function mixRecommendations(
     .filter((d) => d.playing && d.bpm != null && d.trackId)
     .map((d) => ({
       deck: d.id,
-      nativeBpm: d.bpm!,
-      bpm: d.bpm! * (1 + d.tempo * TEMPO_RANGE),
+      nativeBpm: d.bpm! * (d.baseRate ?? 1),
+      bpm: d.bpm! * (d.baseRate ?? 1) * (1 + d.tempo * TEMPO_RANGE),
       trackId: d.trackId!,
       camelot: d.camelot ?? null,
       contentHash: d.contentHash ?? null,
@@ -204,7 +206,9 @@ export function mixRecommendations(
   let noBpmSkipped = 0
   for (const t of tracks) {
     if (onDeck.has(t.id) || excludeIds?.has(t.id)) continue
-    if (t.bpm == null) {
+    // the row's own number (a saved speed included), so a suggestion and the column never disagree
+    const tBpm = rowBpm(t)
+    if (tBpm == null) {
       noBpmSkipped++
       continue
     }
@@ -219,7 +223,7 @@ export function mixRecommendations(
     let bestKeyOk = false
     for (const ref of refs) {
       for (const mult of [0.5, 1, 2] as const) {
-        const err = Math.abs(t.bpm * mult - ref.bpm) / ref.bpm
+        const err = Math.abs(tBpm * mult - ref.bpm) / ref.bpm
         const keyOk = ref.camelot != null && t.camelot != null && keysCompatible(ref.camelot, t.camelot)
         if (err < bestErr || (err === bestErr && keyOk && !bestKeyOk)) {
           bestErr = err
@@ -241,8 +245,8 @@ export function mixRecommendations(
       keyMatch,
       multiplier: bestMult,
       refBpm: Math.round(best.bpm),
-      trackBpm: Math.round(t.bpm),
-      tempoStep: (t.bpm * bestMult) / best.nativeBpm - 1,
+      trackBpm: Math.round(tBpm),
+      tempoStep: (tBpm * bestMult) / best.nativeBpm - 1,
     }
     const refEmbedding = embeddingById.get(best.trackId)
     const soundScore = soundSimilarity(refEmbedding, t.embedding)

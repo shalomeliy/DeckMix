@@ -6,9 +6,10 @@
  * its folder path (the v0.3.2 bug cues already fixed for exactly this
  * reason).
  */
-import { del, get, set } from 'idb-keyval'
+import { del, get } from 'idb-keyval'
 
-// `tempo3` (v0.9.46): written only when the owner presses "Save tempo". Until
+// v0.9.47: read only, to carry a v0.9.46 value over to `TrackMeta.playRate` (`loadPlayRate`) — nothing writes here any more.
+// `tempo3` (v0.9.46): written only when the owner pressed "Save tempo". Until
 // then `tempo2` saved every hand move of the fader, and Shalom did not want a
 // speed remembered without being asked (06/10). Those values can't be told
 // apart from ones he would have chosen, so — like `tempo` before them — they
@@ -32,16 +33,7 @@ export async function getTempo(contentHash: string): Promise<number | null> {
   }
 }
 
-/**
- * Throws on failure — same choice `cues-idb`/`genre-overrides-idb` make, so
- * the caller can surface it instead of a tempo that looks remembered but
- * silently isn't.
- */
-export async function putTempo(contentHash: string, tempo: number): Promise<void> {
-  await set(KEY_PREFIX + contentHash, tempo)
-}
-
-/** "Back to the song's own speed" saved (fader at 0): nothing to remember. Throws like `putTempo`. */
+/** Removes a v0.9.46 value once `loadPlayRate` has carried it over to `TrackMeta.playRate`. Throws on failure. */
 export async function clearTempo(contentHash: string): Promise<void> {
   await del(KEY_PREFIX + contentHash)
 }
