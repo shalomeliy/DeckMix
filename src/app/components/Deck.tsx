@@ -4,6 +4,7 @@ import { LONG_PRESS_MS, PLATTER_SIZE } from '@/core/constants'
 import { useSettings } from '@/app/hooks/useSettings'
 import { useStore } from '@/app/state/store'
 import type { DeckId } from '@/core/types'
+import { heardSemitones, shiftCamelot } from '@/core/key-sync'
 import { Button, Fader, HintIcon, Pill } from '@/app/components/controls'
 import { BeatGridPanel } from '@/app/components/BeatGridPanel'
 import { PadGrid } from '@/app/components/PadGrid'
@@ -157,6 +158,10 @@ export function Deck({ deckId }: { deckId: DeckId }) {
   // The fader's middle is the track's saved speed (v0.9.47, `baseRate`); the % beside the BPM is the fader's move off it.
   const effectiveBpm = deck.bpm != null ? deck.bpm * deck.baseRate * (1 + deck.tempo * tempoRange) : null
   const deltaPct = deck.tempo * tempoRange * 100
+  // v0.9.50: the key as it is heard now, beside the BPM — "8A→9A" when it moved off the song's own (owner, 07/10: no sign of the current key after Key sync).
+  const ownKey = deck.track?.camelot ?? null
+  const heardSemis = Math.round(heardSemitones(deck.baseRate * (1 + deck.tempo * tempoRange), deck.keyLock, deck.keySyncShift ?? 0))
+  const heardKey = ownKey ? shiftCamelot(ownKey, heardSemis) : null
   const remain = deck.durationSec - deck.positionSec
   // "Save tempo" (v0.9.46) is offered only when there is something to save: a hand moved the fader off the middle — not SYNC, a mix or a
   // glide back (`tempoByHand`), whose number belongs to the pairing (the 20/09 bug). "Forget tempo": a saved speed, fader in the middle.
@@ -200,11 +205,13 @@ export function Deck({ deckId }: { deckId: DeckId }) {
           onClick={() => void ctl.toggleKeySync(deckId)}
           title={
             deck.keySyncShift != null
-              ? `Key sync is on: moved ${deck.keySyncShift > 0 ? '+' : ''}${deck.keySyncShift} semitones to fit the other deck. Click to go back to the song's own key.`
+              ? deck.keySyncShift === 0
+                ? "Key sync checked: the two songs' keys already fit, so nothing was moved. Click to switch it off."
+                : `Key sync is on: moved ${deck.keySyncShift > 0 ? '+' : ''}${deck.keySyncShift} semitones to fit the other deck. Click to go back to the song's own key.`
               : "Key sync: move this deck's key, without changing its speed, to the nearest key that fits the other deck"
           }
         >
-          {deck.keySyncShift != null ? `Key ${deck.keySyncShift > 0 ? '+' : ''}${deck.keySyncShift}` : 'Key sync'}
+          {deck.keySyncShift == null ? 'Key sync' : deck.keySyncShift === 0 ? 'Key fits' : `Key ${deck.keySyncShift > 0 ? '+' : ''}${deck.keySyncShift}`}
         </Button>
         <HintIcon id="deck.keysync" className="absolute -right-1.5 -top-1.5" />
       </span>
@@ -366,6 +373,14 @@ export function Deck({ deckId }: { deckId: DeckId }) {
             </div>
             <div className="tnum mt-0.5 text-2xs text-grid-muted">
               BPM
+              {ownKey && (
+                <span
+                  className={`ml-1 ${heardKey && heardKey !== ownKey ? 'text-accent' : 'text-grid-dim'}`}
+                  title={heardKey && heardKey !== ownKey ? `Heard in ${heardKey}; the song's own key is ${ownKey}` : `Key ${ownKey}, the song's own`}
+                >
+                  {heardKey && heardKey !== ownKey ? `${ownKey}→${heardKey}` : ownKey}
+                </span>
+              )}
               {deltaPct !== 0 && (
                 <span className="ml-1 text-grid-dim">
                   {deltaPct > 0 ? '+' : ''}

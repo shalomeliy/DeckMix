@@ -18,6 +18,10 @@
  * exception stays visible instead of becoming a pattern.
  */
 import type { LatencyProfile } from '@/core/settings'
+import { analysisFingerprint, bootLatency } from '@/core/analysis-latency'
+import { ANALYZER_VERSION } from '@/platform/analyze-cache-idb/version'
+import { EMBEDDER_VERSION } from '@/platform/embed-cache-idb/version'
+import { VOCAL_STRIP_VERSION } from '@/platform/vocal-strip-idb/store'
 
 export const BOOT_LATENCY_KEY = 'deckmix:bootLatency'
 
@@ -29,14 +33,45 @@ const HINTS: Record<LatencyProfile, AudioContextLatencyCategory> = {
 
 /** What the AudioContext should be built with on this load. */
 export function bootLatencyHint(): AudioContextLatencyCategory {
+  let stored: LatencyProfile | null = null
+  let settled: string | null = null
+  let enabled = false
   try {
-    const stored = localStorage.getItem(BOOT_LATENCY_KEY)
-    if (stored && stored in HINTS) return HINTS[stored as LatencyProfile]
+    const raw = localStorage.getItem(BOOT_LATENCY_KEY)
+    if (raw && raw in HINTS) stored = raw as LatencyProfile
+    settled = localStorage.getItem(ANALYSIS_SETTLED_KEY)
+    enabled = localStorage.getItem(BOOT_CUSHION_KEY) === 'on'
   } catch {
-    // Blocked storage throws rather than returning null. The tightest setting
-    // is also the default, so there is nothing to report here.
+    // Blocked storage throws rather than returning null. Read as "nothing
+    // stored": the owner's default, and the cushion switch's default, off.
   }
-  return 'interactive'
+  const boot = bootLatency(stored, settled, CURRENT_ANALYSIS, enabled)
+  cushioned = boot.cushioned
+  return HINTS[boot.hint]
+}
+
+/**
+ * v0.9.52: the second key in this file, for the same reason as the first — it decides `latencyHint`, which has to be known before
+ * IndexedDB answers. It holds the analysis versions (`core/analysis-latency.ts`) the library last finished every pass with.
+ */
+export const ANALYSIS_SETTLED_KEY = 'deckmix:analysisSettled'
+
+const CURRENT_ANALYSIS = analysisFingerprint({ analyzer: ANALYZER_VERSION, embedder: EMBEDDER_VERSION, vocal: VOCAL_STRIP_VERSION })
+
+let cushioned = false
+/** True when this page's sound was built with the analysis cushion rather than the owner's own setting. */
+export function latencyCushioned(): boolean {
+  return cushioned
+}
+
+/** Every background pass finished on this page: the next load goes back to the owner's own setting. False: it could not be written, and the library says so. */
+export function markAnalysisSettled(): boolean {
+  try {
+    localStorage.setItem(ANALYSIS_SETTLED_KEY, CURRENT_ANALYSIS)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function writeBootLatency(profile: LatencyProfile): void {
@@ -45,5 +80,52 @@ export function writeBootLatency(profile: LatencyProfile): void {
   } catch {
     // The settings store already reports a failed write; a second message
     // about the same failure would only say it twice.
+  }
+}
+
+/**
+ * v0.9.53: the automatic refresh out of the cushion happens at most once per tab. `sessionStorage` lives exactly that long and survives
+ * the reload, so the next page knows it was refreshed on purpose (and says so) and never refreshes again on its own — a loop is impossible
+ * even if the settled mark somehow does not stick.
+ */
+const CUSHION_RELOAD_KEY = 'deckmix:cushionReloaded'
+
+export function cushionReloadedThisTab(): boolean {
+  try {
+    return sessionStorage.getItem(CUSHION_RELOAD_KEY) != null
+  } catch {
+    return true // cannot remember it, so never refresh unattended: the button stays
+  }
+}
+
+/** True exactly once, on the page the automatic refresh produced: that page says on screen why it was refreshed. */
+export function justReloadedForCushion(): boolean {
+  try {
+    if (sessionStorage.getItem(CUSHION_RELOAD_KEY) !== '1') return false
+    sessionStorage.setItem(CUSHION_RELOAD_KEY, 'said')
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** False when the marker cannot be written — then no automatic refresh happens at all. */
+export function markCushionReload(): boolean {
+  try {
+    sessionStorage.setItem(CUSHION_RELOAD_KEY, '1')
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** v0.9.54: the Settings switch for the cushion, mirrored for the same reason as `latency` — the engine reads it before IndexedDB answers. */
+export const BOOT_CUSHION_KEY = 'deckmix:bootCushion'
+
+export function writeBootCushion(on: boolean): void {
+  try {
+    localStorage.setItem(BOOT_CUSHION_KEY, on ? 'on' : 'off')
+  } catch {
+    // same as writeBootLatency: the settings store already reports a failed write
   }
 }

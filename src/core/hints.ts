@@ -263,6 +263,14 @@ const HINT_BASE = {
       { key: 'Esc in the search box', does: 'drop the column tag first, then clear the text' },
     ],
   },
+  'settings.search': {
+    text: 'Search every Settings tab at once, in English or Hebrew. While you type, the tabs give way to one list of what matched; change a setting right there, or open it in its tab.',
+    gestures: [
+      { key: 'Ctrl+F or / on the Settings screen', does: 'jump to the search box' },
+      { key: '↑ ↓ then Enter in the search box', does: 'pick a result and open it in its tab' },
+      { key: 'Esc in the search box', does: 'clear the text first; a second Esc closes Settings' },
+    ],
+  },
   'library.resize': {
     text: 'The thin bar on the track list’s top edge sets its size. Bigger hides the pads and the jog wheel (the FLX4 has both) and lays the tempo fader flat; smaller brings them back. It stays the size you left it.',
     gestures: [

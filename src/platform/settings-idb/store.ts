@@ -7,7 +7,7 @@
  * a second, for a value that never differs.
  */
 import { get, set } from 'idb-keyval'
-import { writeBootLatency } from '@/platform/settings-idb/boot-latency'
+import { writeBootCushion, writeBootLatency } from '@/platform/settings-idb/boot-latency'
 import type { SettingsStore } from '@/core/ports'
 import {
   DEFAULTS,
@@ -89,6 +89,7 @@ class IdbSettingsStore implements SettingsStore {
     // Keeps the synchronous mirror honest even when the value came from
     // storage rather than from a change made in this session.
     writeBootLatency(this._values.latency)
+    writeBootCushion(this._values.analysisCushion)
     this.emit()
   }
 
@@ -96,6 +97,7 @@ class IdbSettingsStore implements SettingsStore {
     if (!this.started) this.dirty.add(key)
     this._values = { ...this._values, [key]: value }
     if (key === 'latency') writeBootLatency(this._values.latency)
+    if (key === 'analysisCushion') writeBootCushion(this._values.analysisCushion)
     this.emit()
     await this.persist()
   }

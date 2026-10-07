@@ -72,6 +72,11 @@ export interface Settings {
    * screen says so rather than pretending the change landed.
    */
   latency: LatencyProfile
+  /**
+   * v0.9.54: boot on Balanced while the library has analysis to do, and leave it once the analysis is done (v0.9.52–53). Off by default
+   * (Shalom, 07/10). Read at boot like `latency`, so it is mirrored the same way (`boot-latency.ts`).
+   */
+  analysisCushion: boolean
 
   // — preferences —
   /** Musical (Am, F#) or Camelot (8A, 11B) in the library and on the decks. */
@@ -134,6 +139,7 @@ export const DEFAULTS: Settings = {
   platterRpm: PLATTER_RPM,
   jogSmoothing: JOG_SMOOTHING,
   latency: 'interactive',
+  analysisCushion: false,
 
   keyMode: 'musical',
   waveformPxPerSec: WAVEFORM_PX_PER_SEC,
@@ -181,6 +187,14 @@ interface FieldBase {
   /** One line, shown under the control. Says what changes, not what it is. */
   help: string
   group: FieldGroup
+  /**
+   * Words the Settings search (v0.9.55) also matches, never shown as-is — in
+   * English and in Hebrew, the way the owner says it ("סולם", not a
+   * dictionary entry). On the field itself, not in a list beside the screen,
+   * so a new field cannot be born unsearchable: `tests/repo/settings-search-
+   * keywords.test.ts` fails when either language is missing.
+   */
+  keywords: readonly string[]
   /** True when the value can only take effect on the next page load. */
   requiresReload?: boolean
   /**
@@ -223,6 +237,7 @@ export const FIELDS: Field[] = [
     label: 'Jog ticks per revolution',
     help: 'A property of your controller. Use Measure rather than guessing.',
     group: 'hardware',
+    keywords: ["jog", "wheel", "platter", "calibrate", "measure", "ג'וג", "גלגל", "פלטה", "כיול", "מדידה"],
     min: 100,
     max: 4000,
     step: 1,
@@ -233,6 +248,7 @@ export const FIELDS: Field[] = [
     label: 'Jog bend strength',
     help: 'How far one tick of the jog rim pushes the tempo.',
     group: 'hardware',
+    keywords: ["jog", "nudge", "pitch bend", "tempo", "ג'וג", "גלגל", "דחיפה", "קצב", "מהירות"],
     min: 0.01,
     max: 0.5,
     step: 0.01,
@@ -243,6 +259,7 @@ export const FIELDS: Field[] = [
     label: 'Keyboard bend strength',
     help: 'How far S/D and K/L push the tempo while held.',
     group: 'hardware',
+    keywords: ["keyboard", "nudge", "pitch bend", "shortcut", "מקלדת", "דחיפה", "קצב", "מקשים", "מהירות"],
     min: 0.005,
     max: 0.2,
     step: 0.005,
@@ -255,6 +272,7 @@ export const FIELDS: Field[] = [
     label: 'Tempo range',
     help: 'Travel of the tempo fader, end to end.',
     group: 'hardware',
+    keywords: ["pitch", "fader", "speed", "bpm", "range", "טמפו", "מהירות", "פיידר", "קצב", "טווח"],
     options: [
       { value: 0.08, label: '±8%' },
       { value: 0.16, label: '±16%' },
@@ -267,6 +285,7 @@ export const FIELDS: Field[] = [
     label: 'Platter speed',
     help: 'How much audio one revolution of the wheel is worth.',
     group: 'hardware',
+    keywords: ["vinyl", "turntable", "scratch", "rpm", "ויניל", "פטיפון", "סקראץ'", "סיבובים", "פלטה"],
     options: [
       { value: 33.333, label: '33⅓ RPM' },
       { value: 45, label: '45 RPM' },
@@ -278,12 +297,22 @@ export const FIELDS: Field[] = [
     label: 'Audio latency',
     help: 'Lower is tighter under the hand and costs more CPU.',
     group: 'hardware',
+    keywords: ["delay", "lag", "buffer", "dropout", "crackle", "glitch", "השהיה", "דיליי", "קפיצות", "קליקים", "גמגום", "סאונד"],
     requiresReload: true,
     options: [
       { value: 'interactive', label: 'Low — tightest response' },
       { value: 'balanced', label: 'Balanced' },
       { value: 'playback', label: 'Safe — fewest dropouts' },
     ],
+  },
+  {
+    kind: 'toggle',
+    key: 'analysisCushion',
+    label: 'Balanced while the library analyses',
+    help: 'When the library has songs to analyse (after a new version), the page opens on Balanced so the analysis does not make playing songs skip. When the analysis is done the page refreshes by itself if nothing would be lost, or shows a "fast jog" button. Only when Audio latency is on Low.',
+    group: 'hardware',
+    keywords: ["balanced", "latency", "analysis", "dropout", "skip", "השהיה", "ניתוח", "קפיצות", "באלנסד", "סאונד"],
+    requiresReload: true,
   },
 
   {
@@ -292,6 +321,7 @@ export const FIELDS: Field[] = [
     label: 'Brake time',
     help: 'Vinyl mode: how long the platter takes to stop.',
     group: 'feel',
+    keywords: ["vinyl", "stop", "brake", "ויניל", "עצירה", "בלם", "ברקס"],
     min: 0.05,
     max: 3,
     // 0.01, not 0.05: an <input type=range> snaps its value to min + n*step,
@@ -307,6 +337,7 @@ export const FIELDS: Field[] = [
     label: 'Spin-up time',
     help: 'Vinyl mode: how long the platter takes to reach speed.',
     group: 'feel',
+    keywords: ["vinyl", "start", "spin", "ויניל", "התנעה", "הפעלה", "סיבוב"],
     min: 0.05,
     max: 3,
     step: 0.01,
@@ -318,6 +349,7 @@ export const FIELDS: Field[] = [
     label: 'Jog smoothing',
     help: 'Lower follows the hand more softly and a beat later.',
     group: 'feel',
+    keywords: ["jog", "scratch", "smooth", "cpu", "ג'וג", "סקראץ'", "החלקה", "גלגל", "מעבד"],
     min: 0.05,
     max: 1,
     step: 0.05,
@@ -328,6 +360,7 @@ export const FIELDS: Field[] = [
     label: 'EQ depth',
     help: 'Cut and boost at the ends of each EQ knob.',
     group: 'feel',
+    keywords: ["eq", "bass", "mid", "treble", "high", "low", "kill", "אקולייזר", "בס", "באס", "גבוהים", "נמוכים", "אמצע", "איקיו"],
     min: 6,
     max: 40,
     step: 1,
@@ -339,6 +372,7 @@ export const FIELDS: Field[] = [
     label: 'On track load',
     help: 'Where the playhead waits when a track lands on a deck.',
     group: 'feel',
+    keywords: ["load", "cue", "start", "playhead", "טעינה", "קיו", "התחלה", "נקודת", "שיר"],
     options: [
       { value: 'start', label: 'Start of the track' },
       { value: 'firstCue', label: 'First cue point' },
@@ -350,6 +384,7 @@ export const FIELDS: Field[] = [
     label: 'Mouse on the waveform during SYNC',
     help: 'Dragging or wheeling the waveform while the deck is in SYNC or an automatic mix.',
     group: 'feel',
+    keywords: ["sync", "waveform", "mouse", "drag", "סינק", "גל", "עכבר", "גרירה", "סנכרון"],
     options: [
       { value: 'likeJog', label: 'Like the jog wheel — takes over' },
       { value: 'blocked', label: 'Blocked, with a message' },
@@ -361,6 +396,7 @@ export const FIELDS: Field[] = [
     label: 'Auto SYNC in, glide back out',
     help: 'Play on one deck while the other is playing turns SYNC on by itself. When the other track is gone — stopped, its fader down, or the crossfader fully away — this track slides back to its own BPM over 30 seconds.',
     group: 'feel',
+    keywords: ["sync", "auto", "glide", "bpm", "tempo", "סינק", "סנכרון", "אוטומטי", "קצב", "מהירות"],
   },
   {
     kind: 'choice',
@@ -368,6 +404,7 @@ export const FIELDS: Field[] = [
     label: 'Mix Assist bass swap',
     help: 'Mix Assist brings the new song in with its bass off, and swaps the two basses where the new part starts. Instant: one shuts and the other opens on the same beat. Gradual: over one bar, both at half power in the middle of it.',
     group: 'feel',
+    keywords: ["mix assist", "bass", "eq", "transition", "מיקס", "בס", "באס", "מעבר", "החלפה"],
     options: [
       { value: 'instant', label: 'Instant — on the beat' },
       { value: 'gradual', label: 'Gradual — over one bar' },
@@ -379,6 +416,7 @@ export const FIELDS: Field[] = [
     label: 'Mix Assist key sync',
     help: 'Mix Assist moves the new song up or down a little, without changing its speed, so it is in a key that fits the playing one. A bigger gap than this leaves the song in its own key and says so. Small moves are not heard; bigger ones make a voice sound processed.',
     group: 'feel',
+    keywords: ["mix assist", "key", "harmonic", "pitch", "semitone", "מיקס", "סולם", "טון", "מפתח", "הרמוני"],
     options: [
       { value: 2, label: 'Up to 2 semitones' },
       { value: 1, label: 'Up to 1 semitone' },
@@ -391,6 +429,7 @@ export const FIELDS: Field[] = [
     label: 'Lock the deck that is playing',
     help: 'Refuses a load onto that deck only — the other deck stays free, which is how you mix.',
     group: 'feel',
+    keywords: ["lock", "deck", "load", "safety", "נעילה", "דק", "טעינה", "הגנה", "נועל"],
   },
 
   {
@@ -399,6 +438,7 @@ export const FIELDS: Field[] = [
     label: 'Waveform zoom',
     help: 'Screen pixels per second of audio. Higher shows less, in more detail.',
     group: 'display',
+    keywords: ["waveform", "zoom", "detail", "גל", "זום", "הגדלה", "גלי קול"],
     min: 40,
     max: 400,
     step: 10,
@@ -410,6 +450,7 @@ export const FIELDS: Field[] = [
     label: 'Colour waveform by EQ',
     help: 'Off draws one tone, which is cheaper to paint.',
     group: 'display',
+    keywords: ["waveform", "colour", "color", "eq", "גל", "צבע", "צבעים", "גלי קול"],
   },
   {
     kind: 'choice',
@@ -417,6 +458,7 @@ export const FIELDS: Field[] = [
     label: 'Max screen updates',
     help: 'A ceiling on repaints. Lower frees CPU for audio on a slow machine.',
     group: 'display',
+    keywords: ["fps", "frame rate", "cpu", "performance", "refresh", "מסך", "מהירות", "מעבד", "ביצועים", "רענון", "תקיעות"],
     options: [
       { value: 15, label: '15 fps' },
       { value: 24, label: '24 fps' },
@@ -431,6 +473,7 @@ export const FIELDS: Field[] = [
     label: 'High-resolution waveform',
     help: 'Draw at the screen’s real pixel density. Sharper, and more to paint.',
     group: 'display',
+    keywords: ["waveform", "sharp", "retina", "resolution", "גל", "חדות", "רזולוציה", "איכות"],
   },
   {
     kind: 'choice',
@@ -438,6 +481,7 @@ export const FIELDS: Field[] = [
     label: 'BPM decimals',
     help: 'Digits after the point on the deck BPM readout.',
     group: 'display',
+    keywords: ["bpm", "decimal", "digits", "tempo", "קצב", "ספרות", "נקודה", "עשרוני"],
     options: [
       { value: 1, label: '1 — 128.5' },
       { value: 2, label: '2 — 128.47' },
@@ -450,6 +494,7 @@ export const FIELDS: Field[] = [
     label: 'Show key as',
     help: 'Musical names, or Camelot numbers for mixing in key.',
     group: 'library',
+    keywords: ["key", "camelot", "musical", "notation", "harmonic", "סולם", "טון", "מפתח", "קמלוט", "הרמוני"],
     options: [
       { value: 'musical', label: 'Musical — Am, F#' },
       { value: 'camelot', label: 'Camelot — 8A, 11B' },
@@ -461,6 +506,7 @@ export const FIELDS: Field[] = [
     label: 'Library text size',
     help: 'Scales the track list only. 1.0 is the built-in size.',
     group: 'library',
+    keywords: ["font", "text", "size", "zoom", "list", "גופן", "טקסט", "גודל", "אותיות", "רשימה", "ספרייה"],
     min: 0.85,
     max: 1.5,
     step: 0.05,
@@ -472,6 +518,7 @@ export const FIELDS: Field[] = [
     label: 'Check BPM and key against Beatport',
     help: 'Adds ↗ beside each track’s BPM. It opens a Beatport search for the track in a new tab and a panel where you type what Beatport shows. The app never reads Beatport itself; values you type are kept even when this is off.',
     group: 'library',
+    keywords: ["beatport", "bpm", "key", "verify", "online", "ביטפורט", "בדיקה", "קצב", "סולם", "אימות"],
   },
   {
     kind: 'toggle',
@@ -479,6 +526,7 @@ export const FIELDS: Field[] = [
     label: 'Tagging (where is the "1", vocals)',
     help: 'Adds a "Tag" button to the top bar. It opens a screen where you mark which beat is the "1" and whether a short clip has vocals, so the app can be measured against your ears. Off during a set: the screen covers the decks.',
     group: 'library',
+    keywords: ["tag", "downbeat", "one", "vocal", "label", "תיוג", "תגית", "אחד", "שירה", "ווקאל", "תיבה"],
   },
   {
     kind: 'toggle',
@@ -486,6 +534,7 @@ export const FIELDS: Field[] = [
     label: 'Mark vocals by hand',
     help: 'Adds buttons under each deck\'s vocal strip: press "vocal started" and "vocal ended" while the song plays, as many times as the song needs. Your marks are kept for that song for good and override the computer\'s guess. When you press "finished marking", everything you did not mark becomes empty.',
     group: 'library',
+    keywords: ["vocal", "singing", "mark", "voice", "שירה", "ווקאל", "סימון", "קול", "זמר"],
   },
   {
     kind: 'toggle',
@@ -493,6 +542,7 @@ export const FIELDS: Field[] = [
     label: 'Suggest a missing artist',
     help: 'Adds a "no artist" button above the list. It shows only the songs whose file has no artist, with a suggestion from the file name you can accept (✓) or reject (✕), or a box to type one in. Nothing is written to your files. Artists you already accepted stay when this is off.',
     group: 'library',
+    keywords: ["artist", "name", "missing", "suggest", "אמן", "זמר", "שם", "חסר", "הצעה"],
   },
 
   {
@@ -501,6 +551,7 @@ export const FIELDS: Field[] = [
     label: 'Hint mode',
     help: 'A "?" beside every control, app-wide — hover or focus it for a short explanation, including the matching FLX4 button where one exists.',
     group: 'help',
+    keywords: ["help", "hint", "tooltip", "explain", "question", "עזרה", "רמז", "הסבר", "סימן שאלה"],
   },
 ]
 
