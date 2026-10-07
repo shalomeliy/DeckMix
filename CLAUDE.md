@@ -47,6 +47,16 @@ not only the "explain the change in Hebrew" step above.
 down here; carrying it to another project means adding the same note to that
 project's own `CLAUDE.md`.)
 
+## Missing tools and skills
+
+(2026-10-07, Shalom's standing instruction.) If a task needs a skill or plugin that is not installed
+(web research, for example — he asked for a Perplexity one), do not work around it silently and do not
+say it is impossible: search the directory (`SearchSkills`, `SearchPlugins`), put the install card in front
+of him (`SuggestPluginInstall`), and **tell him in the thread what was installed or is waiting for his tap,
+and which task it is for.** Installing is something he approves on the card; a session cannot do it alone.
+If the directory has nothing that matches (it had no Perplexity entry on 2026-10-07), say so and name the
+closest options and what the session uses meanwhile (`WebSearch`).
+
 ## Stack
 
 - React 19 + TypeScript (strict — on in all three tsconfigs since v0.2.7, and
