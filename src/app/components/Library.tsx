@@ -1369,6 +1369,15 @@ export function Library() {
               שירה: {vocalCounts.ready} מתוך {vocalCounts.ready + vocalCounts.waiting} נותחו
             </span>
           )}
+          {/* v0.9.51: said, not silent — the queues above move slower while a deck plays (`core/background-pace.ts`). */}
+          {!library.scanning && (aP || bP) && (queuedTotal > 0 || embeddingBackfillTotal > 0 || vocalCounts.waiting > 0) && (
+            <span
+              className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-grid-muted"
+              title="בזמן שדק מנגן, הניתוח ברקע עובד על שיר אחד בכל פעם ונח בין שיר לשיר, כדי שהמחשב לא יחנוק את הסאונד. כשהנגינה נעצרת הוא חוזר למהירות מלאה."
+            >
+              ניתוח מואט בזמן נגינה
+            </span>
+          )}
           {vocalCounts.taught > 0 && (
             <span
               className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-grid-muted"

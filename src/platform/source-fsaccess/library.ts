@@ -7,6 +7,7 @@ import type { VocalResult } from '@/core/sound/vocal-timeline'
 import { readTags } from '@/platform/source-fsaccess/tags'
 import { analysisCacheKey } from '@/core/analysis-cache'
 import { takeNextForAnalysis } from '@/core/analysis-order'
+import { createPacer, type Pacer } from '@/core/background-pace'
 import { hashBytes } from '@/platform/source-fsaccess/hash'
 import { engine } from '@/platform/audio-webaudio/engine'
 import { pcmFromAudioBuffer } from '@/platform/analyzer-js/analyze'
@@ -444,6 +445,7 @@ export async function queueLibraryAnalysis(
         if (opts.signal?.cancelled) return
         const track = tracks[hashNext++]
         try {
+          // Not paced (v0.9.51): a song loaded to a deck waits for this whole pass (`jumpDeckTrackQueue`), and it runs once, at page load.
           const contentHash = await hashBytes(await (await track.handle.getFile()).arrayBuffer())
           hashes.set(track.id, contentHash)
           batch.set(track.id, { contentHash })
@@ -482,9 +484,11 @@ export async function queueLibraryAnalysis(
         let analysis = await analysisCache.get(cacheKey)
         if (!analysis) {
           // read only now: a cache hit (every track, on a normal reload) needs no bytes at all
-          const data = await (await track.handle.getFile()).arrayBuffer()
-          const buffer = await engine.decode(data)
-          analysis = await analyzerWorker.analyze(pcmFromAudioBuffer(buffer), { hintBpm })
+          analysis = await pace.run(async () => {
+            const data = await (await track.handle.getFile()).arrayBuffer()
+            const buffer = await engine.decode(data)
+            return analyzerWorker.analyze(pcmFromAudioBuffer(buffer), { hintBpm })
+          })
           await analysisCache.put(cacheKey, analysis)
         }
         // The embedding is never computed here, only picked up if already cached
@@ -584,7 +588,7 @@ export async function queueEmbeddingBackfill(
         // already resolved for this track — same invariant `loadTrackToDeck`
         // and the rest of this file already rely on.
         bgPass.add(track.id)
-        const embedding = await embeddingFor(track).finally(() => bgPass.delete(track.id))
+        const embedding = await embeddingFor(track, pace).finally(() => bgPass.delete(track.id))
         done++
         if (opts.signal?.cancelled) return
         onUpdate(new Map([[track.id, { embedding, embeddingState: 'embedded' }]]), { done, total, failed })
@@ -643,7 +647,7 @@ export async function queueVocalStripBackfill(
     }
     onUpdate(new Map([[track.id, { vocal: { state: 'analysing', timeline: null } }]]), { done, total, failed })
     bgPass.add(track.id)
-    const result = await vocalStripFor(track, taught.has(track.contentHash as string)).finally(() => bgPass.delete(track.id))
+    const result = await vocalStripFor(track, taught.has(track.contentHash as string), pace).finally(() => bgPass.delete(track.id))
     done++
     if (result.state === 'failed') failed++
     if (opts.signal?.cancelled) return
@@ -651,38 +655,53 @@ export async function queueVocalStripBackfill(
   }
 }
 
+/**
+ * Every background pass shares this one: while a deck plays, one heavy job at a time across all of them, with a rest after each
+ * (`core/background-pace.ts`). The deck's own pass (`analyseDeckTrackNow`) and a deck load never go through it — the owner is waiting on those.
+ */
+const pace = createPacer({
+  isPlaying: () => engine.decks.A.playing || engine.decks.B.playing,
+  now: () => performance.now(),
+  sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+})
+const unpaced: Pacer = { run: (job) => job() }
+
 /** One track's embedding, cache first — shared by the background pass and the deck's own pass. Throws; each caller names the failure. */
-async function embeddingFor(track: Track): Promise<Float32Array> {
+async function embeddingFor(track: Track, paced: Pacer = unpaced): Promise<Float32Array> {
   const contentHash = track.contentHash as string
   // Cache first: a backfill cancelled by a rescan has already stored
   // the vector for the track it was on, then dropped the store patch.
   // Without this the next scan spends ~7s recomputing it.
   let embedding = await embeddingCache.get(contentHash, classicalEmbedder.modelId)
   if (!embedding) {
-    const file = await track.handle.getFile()
-    const data = await file.arrayBuffer()
-    const buffer = await engine.decode(data)
-    // This decode feeds the embedder alone. If it ever feeds a second
-    // Worker too, copy the PCM *before* the first transfer: afterwards
-    // Chromium's copyFromChannel returns zeros and throws nothing, which
-    // wrote 349 all-zero embeddings for Shalom's library on 20/09.
-    embedding = await classicalEmbedder.embed(pcmFromAudioBuffer(buffer))
+    embedding = await paced.run(async () => {
+      const file = await track.handle.getFile()
+      const data = await file.arrayBuffer()
+      const buffer = await engine.decode(data)
+      // This decode feeds the embedder alone. If it ever feeds a second
+      // Worker too, copy the PCM *before* the first transfer: afterwards
+      // Chromium's copyFromChannel returns zeros and throws nothing, which
+      // wrote 349 all-zero embeddings for Shalom's library on 20/09.
+      return classicalEmbedder.embed(pcmFromAudioBuffer(buffer))
+    })
     await embeddingCache.put(contentHash, classicalEmbedder.modelId, embedding)
   }
   return embedding
 }
 
 /** One track's vocal strip, cache first. Never throws: a failure comes back as a named `failed` result, shown on screen like any other. */
-async function vocalStripFor(track: Track, taught: boolean): Promise<VocalResult> {
+async function vocalStripFor(track: Track, taught: boolean, paced: Pacer = unpaced): Promise<VocalResult> {
   if (taught) return { state: 'manual', timeline: null }
   try {
     const contentHash = track.contentHash as string
     const genre = track.genre ?? ''
     const cached = await getVocalStrip(contentHash, genre)
     if (cached) return cached
-    const data = await (await track.handle.getFile()).arrayBuffer()
-    const buffer = await engine.decode(data)
-    const result = await analyseVocalStrip(pcmFromAudioBuffer(buffer), genre)
+    const result = await paced.run(async () => {
+      const data = await (await track.handle.getFile()).arrayBuffer()
+      const buffer = await engine.decode(data)
+      return analyseVocalStrip(pcmFromAudioBuffer(buffer), genre)
+    })
     try {
       await putVocalStrip(contentHash, genre, result)
     } catch {
