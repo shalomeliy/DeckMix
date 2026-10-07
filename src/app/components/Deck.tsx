@@ -205,11 +205,13 @@ export function Deck({ deckId }: { deckId: DeckId }) {
           onClick={() => void ctl.toggleKeySync(deckId)}
           title={
             deck.keySyncShift != null
-              ? `Key sync is on: moved ${deck.keySyncShift > 0 ? '+' : ''}${deck.keySyncShift} semitones to fit the other deck. Click to go back to the song's own key.`
+              ? deck.keySyncShift === 0
+                ? "Key sync checked: the two songs' keys already fit, so nothing was moved. Click to switch it off."
+                : `Key sync is on: moved ${deck.keySyncShift > 0 ? '+' : ''}${deck.keySyncShift} semitones to fit the other deck. Click to go back to the song's own key.`
               : "Key sync: move this deck's key, without changing its speed, to the nearest key that fits the other deck"
           }
         >
-          {deck.keySyncShift != null ? `Key ${deck.keySyncShift > 0 ? '+' : ''}${deck.keySyncShift}` : 'Key sync'}
+          {deck.keySyncShift == null ? 'Key sync' : deck.keySyncShift === 0 ? 'Key fits' : `Key ${deck.keySyncShift > 0 ? '+' : ''}${deck.keySyncShift}`}
         </Button>
         <HintIcon id="deck.keysync" className="absolute -right-1.5 -top-1.5" />
       </span>
