@@ -48,7 +48,7 @@ import {
   shiftGrid,
 } from '@/core/beatgrid'
 import { exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
-import { eqMixFrame, incomingUnderA, plainEqMixPlan, type BassSwapStyle, type EqBand, type EqBands, type EqMixPlan } from '@/core/eq-mix'
+import { AUTO_MIX_CROSSFADER_CURVE, eqMixFrame, incomingUnderA, plainEqMixPlan, type BassSwapStyle, type EqBand, type EqBands, type EqMixPlan } from '@/core/eq-mix'
 import { HANDOFF_NEEDS_STRAIGHT_SYNC, MIN_BARS_AFTER_MIX, enoughSongAfterMix, handoffSide, nextPhraseStartSec, planHandoff, plainMixEndInB, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
 import { SWAP_CROSSFADER_CURVE, planVocalSwap, swapIncoming, vocalSwapFrame, type SwapEntry, type VocalSwapPlan } from '@/core/vocal-swap-mix'
 import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
@@ -3828,13 +3828,12 @@ function cancelTransitionIfEitherDeckTouched(deckId: DeckId) {
  * `ensureSyncLoop` itself subscribes to) drives the EQ and the crossfader
  * through `core/eq-mix.ts`'s `eqMixFrame` (v0.9.18 — a plain transition on
  * `plainEqMixPlan` over `TRANSITION_CROSSFADE_SEC`, a handoff on its plan),
- * via `engine.setCrossfader` — the exact equal-power law
- * `core/transition.ts`'s own `crossfadeGains` documents and
- * `tests/core/transition.test.ts` pins, so the autonomous fade sounds like
- * the same crossfader curve the user's hand already knows. The vocal swap
- * alone runs on `full-middle` (`core/fx.ts`, `SWAP_CROSSFADER_CURVE`): both
- * decks at full level in the middle, because each is EQ'd down to the half
- * of a song the other lacks.
+ * via `engine.setCrossfader`. Since v0.9.33 every automatic mix runs on
+ * `full-middle` (`core/fx.ts`; `AUTO_MIX_CROSSFADER_CURVE`, and the vocal
+ * swap's `SWAP_CROSSFADER_CURVE`): both decks at full level in the middle,
+ * because each is EQ'd down to the part of a song the other lacks. On the
+ * hand crossfader's equal-power curve the mix sat about 2–3 dB under the
+ * two songs for half its length — the drop the owner heard (07/10).
  *
  * Refuses (with a notice, never a silent no-op) rather than start a
  * transition it cannot phase-align or that would land on a deck that is not
@@ -4057,7 +4056,7 @@ export function startAutoTransition(
       // maps `progress` onto whichever half of that range moves *away* from
       // `fromDeckId`, in either direction.
       const x = fromDeckId === 'A' ? -1 + 2 * progress : 1 - 2 * progress
-      engine.setCrossfader(x, vocalSwap ? SWAP_CROSSFADER_CURVE : 'power')
+      engine.setCrossfader(x, vocalSwap ? SWAP_CROSSFADER_CURVE : AUTO_MIX_CROSSFADER_CURVE)
       useStore.getState().patchMixer({ crossfader: x })
       if (progress >= 1) finishTransition()
     })

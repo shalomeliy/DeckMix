@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { EQ_CUT_DB } from '@/core/constants'
-import { EQ_KILL, MIX_MID_CUT, eqMixFrame, incomingUnderA, plainEqMixPlan, type BassSwapStyle, type EqBands } from '@/core/eq-mix'
+import { EQ_CUT_DB, EQ_DB } from '@/core/constants'
+import { crossfaderGains, type CrossfaderCurve } from '@/core/fx'
+import { AUTO_MIX_CROSSFADER_CURVE, EQ_KILL, MIX_MID_CUT, eqMixFrame, incomingUnderA, plainEqMixPlan, type BassSwapStyle, type EqBands } from '@/core/eq-mix'
 
 const flat: EqBands = { low: 0, mid: 0, high: 0 }
 const own = { a: flat, b: flat }
@@ -62,11 +63,13 @@ describe('eqMixFrame — gradual swap with a boosted LOW (independent review, 05
 })
 
 describe('eqMixFrame — MID and HIGH', () => {
-  it("B's MID is down while it plays under A; the MIDs swap over the bar after the swap (v0.9.16, unchanged)", () => {
+  it("B's MID is down while it plays under A; the MIDs swap over the bar after the swap, by power", () => {
     expect(frame(50).b.mid).toBe(MIX_MID_CUT)
     expect(frame(50).a.mid).toBe(0)
-    expect(frame(61).a.mid).toBeCloseTo(MIX_MID_CUT / 2)
-    expect(frame(61).b.mid).toBeCloseTo(MIX_MID_CUT / 2)
+    // Halfway, each at half its band's power (−3 dB), not at the knob's midpoint (−14 dB each, until v0.9.33: a 1.3 dB hole in the room).
+    const halfPowerDb = 10 * Math.log10((1 + 10 ** ((MIX_MID_CUT * EQ_CUT_DB) / 10)) / 2)
+    expect(frame(61).a.mid * EQ_CUT_DB).toBeCloseTo(halfPowerDb, 3)
+    expect(frame(61).b.mid * EQ_CUT_DB).toBeCloseTo(halfPowerDb, 3)
     expect(frame(62).a.mid).toBeCloseTo(MIX_MID_CUT)
     expect(frame(62).b.mid).toBeCloseTo(0)
   })
@@ -128,5 +131,32 @@ describe('plainEqMixPlan — the same order inside the old 8 seconds', () => {
       if (f.progress > 0.5) expect(f.a.high).toBe(EQ_KILL)
     }
     expect(eqMixFrame(p, 8, 1.875, own, 'instant')).toEqual({ progress: 1, a: { low: EQ_KILL, mid: MIX_MID_CUT, high: EQ_KILL }, b: flat })
+  })
+})
+
+// The owner, 07/10: "during the mix I hear the volume drop, and it must not — the music has to stay at the same level the whole mix". The
+// same room model as the vocal swap's test: a dance track's power split bass .4 / mids .45 / highs .15, each band by its knob (exact since
+// the isolator, v0.9.33: a knob is the volume of its whole band), each deck by its crossfader gain squared, the decks adding as power. One
+// whole song is 0 dB. On the hand crossfader's curve the mix sat at −2.4 to −3 dB from the rise to the fade (B's highs under a −3 dB A, then
+// a −3 dB B) and jumped back up at the end; measured on his songs the same drop was 2–2.6 dB on average (`measure-mix-loudness.mjs`).
+describe("eqMixFrame — the room keeps one song's loudness all the way through (v0.9.33)", () => {
+  const BAND = { low: 0.4, mid: 0.45, high: 0.15 }
+  const bandPower = (k: number) => 10 ** ((k >= 0 ? k * EQ_DB : k * EQ_CUT_DB) / 10)
+  const deckPower = (k: EqBands) => BAND.low * bandPower(k.low) + BAND.mid * bandPower(k.mid) + BAND.high * bandPower(k.high)
+  const roomDb = (pos: number, curve: CrossfaderCurve, style: BassSwapStyle = 'instant') => {
+    const f = frame(pos, style)
+    const g = crossfaderGains(f.progress, curve)
+    return 10 * Math.log10(g.a ** 2 * deckPower(f.a) + g.b ** 2 * deckPower(f.b))
+  }
+  for (const style of ['instant', 'gradual'] as const)
+    it(`never 1 dB under one whole song, never 1.5 dB over (${style} bass swap)`, () => {
+      sweep((pos) => {
+        expect(roomDb(pos, AUTO_MIX_CROSSFADER_CURVE, style)).toBeGreaterThan(-1)
+        expect(roomDb(pos, AUTO_MIX_CROSSFADER_CURVE, style)).toBeLessThan(1.5)
+      })
+    })
+  it("on the hand crossfader's curve the same knobs sag below −2 dB — why automatic mixes do not use it", () => {
+    expect(roomDb(52, 'power')).toBeLessThan(-2)
+    expect(roomDb(66, 'power')).toBeLessThan(-2)
   })
 })

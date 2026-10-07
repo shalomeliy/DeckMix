@@ -1,4 +1,5 @@
-import { EQ_CUT_DB, EQ_HIGH_HZ, EQ_LOW_HZ, EQ_MID_HZ, tempoToRate } from '@/core/constants'
+import { EQ_CUT_DB, tempoToRate } from '@/core/constants'
+import { ISOLATOR_PATHS, bandGain } from '@/core/isolator'
 import { BufferSourcePlayer, WorkletPlayer, type SourcePlayer } from '@/platform/audio-webaudio/players'
 import type { FxRack } from '@/platform/audio-webaudio/fx'
 import { settings } from '@/platform/settings-idb/store'
@@ -34,7 +35,7 @@ const MAX_SYNC_BEND = 0.06
 /**
  * One playback deck. Owns its Web Audio graph:
  *
- *   player -> head -> dry ----------------> trim -> eqLow -> eqMid -> eqHigh -> filter -> channelGain
+ *   player -> head -> dry ----------------> trim -> isolator (low | mid | high, summed) -> filter -> channelGain
  *                 -> key lock (stretch) -> wet -^
  *        channelGain -> fxSeam -> faderGain -> (master bus)
  *                     -> fxSeam -> cueGain   -> (cue bus)
@@ -73,9 +74,9 @@ export class Deck {
    * skips its first `ahead` of audio (a kick's attack on a hot cue), the price of being on time. Zero while paused — the stretch empties its buffer after a stop, so the last thing heard is where the player stopped.
    */
   private ahead = 0
-  private eqLow: BiquadFilterNode
-  private eqMid: BiquadFilterNode
-  private eqHigh: BiquadFilterNode
+  /** v0.9.33: the EQ is an isolator (`core/isolator.ts`) — three bands that sum back to the song, each knob the volume of its own band. */
+  private eqBands: Record<'low' | 'mid' | 'high', GainNode>
+  private eqOut: GainNode
   private lpf: BiquadFilterNode
   private hpf: BiquadFilterNode
   private channelGain: GainNode
@@ -120,9 +121,19 @@ export class Deck {
     this.wet.gain.value = 0
     this.head.connect(this.dry).connect(this.trim)
     this.wet.connect(this.trim)
-    this.eqLow = eqBand(ctx, 'lowshelf', EQ_LOW_HZ)
-    this.eqMid = eqBand(ctx, 'peaking', EQ_MID_HZ)
-    this.eqHigh = eqBand(ctx, 'highshelf', EQ_HIGH_HZ)
+    this.eqOut = ctx.createGain()
+    this.eqBands = { low: ctx.createGain(), mid: ctx.createGain(), high: ctx.createGain() }
+    for (const band of ['low', 'mid', 'high'] as const) {
+      let node: AudioNode = this.trim
+      for (const f of ISOLATOR_PATHS[band]) {
+        const bq = ctx.createBiquadFilter()
+        bq.type = f.type
+        bq.frequency.value = f.freq
+        bq.Q.value = f.q
+        node = node.connect(bq)
+      }
+      node.connect(this.eqBands[band]).connect(this.eqOut)
+    }
     this.lpf = ctx.createBiquadFilter()
     this.lpf.type = 'lowpass'
     this.lpf.frequency.value = 22050
@@ -137,10 +148,7 @@ export class Deck {
     this.cueGain = ctx.createGain()
     this.cueGain.gain.value = 0
 
-    this.trim
-      .connect(this.eqLow)
-      .connect(this.eqMid)
-      .connect(this.eqHigh)
+    this.eqOut
       .connect(this.hpf)
       .connect(this.lpf)
       .connect(this.channelGain)
@@ -557,9 +565,8 @@ export class Deck {
   }
 
   setEq(band: 'low' | 'mid' | 'high', knob: number) {
-    const node = band === 'low' ? this.eqLow : band === 'mid' ? this.eqMid : this.eqHigh
-    const db = knob >= 0 ? knob * settings.values.eqDb : knob * EQ_CUT_DB // full cut at -1
-    node.gain.setTargetAtTime(db, this.ctx.currentTime, 0.01)
+    // full cut at -1 (−70 dB on its band only)
+    this.eqBands[band].gain.setTargetAtTime(bandGain(knob, settings.values.eqDb, EQ_CUT_DB), this.ctx.currentTime, 0.01)
   }
 
   /** -1 => heavy HPF, 0 => bypass, +1 => heavy LPF */
@@ -626,15 +633,6 @@ export class Deck {
     this.player.clearLoop()
   }
 
-}
-
-function eqBand(ctx: AudioContext, type: BiquadFilterType, freq: number) {
-  const n = ctx.createBiquadFilter()
-  n.type = type
-  n.frequency.value = freq
-  if (type === 'peaking') n.Q.value = 0.9
-  n.gain.value = 0
-  return n
 }
 
 function clamp(v: number, lo: number, hi: number) {

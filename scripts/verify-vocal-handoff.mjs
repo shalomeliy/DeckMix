@@ -133,6 +133,7 @@ if (setup.error) {
     await rows.first().click()
     const run = await page.evaluate(async ({ A_VOICE, B_VOICE }) => {
       const { useStore } = await window.mod('/src/app/state/store.ts')
+      const { engine } = await window.mod('/src/platform/audio-webaudio/engine.ts')
       const voiced = (v, sec) => v.some(([a, b]) => sec >= a && sec < b)
       const at0 = useStore.getState().activeTransition
       const samples = []
@@ -145,7 +146,7 @@ if (setup.error) {
         const gA = Math.cos((p * Math.PI) / 2), gB = Math.sin((p * Math.PI) / 2)
         const a = s.decks.A, b = s.decks.B
         const ch = s.mixer.channels
-        samples.push({ a: a.positionSec, b: b.positionSec, x, bPlaying: b.playing, aPlaying: a.playing, active: !!s.activeTransition, aMid: ch.A.eqMid, bMid: ch.B.eqMid, aLow: ch.A.eqLow, bLow: ch.B.eqLow, aHigh: ch.A.eqHigh, bHigh: ch.B.eqHigh })
+        samples.push({ a: a.positionSec, b: b.positionSec, x, bPlaying: b.playing, aPlaying: a.playing, active: !!s.activeTransition, aMid: ch.A.eqMid, bMid: ch.B.eqMid, aLow: ch.A.eqLow, bLow: ch.B.eqLow, aHigh: ch.A.eqHigh, bHigh: ch.B.eqHigh, engA: engine.decks.A.faderGain.gain.value, engB: engine.decks.B.faderGain.gain.value })
         if (a.playing && b.playing && gA > 0.05 && gB > 0.05 && voiced(A_VOICE, a.positionSec) && voiced(B_VOICE, b.positionSec) && !clash) clash = { a: a.positionSec, b: b.positionSec, x }
         if (!s.activeTransition && samples.length > 5) break
         await new Promise((r) => setTimeout(r, 50))
@@ -195,6 +196,10 @@ if (setup.error) {
       const hold = run.samples.filter((s) => s.active && s.bPlaying && s.a > t.waitingUntilSec + 2 * barA + 0.2 && s.a < t.handoffSec + 2 * barA)
       const off = hold.filter((s) => Math.abs(s.x) >= 0.01)
       ok('v0.9.18: the crossfader holds the middle from two bars after the join through the swap', hold.length > 10 && off.length === 0, `${hold.length} samples${off.length ? `, off: ${JSON.stringify(off[0])}` : ', all at the middle'}`)
+      // v0.9.33 (the owner, 07/10: "the volume drops during the mix"): in the middle both decks play at full level, read from the engine's
+      // own GainNodes — each is EQ'd down to the part of a song the other lacks, so −3 dB each (the hand crossfader's curve) was a hole.
+      const lowA = Math.min(...hold.map((s) => s.engA)), lowB = Math.min(...hold.map((s) => s.engB))
+      ok('v0.9.33: both decks at full level in the middle (engine gains, not −3 dB each)', hold.length > 10 && lowA > 0.99 && lowB > 0.99, `${hold.length} samples, lowest A ${lowA.toFixed(3)}, lowest B ${lowB.toFixed(3)}`)
       ok('v0.9.18: when it finishes, all six knobs are back where they were', run.final.eq.every((v) => v === 0), JSON.stringify(run.final.eq))
     }
     ok('the transition finished: B playing, A paused, crossfader fully on B', run.final.bPlaying && !run.final.aPlaying && run.final.x > 0.99, JSON.stringify(run.final))
@@ -460,15 +465,13 @@ if (!setup.error) {
   await page.evaluate(async () => { const ctl = await window.mod('/src/controls.ts'); ctl.pause('A') })
 }
 
-const resp = await page.evaluate(() => {
-  const ctx = new OfflineAudioContext(1, 128, 44100)
-  const n = ctx.createBiquadFilter()
-  n.type = 'peaking'; n.frequency.value = 1000; n.Q.value = 0.9; n.gain.value = -0.4 * 70
-  const hz = new Float32Array([100, 200, 500, 1000, 2000, 4000, 8000]), mag = new Float32Array(7), ph = new Float32Array(7)
-  n.getFrequencyResponse(hz, mag, ph)
-  return [...hz].map((h, i) => `${h} Hz ${(20 * Math.log10(mag[i])).toFixed(1)} dB`)
+// Since v0.9.33 the EQ is an isolator (core/isolator.ts): the MID knob is the volume of the 250 Hz–3 kHz band, nothing else.
+const resp = await page.evaluate(async () => {
+  const { isolatorResponseDb, bandGain } = await window.mod('/src/core/isolator.ts')
+  const mid = bandGain(-0.4, 26, 70)
+  return [100, 200, 500, 1000, 2000, 4000, 8000].map((h) => `${h} Hz ${isolatorResponseDb(h, 44100, { low: 1, mid, high: 1 }).toFixed(1)} dB`)
 })
-console.log(`INFO  the MID cut at -0.4 (deck.ts: peaking 1 kHz, Q 0.9): ${resp.join(' · ')}`)
+console.log(`INFO  the MID cut at -0.4 (deck.ts: isolator, 250 Hz–3 kHz band): ${resp.join(' · ')}`)
 
 const f = await page.evaluate(() => ({ scroll: document.documentElement.scrollHeight, inner: window.innerHeight }))
 ok('page still fits 710 px', f.scroll <= f.inner, `scrollHeight ${f.scroll} / ${f.inner}`)

@@ -4,6 +4,7 @@ import { FxRack } from '@/platform/audio-webaudio/fx'
 import { SamplerEngine } from '@/platform/audio-webaudio/sampler'
 import { bootLatencyHint } from '@/platform/settings-idb/boot-latency'
 import { crossfaderGains, type CrossfaderCurve } from '@/core/fx'
+import { MASTER_LIMITER, limiterMakeupDb } from '@/core/constants'
 import { RecorderTap } from '@/platform/audio-webaudio/recorder-tap'
 // Bundled and transpiled by Vite, handed to addModule as a URL. The processor
 // itself imports nothing: an AudioWorkletGlobalScope has no DOM, so a single
@@ -14,6 +15,15 @@ import fxProcessorUrl from '@/platform/audio-webaudio/fx-processor?worker&url'
 import type { DeckId } from '@/core/types'
 import { id3WrappedMp4Offset } from '@/core/id3-wrapped'
 import { repairWav } from '@/core/wav-repair'
+
+/** See `limiterReductionDb`. */
+const LIMITER_SETTLE_SEC = 3
+/**
+ * Chromium's `DynamicsCompressorNode` looks 6 ms ahead, so everything through the limiter comes out 6 ms late (measured 07/10: an
+ * impulse at sample 1000 left at 1288, at 48 kHz). The cue goes through the same delay, or a deck pre-listened in the headphones runs
+ * 6 ms ahead of the master it is being beat-matched against.
+ */
+const LIMITER_LOOKAHEAD_SEC = 0.006
 
 interface AudioContextWithSink extends AudioContext {
   setSinkId?: (id: string | { type: 'none' }) => Promise<void>
@@ -49,7 +59,20 @@ export class AudioEngine {
    * use, so FX always sits ahead of both.
    */
   private masterPostFx: GainNode
+  /**
+   * The master limiter (v0.9.33), between the master FX chain and `masterPostFx`, so the speakers and a master recording both get it. An
+   * automatic mix holds both decks at full level in the middle (`core/eq-mix.ts`, `AUTO_MIX_CROSSFADER_CURVE`) so the room never loses
+   * volume, and the two songs' peaks then add: measured on the owner's songs (07/10, `scripts/measure-mix-loudness.mjs`), up to +7 dB over
+   * full scale for a moment — a hard clip at the sound card, heard as a crackle. The isolator EQ adds its own couple of dB on hot masters
+   * (its crossovers turn the phase, and a brick-walled master's peaks no longer line up). The limiter turns those moments down instead.
+   * Below its threshold (`MASTER_LIMITER`, −2 dBFS) it does nothing: the spec's fixed make-up gain is taken back off right after it. It
+   * delays the master by 6 ms (`LIMITER_LOOKAHEAD_SEC`; the cue gets the same delay). The screen shows
+   * when it is working (`limiterReductionDb`, the LIM light under Master): the rule is that nothing changes the sound without saying so.
+   */
+  private limiter: DynamicsCompressorNode
   private cueBus: GainNode
+  /** The cue after `LIMITER_LOOKAHEAD_SEC`: what `wireOutput()` routes, so headphones and master stay in step. */
+  private cueOut: DelayNode
   private samplerBus: GainNode
   private samplerCueGain: GainNode
   private merger: ChannelMergerNode | null = null
@@ -68,6 +91,16 @@ export class AudioEngine {
     this.ctx = new AudioContext({ latencyHint: bootLatencyHint() }) as AudioContextWithSink
     this.masterBus = this.ctx.createGain()
     this.masterPostFx = this.ctx.createGain()
+    this.limiter = this.ctx.createDynamicsCompressor()
+    this.limiter.threshold.value = MASTER_LIMITER.thresholdDb
+    this.limiter.knee.value = MASTER_LIMITER.kneeDb
+    this.limiter.ratio.value = MASTER_LIMITER.ratio // the spec's maximum
+    this.limiter.attack.value = MASTER_LIMITER.attackSec
+    this.limiter.release.value = MASTER_LIMITER.releaseSec
+    // The spec makes the node add a fixed make-up gain; this takes it back off, so music under the threshold is exactly as loud as before.
+    const unMakeup = this.ctx.createGain()
+    unMakeup.gain.value = 10 ** (-limiterMakeupDb(MASTER_LIMITER) / 20)
+    this.limiter.connect(unMakeup).connect(this.masterPostFx)
     // After the master FX chain, not into `masterBus`: master FX would colour
     // the clicks, and master volume at 0 would make the screen silent with
     // nothing saying why (v0.9.0 review). A master *recording* taps
@@ -76,6 +109,9 @@ export class AudioEngine {
     this.previewBus.gain.value = 0.8
     this.previewBus.connect(this.masterPostFx)
     this.cueBus = this.ctx.createGain()
+    this.cueOut = this.ctx.createDelay(0.05)
+    this.cueOut.delayTime.value = LIMITER_LOOKAHEAD_SEC
+    this.cueBus.connect(this.cueOut)
     this.decks = {
       A: new Deck(this.ctx, 'A'),
       B: new Deck(this.ctx, 'B'),
@@ -119,7 +155,7 @@ export class AudioEngine {
     this.merger?.disconnect()
     this.stereoSum?.disconnect()
     this.masterPostFx.disconnect()
-    this.cueBus.disconnect()
+    this.cueOut.disconnect()
 
     const maxCh = this.ctx.destination.maxChannelCount
     this.multichannel = maxCh >= 4
@@ -132,7 +168,7 @@ export class AudioEngine {
       const splitM = this.ctx.createChannelSplitter(2)
       const splitC = this.ctx.createChannelSplitter(2)
       this.masterPostFx.connect(splitM)
-      this.cueBus.connect(splitC)
+      this.cueOut.connect(splitC)
       splitM.connect(merger, 0, 0)
       splitM.connect(merger, 1, 1)
       splitC.connect(merger, 0, 2)
@@ -143,7 +179,7 @@ export class AudioEngine {
       // Stereo device: fold cue into master so the user still hears a preview.
       const sum = this.ctx.createGain()
       this.masterPostFx.connect(sum)
-      this.cueBus.connect(sum)
+      this.cueOut.connect(sum)
       sum.connect(this.ctx.destination)
       this.stereoSum = sum
       this.applyCueMix()
@@ -151,7 +187,7 @@ export class AudioEngine {
   }
 
   /**
-   * Rebuild the chain between `masterBus` and `masterPostFx` from
+   * Rebuild the chain between `masterBus` and the limiter (then `masterPostFx`) from
    * `masterChain` — full teardown and relink, same disconnect-then-rebuild
    * shape `wireOutput()` already uses for the output-device stage, applied
    * here to the (much rarer) master-FX-routing stage instead. Independent
@@ -167,7 +203,17 @@ export class AudioEngine {
       node.connect(this.fx[i].input)
       node = this.fx[i].output
     }
-    node.connect(this.masterPostFx)
+    node.connect(this.limiter)
+  }
+
+  /**
+   * How far the master limiter is turning the output down right now, in dB (0 or negative). Chromium's node starts out turned down (it
+   * applies about −9 dB for the first 20 ms, near 0 after 100 ms) and its meter lags far longer (−13 dB at load, settling to −0.1 in
+   * silence over about 1.5 s; measured 07/10, `verify-isolator.mjs`). The app starts in silence, so nothing is heard — but the LIM light
+   * would be lit on every start with nothing playing. The first `LIMITER_SETTLE_SEC` read as 0.
+   */
+  get limiterReductionDb(): number {
+    return this.ctx.currentTime < LIMITER_SETTLE_SEC ? 0 : this.limiter.reduction
   }
 
   /**

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import * as ctl from '@/controls'
 import { useStore } from '@/app/state/store'
 import type { DeckId } from '@/core/types'
@@ -274,6 +275,7 @@ export function Mixer() {
             hint="mixer.masterVolume"
             format={(v) => `${Math.round(v * 100)}`}
           />
+          <LimiterLight />
           <Knob label="Cue Vol" size={32} value={mixer.cueVolume} min={0} max={1} tone="var(--color-live)" onChange={ctl.setCueVolume} hint="mixer.cueVolume" />
           <Knob label="Cue Mix" size={32} value={mixer.cueMix} min={0} max={1} tone="var(--color-live)" onChange={ctl.setCueMix} hint="mixer.cueMix" />
         </div>
@@ -301,5 +303,33 @@ export function Mixer() {
         </div>
       </div>
     </section>
+  )
+}
+
+/**
+ * The master limiter at work (v0.9.33, `engine.ts`'s `limiter`): lit while it turns the output down by 1 dB or more. It only acts on the
+ * moments two songs' peaks add up past full scale, and changing the sound without saying so is what this project forbids — so it says so.
+ * Read ten times a second: the light is for a glance, not a meter.
+ */
+function LimiterLight() {
+  // Only whole dB are kept: a raw reading changes every tick (−0.1 in silence) and would re-render the strip ten times a second for nothing.
+  const [db, setDb] = useState(0)
+  useEffect(() => {
+    const id = window.setInterval(() => setDb(Math.min(0, Math.round(engine.limiterReductionDb))), 100)
+    return () => window.clearInterval(id)
+  }, [])
+  const on = db <= -1
+  const text = on ? `הלימיטר מוריד עכשיו ${-db}dB משיאים, כדי שלא תהיה צריבה ברמקולים` : 'לימיטר: נדלק כששיאי הצליל עוברים את המקסימום'
+  return (
+    <span
+      role="status"
+      aria-label={text}
+      className="text-2xs font-bold"
+      style={{ color: on ? 'var(--color-warn)' : 'var(--color-grid-muted)', opacity: on ? 1 : 0.5 }}
+      title={text}
+      data-testid="limiter-light"
+    >
+      LIM
+    </span>
   )
 }

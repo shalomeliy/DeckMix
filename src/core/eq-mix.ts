@@ -1,4 +1,5 @@
 import { EQ_CUT_DB, EQ_DB } from '@/core/constants'
+import type { CrossfaderCurve } from '@/core/fx'
 
 /**
  * Mixing with the EQ, the way a DJ does (v0.9.18, the owner, 05/10): "a DJ doesn't mix with the fader. He brings the new song in with its
@@ -36,10 +37,21 @@ export interface EqBands {
  */
 export type BassSwapStyle = 'instant' | 'gradual'
 
+/**
+ * The crossfader curve every automatic EQ mix runs on (v0.9.33): `full-middle`, each deck at full level from its side up to the middle —
+ * the curve the vocal swap has used since v0.9.31, for the same reason. In this mix each deck is EQ'd down to the part of a song the other
+ * one lacks (B without its bass under A, then A without its bass under B), so the two only add up to one whole song when the crossfader
+ * turns neither of them down. On the hand crossfader's `power` curve both sat at −3 dB from the rise to the fade: measured on the owner's own
+ * songs (`scripts/measure-mix-loudness.mjs`, 07/10), the plain mix and the handoff ran 2–2.6 dB under the two songs on average and more than
+ * 2 dB under for half their length — the drop he heard. The hand crossfader keeps `power`: two full songs, where −3 dB each is right.
+ */
+export const AUTO_MIX_CROSSFADER_CURVE: CrossfaderCurve = 'full-middle'
+
 /** A knob all the way down: −70 dB on this mixer (`EQ_CUT_DB`). */
 export const EQ_KILL = -1
 /**
- * B's MID while it plays under A, and A's after the swap (v0.9.16's `HANDOFF_MID_CUT`, unchanged): about −28 dB at the band's centre. Short
+ * B's MID while it plays under A, and A's after the swap (v0.9.16's `HANDOFF_MID_CUT`, unchanged): since the isolator (v0.9.33) about
+ * −26 dB in the middle of the 250 Hz–3 kHz band, less towards the crossovers (−6 dB at each); before it, −28 at 1 kHz only. Short
  * of the kill on purpose: the MID is where the voice sits, but also the synths and the body of every instrument, and a full kill leaves a
  * hole a listener notices. Chosen, not measured.
  */
@@ -62,7 +74,7 @@ export interface EqMixPlan {
 }
 
 export interface EqMixFrame {
-  /** Crossfader, 0 = only A … 1 = only B, on the same equal-power law as the hand crossfader. */
+  /** Crossfader, 0 = only A … 1 = only B — on `AUTO_MIX_CROSSFADER_CURVE` for the EQ mix, `SWAP_CROSSFADER_CURVE` for the vocal swap. */
   progress: number
   a: EqBands
   b: EqBands
@@ -92,6 +104,22 @@ export function swapCurve(own: number, t: number, dir: 'down' | 'up', boostDb: n
   const db = (own >= 0 ? own * boostDb : own * EQ_CUT_DB) + 20 * Math.log10(amp)
   const knob = db >= 0 ? db / boostDb : db / EQ_CUT_DB
   return Math.max(EQ_KILL, Math.min(own, knob))
+}
+
+/**
+ * A knob on its way from `from` to `to`, `t` 0..1, with its band's POWER moving on a quarter sine (sin² of a quarter turn): two knobs
+ * crossing — one `from` a to b, the other b to a — keep their summed power constant all the way, which is what a swap of the MIDs needs.
+ * In real dB on both sides of 0, like `swapCurve`.
+ */
+export function turnByPower(from: number, to: number, t: number, boostDb: number): number {
+  const s = Math.sin((clamp01(t) * Math.PI) / 2) ** 2
+  if (s <= 0) return from
+  if (s >= 1) return to
+  const toDb = (k: number) => (k >= 0 ? k * boostDb : k * EQ_CUT_DB)
+  const p = 10 ** (toDb(from) / 10) + (10 ** (toDb(to) / 10) - 10 ** (toDb(from) / 10)) * s
+  const db = 10 * Math.log10(Math.max(p, 1e-12))
+  const knob = db >= 0 ? db / boostDb : db / EQ_CUT_DB
+  return Math.max(EQ_KILL, Math.min(Math.max(from, to), knob))
 }
 
 /**
@@ -143,12 +171,13 @@ export function eqMixFrame(
     b.low = swapCurve(own.b.low, t, 'up', boostDb)
   }
 
-  // MID — B's down while it plays under A, swapped over a bar from the bass swap.
+  // MID — B's down while it plays under A, swapped over a bar from the bass swap. By power, not along the knob: the knob is linear in dB, so
+  // a straight turn put both MIDs at −14 dB halfway and the room lost 1.3 dB for that beat (v0.9.33, the room test in eq-mix.test.ts).
   const aMidCut = Math.min(own.a.mid, MIX_MID_CUT)
   const bMidCut = under.mid
   const tm = pos < swapSec ? 0 : clamp01((pos - swapSec) / (MIX_MID_SWAP_BARS * barSec))
-  a.mid = own.a.mid + (aMidCut - own.a.mid) * tm
-  b.mid = bMidCut + (own.b.mid - bMidCut) * tm
+  a.mid = turnByPower(own.a.mid, aMidCut, tm, boostDb)
+  b.mid = turnByPower(bMidCut, own.b.mid, tm, boostDb)
 
   // HIGH — A's hats leave before its volume does.
   if (pos > highStart) {

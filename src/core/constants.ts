@@ -34,10 +34,23 @@ export const EQ_DB = 26
  */
 export const EQ_CUT_DB = 70
 
-/** Kill-ish behaviour: below this knob value the band is fully cut. */
-export const EQ_LOW_HZ = 100
-export const EQ_MID_HZ = 1000
-export const EQ_HIGH_HZ = 6000
+/**
+ * The master limiter (v0.9.33, `platform/audio-webaudio/engine.ts`): a `DynamicsCompressorNode` set as a limiter, just under full scale.
+ * It is there for the moments two songs' peaks add up past 0 dBFS in an automatic mix, not to squeeze the music. Here, not in the engine,
+ * so `scripts/verify-limiter.mjs` runs the very same numbers through Chromium's own node. Picked there (07/10, 18 mixes of the owner's
+ * songs at the default channel and master levels): at −1 dB / 150 ms release Chromium's node, not a true brick wall, still let 4 samples
+ * clip on the worst mix; −2 dB with a 50 ms release clipped none, and moved no mix's loudness by more than 1 dB.
+ */
+export const MASTER_LIMITER = { thresholdDb: -2, kneeDb: 0, ratio: 20, attackSec: 0, releaseSec: 0.05 } as const
+
+/**
+ * The make-up gain the Web Audio spec makes every `DynamicsCompressorNode` add, in dB: (1 / the curve's gain at full scale)^0.6. With a
+ * hard knee the curve maps 0 dBFS to `threshold · (1 − 1/ratio)`. The engine undoes it with a gain right after the limiter, so music under
+ * the threshold comes out exactly as loud as it went in — the limiter only ever turns DOWN.
+ */
+export function limiterMakeupDb(l: { thresholdDb: number; ratio: number }): number {
+  return -0.6 * l.thresholdDb * (1 - 1 / l.ratio)
+}
 
 export const HOT_CUE_COLORS = [
   '#ff3b6b',
