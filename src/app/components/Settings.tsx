@@ -1,3 +1,4 @@
+import { latencyCushioned } from '@/platform/settings-idb/boot-latency'
 import { useEffect, useRef, useState } from 'react'
 import * as ctl from '@/controls'
 import { DEFAULTS, FIELDS, type Field, type FieldGroup, type Settings } from '@/core/settings'
@@ -169,6 +170,11 @@ function FieldRow({ field, values }: { field: Field; values: Settings }) {
       {field.requiresReload && (
         <p className="mt-1.5 text-2xs text-warn">
           Takes effect after a reload — the audio engine fixes this when it starts.
+        </p>
+      )}
+      {field.key === 'latency' && latencyCushioned() && (
+        <p className="mt-1.5 text-2xs text-warn">
+          הדף הזה עלה על Balanced עד שהניתוח ברקע ייגמר (v0.9.52), כדי שהסאונד לא יקפוץ. רענון אחרי סוף הניתוח מחזיר את מה שבחרת כאן.
         </p>
       )}
       {field.pending && <p className="mt-1.5 text-2xs text-warn">{field.pending}</p>}

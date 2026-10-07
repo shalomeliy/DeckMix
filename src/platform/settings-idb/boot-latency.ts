@@ -18,6 +18,10 @@
  * exception stays visible instead of becoming a pattern.
  */
 import type { LatencyProfile } from '@/core/settings'
+import { analysisFingerprint, bootLatency } from '@/core/analysis-latency'
+import { ANALYZER_VERSION } from '@/platform/analyze-cache-idb/version'
+import { EMBEDDER_VERSION } from '@/platform/embed-cache-idb/version'
+import { VOCAL_STRIP_VERSION } from '@/platform/vocal-strip-idb/store'
 
 export const BOOT_LATENCY_KEY = 'deckmix:bootLatency'
 
@@ -29,14 +33,44 @@ const HINTS: Record<LatencyProfile, AudioContextLatencyCategory> = {
 
 /** What the AudioContext should be built with on this load. */
 export function bootLatencyHint(): AudioContextLatencyCategory {
+  let stored: LatencyProfile | null = null
+  let settled: string | null = null
   try {
-    const stored = localStorage.getItem(BOOT_LATENCY_KEY)
-    if (stored && stored in HINTS) return HINTS[stored as LatencyProfile]
+    const raw = localStorage.getItem(BOOT_LATENCY_KEY)
+    if (raw && raw in HINTS) stored = raw as LatencyProfile
+    settled = localStorage.getItem(ANALYSIS_SETTLED_KEY)
   } catch {
-    // Blocked storage throws rather than returning null. The tightest setting
-    // is also the default, so there is nothing to report here.
+    // Blocked storage throws rather than returning null. Read as "nothing
+    // stored": the owner's default, cushioned because nothing says the
+    // analysis ever finished — the safe side for the sound.
   }
-  return 'interactive'
+  const boot = bootLatency(stored, settled, CURRENT_ANALYSIS)
+  cushioned = boot.cushioned
+  return HINTS[boot.hint]
+}
+
+/**
+ * v0.9.52: the second key in this file, for the same reason as the first — it decides `latencyHint`, which has to be known before
+ * IndexedDB answers. It holds the analysis versions (`core/analysis-latency.ts`) the library last finished every pass with.
+ */
+export const ANALYSIS_SETTLED_KEY = 'deckmix:analysisSettled'
+
+const CURRENT_ANALYSIS = analysisFingerprint({ analyzer: ANALYZER_VERSION, embedder: EMBEDDER_VERSION, vocal: VOCAL_STRIP_VERSION })
+
+let cushioned = false
+/** True when this page's sound was built with the analysis cushion rather than the owner's own setting. */
+export function latencyCushioned(): boolean {
+  return cushioned
+}
+
+/** Every background pass finished on this page: the next load goes back to the owner's own setting. False: it could not be written, and the library says so. */
+export function markAnalysisSettled(): boolean {
+  try {
+    localStorage.setItem(ANALYSIS_SETTLED_KEY, CURRENT_ANALYSIS)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function writeBootLatency(profile: LatencyProfile): void {

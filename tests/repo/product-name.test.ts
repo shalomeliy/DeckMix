@@ -24,6 +24,8 @@ import { git, read, requireGit } from './repo.ts'
 const STORAGE_KEYS = [
   'deckmix:ai-local:warningAcknowledged',
   'deckmix:analysisCache:',
+  // new in v0.9.52, never had a soundgrid: copy to move
+  'deckmix:analysisSettled',
   'deckmix:bootLatency',
   'deckmix:crates',
   'deckmix:cues:',

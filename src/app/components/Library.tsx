@@ -40,6 +40,8 @@ import {
 } from '@/core/recommend'
 import { getExcellentFollowUps } from '@/platform/mix-pairs-idb/store'
 import { settings } from '@/platform/settings-idb/store'
+import { latencyCushioned, markAnalysisSettled } from '@/platform/settings-idb/boot-latency'
+import { libraryAnalysisSettled } from '@/core/analysis-latency'
 import { DEFAULTS } from '@/core/settings'
 import { canLookUp, NO_LOOKUP_GENRE } from '@/core/online-artist'
 import { normalizeName } from '@/core/duplicates'
@@ -232,6 +234,8 @@ export function Library() {
   }, [library.tracks])
   // lets a new scan abandon the tag pass of the one it replaced
   const tagScan = useRef({ cancelled: false })
+  // v0.9.52: every background pass finished on this page (the sound cushion can go on the next load)
+  const [analysisSettledHere, setAnalysisSettledHere] = useState<'no' | 'saved' | 'unsaved'>('no')
 
   // Narrow subscription to primitives only: the playhead moves every frame, but
   // recommendations depend just on play state / bpm / tempo / loaded track, so
@@ -810,6 +814,12 @@ export function Library() {
         },
       },
     )
+    // v0.9.52: every pass ran to the end on this page — the next load is back on the owner's own latency (`core/analysis-latency.ts`).
+    // Read from the live rows, not from this scan: an Add files run cancels the folder scan's BPM pass and then finishes its own, with
+    // most of the library still queued (caught in review).
+    if (!scan.cancelled && libraryAnalysisSettled(useStore.getState().library.tracks)) {
+      setAnalysisSettledHere(markAnalysisSettled() ? 'saved' : 'unsaved')
+    }
   }
 
   // "More like this" (M3): a seed track id in `similarTo` re-sorts/filters
@@ -1376,6 +1386,31 @@ export function Library() {
               title="בזמן שדק מנגן, הניתוח ברקע עובד על שיר אחד בכל פעם ונח בין שיר לשיר, כדי שהמחשב לא יחנוק את הסאונד. כשהנגינה נעצרת הוא חוזר למהירות מלאה."
             >
               ניתוח מואט בזמן נגינה
+            </span>
+          )}
+          {/* v0.9.52: the cushion is never silent — while it is on, and once it can go, the header says so. */}
+          {latencyCushioned() && analysisSettledHere === 'no' && (
+            <span
+              className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-grid-muted"
+              title="כדי שהניתוח ברקע לא יקפיץ את הסאונד, הדף עלה עם באפר סאונד גדול יותר (Balanced) במקום ההגדרה שלך. הג'וג מגיב קצת פחות מיידית. כשהניתוח ייגמר, רענון הדף מחזיר את ההגדרה שלך."
+            >
+              סאונד מוגן עד סוף הניתוח
+            </span>
+          )}
+          {latencyCushioned() && analysisSettledHere === 'unsaved' && (
+            <span
+              className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-warn"
+              title="הניתוח הסתיים, אבל הדפדפן חוסם שמירה מקומית, אז גם הטעינה הבאה תעלה על הבאפר הגדול. אם זה מפריע: Settings, Audio latency."
+            >
+              הניתוח הסתיים, אבל לא נשמר: הסאונד יישאר על Balanced
+            </span>
+          )}
+          {latencyCushioned() && analysisSettledHere === 'saved' && (
+            <span
+              className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-accent"
+              title="הניתוח הסתיים. הסאונד עדיין על הבאפר הגדול, כי אי אפשר להחליף אותו בלי לקטוע את הנגינה. כשתסיים לנגן, רענן את הדף (F5) והוא יחזור להגדרה שלך."
+            >
+              הניתוח הסתיים: רענן את הדף לתגובה מהירה
             </span>
           )}
           {vocalCounts.taught > 0 && (
