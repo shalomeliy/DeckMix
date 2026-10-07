@@ -40,8 +40,8 @@ import {
 } from '@/core/recommend'
 import { getExcellentFollowUps } from '@/platform/mix-pairs-idb/store'
 import { settings } from '@/platform/settings-idb/store'
-import { latencyCushioned, markAnalysisSettled } from '@/platform/settings-idb/boot-latency'
-import { libraryAnalysisSettled } from '@/core/analysis-latency'
+import { cushionReloadedThisTab, justReloadedForCushion, latencyCushioned, markAnalysisSettled, markCushionReload } from '@/platform/settings-idb/boot-latency'
+import { cushionExit, libraryAnalysisSettled } from '@/core/analysis-latency'
 import { DEFAULTS } from '@/core/settings'
 import { canLookUp, NO_LOOKUP_GENRE } from '@/core/online-artist'
 import { normalizeName } from '@/core/duplicates'
@@ -145,7 +145,7 @@ function fmtRelative(ts?: number): string {
   return `${day}d ago`
 }
 
-export function Library() {
+export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
   const library = useStore((s) => s.library)
   const setLibrary = useStore((s) => s.setLibrary)
   const crates = useStore((s) => s.crates)
@@ -236,6 +236,16 @@ export function Library() {
   const tagScan = useRef({ cancelled: false })
   // v0.9.52: every background pass finished on this page (the sound cushion can go on the next load)
   const [analysisSettledHere, setAnalysisSettledHere] = useState<'no' | 'saved' | 'unsaved'>('no')
+  const recordingOpen = useStore(
+    (s) => s.recording.active != null || s.recording.savedState === 'unsaved' || s.sampler.armedSlot != null,
+  )
+  const recordingUnsaved = useStore((s) => s.recording.savedState === 'unsaved')
+  const historyEntries = useStore((s) => s.history.length)
+  const deckUnhashed = useStore(
+    (s) => (s.decks.A.track != null && !s.decks.A.track.contentHash) || (s.decks.B.track != null && !s.decks.B.track.contentHash),
+  )
+  // a sampler pad playing counts as music too: a refresh would cut it
+  const samplerPlaying = useStore((s) => s.sampler.slots.some((slot) => slot.playing))
 
   // Narrow subscription to primitives only: the playhead moves every frame, but
   // recommendations depend just on play state / bpm / tempo / loaded track, so
@@ -262,6 +272,32 @@ export function Library() {
       s.decks.B.baseRate,
     ]),
   )
+  // v0.9.53: once the analysis is done, the cushion goes by itself when nothing would be lost, else on his click (`cushionExit`).
+  const exit =
+    latencyCushioned() && analysisSettledHere === 'saved'
+      ? cushionExit({
+          decksLoaded: aId != null || bId != null,
+          deckUnhashed,
+          anyPlaying: aP || bP || samplerPlaying,
+          recordingOpen,
+          screenOpen,
+          historyEntries,
+          alreadyReloaded: cushionReloadedThisTab(),
+        })
+      : null
+  useEffect(() => {
+    if (exit === 'reload' && markCushionReload()) window.location.reload()
+  }, [exit])
+  // ...and the page that refresh produced says why, once — a page that flashes by itself is not left unexplained.
+  useEffect(() => {
+    if (justReloadedForCushion()) {
+      useStore.getState().setNotice({
+        text: "הדף רוענן לבד: הניתוח ברקע הסתיים, והג'וג חזר לתגובה המהירה (ההגדרה שלך).",
+        tone: 'info',
+        source: 'library',
+      })
+    }
+  }, [])
   // Mix Assist (v0.4.6): a track that just came off a deck stays out of the
   // suggestion list for 30s (`ctl.recentlyRemovedTrackIds`) — this ticks the
   // memo below on its own timer so an id ages back out without needing any
@@ -1405,13 +1441,23 @@ export function Library() {
               הניתוח הסתיים, אבל לא נשמר: הסאונד יישאר על Balanced
             </span>
           )}
-          {latencyCushioned() && analysisSettledHere === 'saved' && (
+          {exit === 'wait' && (
             <span
               className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-accent"
-              title="הניתוח הסתיים. הסאונד עדיין על הבאפר הגדול, כי אי אפשר להחליף אותו בלי לקטוע את הנגינה. כשתסיים לנגן, רענן את הדף (F5) והוא יחזור להגדרה שלך."
+              title="הניתוח הסתיים. הסאונד עדיין על הבאפר הגדול, כי החלפה דורשת לרענן את הדף, וזה היה קוטע נגינה, הקלטה או מסך פתוח. כשיתפנה, יופיע כפתור."
             >
-              הניתוח הסתיים: רענן את הדף לתגובה מהירה
+              {recordingUnsaved ? "הניתוח הסתיים: ג'וג מהיר אחרי שתשמור את ההקלטה" : "הניתוח הסתיים: ג'וג מהיר כשתסיים"}
             </span>
+          )}
+          {exit === 'button' && (
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-accent hover:bg-surface-3"
+              title="מרענן את הדף כדי לחזור לתגובה המהירה של הג'וג. השירים שעל הדקים יירדו מהם, והיסטוריית הסט של הערב תתאפס. הספרייה, נקודות הקיו וסימוני השירה שמורים."
+            >
+              הפעל ג'וג מהיר
+            </button>
           )}
           {vocalCounts.taught > 0 && (
             <span

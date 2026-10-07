@@ -81,3 +81,39 @@ export function writeBootLatency(profile: LatencyProfile): void {
     // about the same failure would only say it twice.
   }
 }
+
+/**
+ * v0.9.53: the automatic refresh out of the cushion happens at most once per tab. `sessionStorage` lives exactly that long and survives
+ * the reload, so the next page knows it was refreshed on purpose (and says so) and never refreshes again on its own — a loop is impossible
+ * even if the settled mark somehow does not stick.
+ */
+const CUSHION_RELOAD_KEY = 'deckmix:cushionReloaded'
+
+export function cushionReloadedThisTab(): boolean {
+  try {
+    return sessionStorage.getItem(CUSHION_RELOAD_KEY) != null
+  } catch {
+    return true // cannot remember it, so never refresh unattended: the button stays
+  }
+}
+
+/** True exactly once, on the page the automatic refresh produced: that page says on screen why it was refreshed. */
+export function justReloadedForCushion(): boolean {
+  try {
+    if (sessionStorage.getItem(CUSHION_RELOAD_KEY) !== '1') return false
+    sessionStorage.setItem(CUSHION_RELOAD_KEY, 'said')
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** False when the marker cannot be written — then no automatic refresh happens at all. */
+export function markCushionReload(): boolean {
+  try {
+    sessionStorage.setItem(CUSHION_RELOAD_KEY, '1')
+    return true
+  } catch {
+    return false
+  }
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { analysisFingerprint, bootLatency, libraryAnalysisSettled } from '@/core/analysis-latency'
+import { analysisFingerprint, bootLatency, cushionExit, libraryAnalysisSettled } from '@/core/analysis-latency'
 
 const NOW = analysisFingerprint({ analyzer: 6, embedder: 2, vocal: 5 })
 
@@ -44,5 +44,33 @@ describe('when the cushion may be declared over (v0.9.52)', () => {
     expect(libraryAnalysisSettled([{ ...done, embedding: undefined }])).toBe(false)
     expect(libraryAnalysisSettled([{ ...done, vocal: undefined }])).toBe(false)
     expect(libraryAnalysisSettled([{ ...done, vocal: { state: 'queued', timeline: null } }])).toBe(false)
+  })
+})
+
+describe('leaving the cushion once the analysis is done (v0.9.53)', () => {
+  const calm = {
+    decksLoaded: false,
+    deckUnhashed: false,
+    anyPlaying: false,
+    recordingOpen: false,
+    screenOpen: false,
+    historyEntries: 0,
+    alreadyReloaded: false,
+  }
+  it('nothing held in memory: the page refreshes by itself', () => {
+    expect(cushionExit(calm)).toBe('reload')
+  })
+  it('a song on a deck, or a set history, is never taken away without his click', () => {
+    expect(cushionExit({ ...calm, decksLoaded: true })).toBe('button')
+    expect(cushionExit({ ...calm, historyEntries: 3 })).toBe('button')
+  })
+  it('a tab that already refreshed once gets the button, never a second automatic refresh', () => {
+    expect(cushionExit({ ...calm, alreadyReloaded: true })).toBe('button')
+  })
+  it('playing, recording or an armed pad, a screen open over the decks, or an unhashed deck song: no button at all', () => {
+    expect(cushionExit({ ...calm, anyPlaying: true })).toBe('wait')
+    expect(cushionExit({ ...calm, recordingOpen: true })).toBe('wait')
+    expect(cushionExit({ ...calm, screenOpen: true })).toBe('wait')
+    expect(cushionExit({ ...calm, decksLoaded: true, deckUnhashed: true })).toBe('wait')
   })
 })

@@ -50,3 +50,27 @@ export function libraryAnalysisSettled(
     return !!v && v !== 'queued' && v !== 'analysing'
   })
 }
+
+/**
+ * How the cushion goes once the analysis is done (v0.9.53, Shalom 07/10: "why not refresh by yourself when no song is playing, or show
+ * a button"). A reload is the only way back, and a reload throws away everything the page holds only in memory, so:
+ * - `reload`: the page holds nothing to lose — both decks empty, no set history yet, no screen open over the decks, no recording or armed
+ *   pad, and this tab has not already refreshed for this once (a second time would mean a loop). It refreshes by itself.
+ * - `button`: nothing plays, but something would go — a song on a deck, the set history. His click: only he knows whether he needs it.
+ * - `wait`: something plays (deck, pad, tagging clip), a recording is open or armed, a screen is open over the decks, or a deck's song has
+ *   no identity yet (a cue set before it is hashed is not saved) — no button, so no click can cut sound or lose work.
+ */
+export function cushionExit(s: {
+  decksLoaded: boolean
+  /** a loaded deck whose song has no content hash yet */
+  deckUnhashed: boolean
+  anyPlaying: boolean
+  recordingOpen: boolean
+  screenOpen: boolean
+  historyEntries: number
+  alreadyReloaded: boolean
+}): 'reload' | 'button' | 'wait' {
+  if (s.anyPlaying || s.recordingOpen || s.screenOpen || s.deckUnhashed) return 'wait'
+  if (s.decksLoaded || s.historyEntries > 0 || s.alreadyReloaded) return 'button'
+  return 'reload'
+}

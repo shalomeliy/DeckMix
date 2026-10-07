@@ -261,7 +261,7 @@ export default function App() {
       </main>
       <div className="relative min-h-[200px] flex-1 px-3 pb-3">
         <LibraryResizeHandle />
-        <Library />
+        <Library screenOpen={settingsOpen || historyOpen || keysOpen || taggingOpen} />
       </div>
       {settingsOpen && (
         <SettingsScreen onClose={() => setSettingsOpen(false)} initialGroup={settingsGroup} />

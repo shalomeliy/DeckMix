@@ -31,7 +31,7 @@ describe('track list pulled up hides the pads (v0.9.34)', () => {
 
   it('the handle sits on the list and the size is saved and restored', () => {
     const app = read('app/App.tsx')
-    expect(app).toMatch(/<LibraryResizeHandle \/>\s*<Library \/>/)
+    expect(app).toMatch(/<LibraryResizeHandle \/>\s*<Library[ />]/)
     expect(app).toContain('ctl.restoreLibraryLayout()')
     const ctl = read('controls.ts')
     expect(ctl).toContain('saveLibraryExpanded(expanded).catch(')
