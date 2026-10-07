@@ -252,6 +252,8 @@ export interface AppState {
      */
     endSec?: number | null
     endAtClock?: number | null
+    /** v0.9.33: the incoming deck has joined but is held at zero on the crossfader until its kicks sit on the outgoing deck's (`core/kick-lock.ts`). */
+    aligning?: boolean
   } | null
 
   /**

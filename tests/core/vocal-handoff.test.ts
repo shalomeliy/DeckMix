@@ -233,17 +233,17 @@ describe('enough of B left after the mix (v0.9.23)', () => {
 })
 
 describe('a plain transition from a saved second (v0.9.26: Mix-in pads, excellent pairs)', () => {
-  it('ends half again past the crossfade and one bar of B later', () => {
-    expect(plainMixEndInB(10, { bpm: 120 }, 8)).toBeCloseTo(10 + 12 + 2, 9)
-    expect(plainMixEndInB(10, { bpm: 128 }, 8)).toBeCloseTo(10 + 12 + 1.875, 9)
+  it('ends half again past the crossfade and two bars of B later (one more since v0.9.33: the kick lock may start it a bar late)', () => {
+    expect(plainMixEndInB(10, { bpm: 120 }, 8)).toBeCloseTo(10 + 12 + 2 * 2, 9)
+    expect(plainMixEndInB(10, { bpm: 128 }, 8)).toBeCloseTo(10 + 12 + 2 * 1.875, 9)
     // no grid, or a grid without a tempo: 120 BPM is assumed, never a zero-length bar
-    expect(plainMixEndInB(10, null, 8)).toBeCloseTo(24, 9)
-    expect(plainMixEndInB(10, { bpm: 0 }, 8)).toBeCloseTo(24, 9)
+    expect(plainMixEndInB(10, null, 8)).toBeCloseTo(26, 9)
+    expect(plainMixEndInB(10, { bpm: 0 }, 8)).toBeCloseTo(26, 9)
   })
-  it('a pad saved at 2:15 of a 3:00 song is refused — 31 s left, 24 bars are 45; one at 2:00 is not', () => {
+  it('a pad saved at 2:15 of a 3:00 song is refused — 29 s left, 24 bars are 45; one at 1:58 is not', () => {
     const grid = { bpm: 128 }
     expect(enoughSongAfterMix(180, grid, plainMixEndInB(135, grid, 8))).toBe(false)
-    expect(enoughSongAfterMix(180, grid, plainMixEndInB(120, grid, 8))).toBe(true)
+    expect(enoughSongAfterMix(180, grid, plainMixEndInB(118, grid, 8))).toBe(true)
   })
   it('a library BPM of 0 does not make every bar zero long', () => {
     expect(enoughSongAfterMix(180, { bpm: 0 }, 170)).toBe(false)

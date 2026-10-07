@@ -264,7 +264,9 @@ export function Mixer() {
           style={{ background: 'var(--color-danger)' }}
         >
           <TransitionCountdown />
-          {activeTransition.handoffSec != null
+          {activeTransition.aligning
+            ? `דק ${activeTransition.toDeckId} מחכה למטה עד שהקיקים יושבים · ביטול`
+            : activeTransition.handoffSec != null
             ? activeTransition.waitingForBar && activeTransition.waitingUntilSec != null
               ? `דק ${activeTransition.toDeckId} נכנס כשדק ${activeTransition.fromDeckId} יגיע ל-${ctl.formatMinSec(activeTransition.waitingUntilSec)} · ${activeTransition.swap ? 'החלפת שירה' : `מסירה ב-${ctl.formatMinSec(activeTransition.handoffSec)}`} · ביטול`
               : `${activeTransition.swap ? 'החלפת שירה' : 'מסירת שירה'} ב-${ctl.formatMinSec(activeTransition.handoffSec)} · ביטול`

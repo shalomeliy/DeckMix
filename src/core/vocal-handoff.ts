@@ -2,6 +2,7 @@ import { BEATS_PER_BAR, nextBarLineSec } from '@/core/beatgrid'
 import { barLineAtOrAfterSec, barLineAtOrBeforeSec, effectiveTimeline, type VocalManualTag } from '@/core/sound/vocal-manual'
 import { vocalStateText, voiceRuns, type VocalResult, type VocalTimeline } from '@/core/sound/vocal-timeline'
 import type { BeatGrid } from '@/core/types'
+import { KICK_LOCK_PLAIN_SHIFT_BARS } from '@/core/kick-lock'
 
 /**
  * Mix Assist by sound (v0.9.15): the "vocal handoff" the owner describes as a good mix (24/09, his words roughly): song A plays; B comes in
@@ -103,7 +104,8 @@ export function enoughSongAfterMix(durationSec: number, grid: Pick<BeatGrid, 'bp
  * for the panel's energy points, a saved "Mix in" pad and an excellent pair — the last two skipped the check until then.
  */
 export function plainMixEndInB(entrySec: number, grid: Pick<BeatGrid, 'bpm'> | null, crossfadeSec: number): number {
-  return entrySec + crossfadeSec * 1.5 + (grid && grid.bpm > 0 ? barSec(grid) : FALLBACK_BAR_SEC)
+  // One bar more since v0.9.33: the kick lock may start the mix up to `KICK_LOCK_PLAIN_SHIFT_BARS` late, while B already plays (silent).
+  return entrySec + crossfadeSec * 1.5 + (1 + KICK_LOCK_PLAIN_SHIFT_BARS) * (grid && grid.bpm > 0 ? barSec(grid) : FALLBACK_BAR_SEC)
 }
 
 /** Where a handoff is over, in B's own seconds: B's voice comes in on the handoff, and A goes down over `fadeBars` bars after it. */
@@ -259,7 +261,8 @@ export function plainTransitionClashSec(
   const join = joinSec ?? nextBarLineSec(aPositionSec + EPS, a.grid)
   const ratio = a.grid.bpm / (b.grid.bpm * syncMult)
   const halfBarB = barSec(b.grid) / 2
-  const end = join + fadeSec + barSec(a.grid) / 2
+  // v0.9.33: a plain transition may start up to `KICK_LOCK_PLAIN_SHIFT_BARS` late, held until B's kicks sit on A's — both still audible after.
+  const end = join + fadeSec + barSec(a.grid) / 2 + KICK_LOCK_PLAIN_SHIFT_BARS * barSec(a.grid)
   const aRuns = voiceRuns(a.timeline, a.durationSec)
   const bRuns = voiceRuns(b.timeline, b.durationSec)
   const toA = (bSec: number) => join + (bSec - entrySec) / ratio

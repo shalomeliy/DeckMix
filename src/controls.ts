@@ -48,6 +48,7 @@ import {
   shiftGrid,
 } from '@/core/beatgrid'
 import { exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
+import { catchUpFactor, kickLockStep, KICK_LOCK_MAX_BARS, KICK_LOCK_KEEP_START_SEC, KICK_LOCK_NUDGE_SEC, KICK_LOCK_PLAIN_SHIFT_BARS } from '@/core/kick-lock'
 import { AUTO_MIX_CROSSFADER_CURVE, eqMixFrame, incomingUnderA, plainEqMixPlan, type BassSwapStyle, type EqBand, type EqBands, type EqMixPlan } from '@/core/eq-mix'
 import { HANDOFF_NEEDS_STRAIGHT_SYNC, MIN_BARS_AFTER_MIX, enoughSongAfterMix, handoffSide, nextPhraseStartSec, planHandoff, plainMixEndInB, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
 import { SWAP_CROSSFADER_CURVE, planVocalSwap, swapIncoming, vocalSwapFrame, type SwapEntry, type VocalSwapPlan } from '@/core/vocal-swap-mix'
@@ -3589,6 +3590,10 @@ function syncPhaseDeltaSec(id: DeckId, positionSec: number): number | null {
 
 function runSyncCorrection() {
   for (const id of ['A', 'B'] as DeckId[]) {
+    // A deck held silent by Mix Assist's kick lock is the gate's to nudge: this loop's 1 s nudge replaces the gate's mid-way (last call
+    // wins in `syncNudge`), and a gap read during it would pass for a lock while B is still moving.
+    const held = useStore.getState().activeTransition
+    if (held?.aligning && held.toDeckId === id) continue
     const delta = syncPhaseDeltaSec(id, engine.decks[id].position)
     if (delta == null || Math.abs(delta) < SYNC_PHASE_DEADBAND_SEC) continue
     engine.decks[id].syncNudge(delta, SYNC_LOOP_INTERVAL_SEC)
@@ -4042,8 +4047,16 @@ export function startAutoTransition(
     // ms on a full UI (v0.4.6 measured up to 280), and the bass swap counts whole bars from this moment, so it would land that late.
     // More than half a bar past a line is not a late frame (the wait joins on the frame that crosses one): then no correction at all.
     const pastLineSec = joinedFromSec - barLineAtOrBeforeSec(joinedFromSec, fromGrid)
-    const startedAtSec = joinedAtTime - (pastLineSec >= 0 && pastLineSec < barSecFrom / 2 ? pastLineSec * (barWallFrom / barSecFrom) : 0)
+    let startedAtSec = joinedAtTime - (pastLineSec >= 0 && pastLineSec < barSecFrom / 2 ? pastLineSec * (barWallFrom / barSecFrom) : 0)
     let lastFromPos = joinedFromSec
+    // v0.9.33 (the owner, 07/10): B stays at zero on the crossfader until its kicks sit on A's (`core/kick-lock.ts`) — the join's own
+    // alignment is worked out before the seek reaches the audio thread, and that residue used to be heard while B was already rising.
+    // The vocal swap is not held: B is meant to be heard from its voice line on, A's voice going down on the same bars (the frames would
+    // jump if skipped), and B's LOW — its kick — is killed until the swap anyway.
+    let rising = !!vocalSwap
+    let lockedAt = joinedAtTime
+    let plainShifted = false
+    let lastNudgeAt = -Infinity
     const unsubscribeFade = clock.subscribe((t) => {
       // A handoff's crossfader follows A's position, so A must keep moving forward: a loop (or anything that sends A back) would hold the
       // crossfader short of the handoff while B walks into its voice — a voice over a voice, and a transition that never finishes.
@@ -4063,6 +4076,42 @@ export function startAutoTransition(
       }
       const tr = activeTransition
       if (!tr?.eq) return
+      if (!rising) {
+        // A plain transition first waits up to `KICK_LOCK_KEEP_START_SEC` past its own start; after that its start is a bar later, and the
+        // wait runs to that line — checked every frame up to it, so a gap that opens again after a lock is nudged again, not heard.
+        const holdUntil = handoff ? joinedAtTime + KICK_LOCK_MAX_BARS * barWallFrom : plainShifted ? startedAtSec : startedAtSec + KICK_LOCK_KEEP_START_SEC
+        const step = kickLockStep(t - joinedAtTime, syncPhaseDeltaSec(toDeckId, toEngine.position), t - lastNudgeAt, holdUntil - joinedAtTime)
+        if (step.kind === 'wait') return
+        if (step.kind === 'nudge') {
+          toEngine.syncNudge(step.deltaSec, KICK_LOCK_NUDGE_SEC)
+          lastNudgeAt = t
+          return
+        }
+        if (step.kind === 'timeout' && !handoff && !plainShifted) {
+          plainShifted = true
+          startedAtSec += KICK_LOCK_PLAIN_SHIFT_BARS * barWallFrom
+          return
+        }
+        if (step.kind === 'locked' && plainShifted && t < startedAtSec) return
+        rising = true
+        lockedAt = t
+        const endAt = startedAtSec + TRANSITION_CROSSFADE_SEC
+        useStore.setState((s) => ({
+          activeTransition: s.activeTransition ? { ...s.activeTransition, aligning: false, endAtClock: handoff ? null : endAt } : null,
+        }))
+        // Never silently: a mix that went on without the lock says so, and why — next to whatever this transition already said (an
+        // unconfirmed grid, the key sync), not over it.
+        const said =
+          step.kind === 'timeout'
+            ? `הקיקים של דק ${toDeckId} לא התיישרו לגמרי בזמן (עדיין ${Math.round(Math.abs(step.deltaSec) * 1000)} אלפיות שנייה) — המעבר ממשיך, ו-SYNC ממשיך לתקן.`
+            : step.kind === 'unmeasured'
+              ? `לא הצלחתי למדוד אם הקיקים של דק ${toDeckId} יושבים על של דק ${fromDeckId} (SYNC כבוי?) — המעבר ממשיך בלי לחכות.`
+              : null
+        if (said) {
+          const cur = useStore.getState().notice
+          useStore.getState().setNotice({ text: cur && cur !== noticeBefore ? `${cur.text} · ${said}` : said, tone: 'warn', source: 'sync' })
+        }
+      }
       const frame = vocalSwap
         ? vocalSwapFrame(vocalSwap, fromEngine.position, barSecFrom, { a: tr.eq.own.from, b: tr.eq.own.to }, cfg.eqDb)
         : eqMixFrame(
@@ -4075,14 +4124,15 @@ export function startAutoTransition(
           )
       applyMixEq(tr, 'from', frame.a)
       applyMixEq(tr, 'to', frame.b)
-      const progress = frame.progress
+      // A handoff kept moving on A's seconds during the wait: B catches up over a beat instead of jumping to where the plan has got to.
+      const progress = handoff && !vocalSwap ? frame.progress * catchUpFactor(t - lockedAt, barWallFrom / BEATS_PER_BAR) : frame.progress
       // engine.setCrossfader's own domain is -1 (A only) .. +1 (B only); this
       // maps `progress` onto whichever half of that range moves *away* from
       // `fromDeckId`, in either direction.
       const x = fromDeckId === 'A' ? -1 + 2 * progress : 1 - 2 * progress
       engine.setCrossfader(x, vocalSwap ? SWAP_CROSSFADER_CURVE : AUTO_MIX_CROSSFADER_CURVE)
       useStore.getState().patchMixer({ crossfader: x })
-      if (progress >= 1) finishTransition()
+      if (frame.progress >= 1) finishTransition()
     })
     if (activeTransition) activeTransition.unsubscribe = unsubscribeFade
     useStore.setState({
@@ -4096,7 +4146,8 @@ export function startAutoTransition(
         onPhrase: waitIsPhrase,
         swap: !!vocalSwap,
         endSec: handoff?.fadeEndSec ?? null,
-        endAtClock: handoff ? null : startedAtSec + TRANSITION_CROSSFADE_SEC,
+        endAtClock: null,
+        aligning: !vocalSwap,
       },
     })
   }
