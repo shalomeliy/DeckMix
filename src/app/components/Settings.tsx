@@ -1,11 +1,21 @@
 import { latencyCushioned } from '@/platform/settings-idb/boot-latency'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as ctl from '@/controls'
-import { DEFAULTS, FIELDS, type Field, type FieldGroup, type Settings } from '@/core/settings'
+import { DEFAULTS, FIELDS, FIELD_BY_KEY, type Field, type Settings } from '@/core/settings'
+import {
+  PANEL_ENTRIES,
+  SEARCH_SUGGESTIONS,
+  SETTINGS_SECTIONS,
+  searchSettings,
+  type Range,
+  type SettingsHit,
+  type SettingsSearchResult,
+  type SettingsSection,
+} from '@/core/settings-search'
 import { settings } from '@/platform/settings-idb/store'
 import { useSettings } from '@/app/hooks/useSettings'
 import { useStore } from '@/app/state/store'
-import { Button } from '@/app/components/controls'
+import { Button, HintIcon } from '@/app/components/controls'
 import {
   COPYRIGHT_NOTICE,
   ossNoticeCount,
@@ -31,17 +41,8 @@ import {
  * owner's screen.
  */
 
-type Group = FieldGroup | 'system' | 'legal'
-
-const GROUPS: { id: Group; label: string; blurb: string }[] = [
-  { id: 'hardware', label: 'Controller', blurb: 'Your FLX4, and how hard it pushes.' },
-  { id: 'feel', label: 'Feel', blurb: 'How the decks respond to a hand.' },
-  { id: 'display', label: 'Display', blurb: 'What is drawn, and how often.' },
-  { id: 'library', label: 'Library', blurb: 'The track list and how keys are named.' },
-  { id: 'help', label: 'Help', blurb: 'Explain every control before you touch it.' },
-  { id: 'system', label: 'System', blurb: 'What this machine supports, and what DeckMix does with it.' },
-  { id: 'legal', label: 'Privacy & Terms', blurb: 'What leaves this computer (nothing), and what you agree to by using this.' },
-]
+type Group = SettingsSection
+const GROUPS = SETTINGS_SECTIONS
 
 export function SettingsScreen({
   onClose,
@@ -52,29 +53,133 @@ export function SettingsScreen({
 }) {
   const values = useSettings()
   const [group, setGroup] = useState<Group>(initialGroup)
+  // v0.9.55: free-text search. While the box holds text the tabs give way to
+  // one list from every tab (the owner's pick, 07/10); clearing it puts back
+  // the tab that was open, because `group` is never touched by typing.
+  const [query, setQuery] = useState('')
+  const [active, setActive] = useState(0)
+  const [flash, setFlash] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const result = useMemo(() => searchSettings(query), [query])
+  const searching = query.trim().length > 0
+  const queryRef = useRef(query)
+  useEffect(() => {
+    queryRef.current = query
+  }, [query])
 
   // Esc closes. A full-screen panel with no keyboard way out is a trap, and the
   // decks keep playing behind it — this must never be the thing between the DJ
-  // and the crossfader.
+  // and the crossfader. With text in the search box the first Esc clears it;
+  // the second always closes, so it costs one extra press at worst.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        if (queryRef.current.trim()) setQuery('')
+        else onClose()
+        return
+      }
+      // Ctrl+F here means this screen's search: the browser's own find cannot
+      // see the tabs that are not open, so it would report "0 of 0" for a
+      // setting that exists.
+      const typing =
+        e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement
+      if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') || (e.key === '/' && !typing)) {
+        e.preventDefault()
+        inputRef.current?.focus()
+        inputRef.current?.select()
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  // Ready to type the moment the screen opens. App.tsx already ignores keys
+  // while Settings is open, so typing here can never bend a playing deck.
+  useEffect(() => inputRef.current?.focus(), [])
+
+  // After a jump: bring the setting into view and flash it once, so it is
+  // seen next to its neighbours rather than alone in a result list.
+  useEffect(() => {
+    if (!flash) return
+    document.getElementById(`setting-${flash}`)?.scrollIntoView({ block: 'center' })
+    const t = window.setTimeout(() => setFlash(null), 1600)
+    return () => window.clearTimeout(t)
+  }, [flash, group])
+
+  function jumpTo(hit: SettingsHit) {
+    setQuery('')
+    setGroup(hit.section)
+    setFlash(hit.id)
+  }
+
+  function onSearchKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    const n = result.hits.length
+    if (e.key === 'ArrowDown' && n) {
+      e.preventDefault()
+      setActive((a) => (a + 1) % n)
+    } else if (e.key === 'ArrowUp' && n) {
+      e.preventDefault()
+      setActive((a) => (a - 1 + n) % n)
+    } else if (e.key === 'Enter' && n) {
+      e.preventDefault()
+      jumpTo(result.hits[Math.min(active, n - 1)])
+    }
+  }
+
+  const activeId = searching ? result.hits[Math.min(active, result.hits.length - 1)]?.id : undefined
+
+  // A one-letter query lists 20-30 settings, taller than the 710px screen;
+  // without this the arrows walk the highlight out of sight and Enter opens
+  // a setting the owner never saw picked.
+  useEffect(() => {
+    if (activeId) document.getElementById(`result-${activeId}`)?.scrollIntoView({ block: 'nearest' })
+  }, [activeId])
+
   return (
     <div className="absolute inset-0 z-40 flex flex-col bg-surface-0/97 backdrop-blur-sm">
       <header className="flex shrink-0 items-center gap-3 border-b border-hairline px-4 py-2.5">
         <h2 className="text-sm font-bold tracking-tight">Settings</h2>
-        <nav className="flex items-center gap-1">
+        <div className="relative">
+          <input
+            ref={inputRef}
+            type="search"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value)
+              setActive(0)
+            }}
+            onKeyDown={onSearchKey}
+            aria-controls="settings-search-results"
+            aria-activedescendant={activeId ? `result-${activeId}` : undefined}
+            placeholder="Search settings · חיפוש"
+            aria-label="Search settings"
+            dir="auto"
+            className="w-56 rounded-[var(--radius-sm)] border border-hairline bg-surface-2 py-1 pl-2 pr-6 text-xs text-grid-text outline-none placeholder:text-grid-dim focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] [&::-webkit-search-cancel-button]:hidden"
+          />
+          {query && (
+            <button
+              onClick={() => {
+                setQuery('')
+                inputRef.current?.focus()
+              }}
+              aria-label="Clear search"
+              className="absolute right-1 top-1/2 -translate-y-1/2 rounded-[var(--radius-xs)] px-1 text-2xs text-grid-muted hover:text-grid-text"
+            >
+              ✕
+            </button>
+          )}
+          <HintIcon id="settings.search" className="absolute -right-1.5 -top-1.5" />
+        </div>
+        <nav className={`flex items-center gap-1 ${searching ? 'opacity-50' : ''}`}>
           {GROUPS.map((g) => (
             <button
               key={g.id}
-              onClick={() => setGroup(g.id)}
+              onClick={() => {
+                setQuery('')
+                setGroup(g.id)
+              }}
               className={`rounded-[var(--radius-sm)] px-2.5 py-1 text-xs transition-colors ${
-                group === g.id
+                group === g.id && !searching
                   ? 'bg-surface-3 text-grid-text'
                   : 'text-grid-muted hover:bg-surface-2 hover:text-grid-text'
               }`}
@@ -84,7 +189,7 @@ export function SettingsScreen({
           ))}
         </nav>
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-2xs text-grid-dim">Esc to close</span>
+          <span className="text-2xs text-grid-dim">Ctrl+F to search · Esc to close</span>
           <Button variant="ghost" size="sm" onClick={onClose}>
             Close
           </Button>
@@ -94,24 +199,182 @@ export function SettingsScreen({
       <StorageReport />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        <p className="mb-3 text-2xs text-grid-dim">
-          {GROUPS.find((g) => g.id === group)?.blurb}
-        </p>
-
-        {group === 'system' ? (
-          <SystemPanel />
-        ) : group === 'legal' ? (
-          <LegalPanel />
+        {searching ? (
+          <SearchResults
+            query={query.trim()}
+            result={result}
+            values={values}
+            activeId={activeId}
+            onJump={jumpTo}
+            onSuggest={(s) => {
+              setQuery(s)
+              setActive(0)
+              inputRef.current?.focus()
+            }}
+          />
         ) : (
-          <div className="flex flex-col gap-3">
-            {group === 'hardware' && <JogMeasure />}
-            {group === 'library' && <SamplerBankIO />}
-            {FIELDS.filter((f) => f.group === group).map((f) => (
-              <FieldRow key={f.key} field={f} values={values} />
-            ))}
-          </div>
+          <>
+            <p className="mb-3 text-2xs text-grid-dim">{GROUPS.find((g) => g.id === group)?.blurb}</p>
+
+            {group === 'system' ? (
+              <div id="setting-system" className={flash === 'system' ? FLASH : undefined}>
+                <SystemPanel />
+              </div>
+            ) : group === 'legal' ? (
+              <div id="setting-legal" className={flash === 'legal' ? FLASH : undefined}>
+                <LegalPanel />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {group === 'hardware' && (
+                  <div id="setting-jogMeasure" className={flash === 'jogMeasure' ? FLASH : undefined}>
+                    <JogMeasure />
+                  </div>
+                )}
+                {group === 'library' && (
+                  <div id="setting-samplerBank" className={flash === 'samplerBank' ? FLASH : undefined}>
+                    <SamplerBankIO />
+                  </div>
+                )}
+                {FIELDS.filter((f) => f.group === group).map((f) => (
+                  <FieldRow key={f.key} field={f} values={values} flash={flash === f.key} />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
+    </div>
+  )
+}
+
+const FLASH = 'rounded-[var(--radius-sm)] ring-2 ring-[var(--color-accent)] transition-shadow'
+
+/** Marks the matched parts of `text`. Ranges come from `searchSettings`, in this string's own indices. */
+function Marked({ text, ranges }: { text: string; ranges: readonly Range[] }) {
+  if (ranges.length === 0) return <>{text}</>
+  const out: React.ReactNode[] = []
+  let at = 0
+  for (const [a, b] of ranges) {
+    if (a > at) out.push(text.slice(at, a))
+    out.push(
+      <mark key={a} className="rounded-[2px] bg-[var(--color-accent)]/30 text-grid-text">
+        {text.slice(a, b)}
+      </mark>,
+    )
+    at = b
+  }
+  if (at < text.length) out.push(text.slice(at))
+  return <>{out}</>
+}
+
+/** "matched: סולם" — for a result whose reason is not marked anywhere on it. */
+function Reasons({ hit }: { hit: SettingsHit }) {
+  if (hit.reasons.length === 0) return null
+  return <div className="mt-0.5 text-2xs text-grid-dim">matched: {hit.reasons.join(', ')}</div>
+}
+
+function SearchResults({
+  query,
+  result,
+  values,
+  activeId,
+  onJump,
+  onSuggest,
+}: {
+  query: string
+  result: SettingsSearchResult
+  values: Settings
+  activeId: string | undefined
+  onJump: (hit: SettingsHit) => void
+  onSuggest: (s: string) => void
+}) {
+  if (result.hits.length === 0) {
+    // Not a blank screen and not the full list pretending something matched:
+    // say so, and hand over words that are known to find something.
+    return (
+      <div className="flex flex-col gap-2 text-xs" data-testid="settings-search-empty">
+        <p className="text-grid-text" aria-live="polite">
+          No setting matches “<span dir="auto">{query}</span>”.
+        </p>
+        <p className="flex items-center gap-1.5 text-2xs text-grid-dim">
+          Try:
+          {SEARCH_SUGGESTIONS.map((s) => (
+            <button
+              key={s}
+              onClick={() => onSuggest(s)}
+              className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-grid-muted hover:bg-surface-3 hover:text-grid-text"
+            >
+              {s}
+            </button>
+          ))}
+        </p>
+        <p className="text-2xs text-grid-dim">Hebrew works too — אפשר לחפש גם בעברית.</p>
+      </div>
+    )
+  }
+
+  const n = result.hits.length
+  const g = result.groups.length
+  return (
+    <div id="settings-search-results" className="flex flex-col gap-3" data-testid="settings-search-results">
+      <p className="text-2xs text-grid-dim" aria-live="polite">
+        {n} {n === 1 ? 'setting' : 'settings'} in {g} {g === 1 ? 'section' : 'sections'} · ↑↓ to move, Enter to open in its tab
+      </p>
+      {result.groups.map((grp) => {
+        const sec = SETTINGS_SECTIONS.find((s) => s.id === grp.section)!
+        return (
+          <section key={grp.section} className="flex flex-col gap-2">
+            <button
+              onClick={() => onJump(grp.hits[0])}
+              className="self-start text-2xs font-semibold uppercase tracking-wide text-grid-muted hover:text-grid-text"
+              title={`Open ${sec.label}`}
+            >
+              {sec.label} ›
+            </button>
+            {grp.hits.map((hit) =>
+              hit.kind === 'field' ? (
+                <FieldRow
+                  key={hit.id}
+                  field={FIELD_BY_KEY.get(hit.id as keyof Settings)!}
+                  values={values}
+                  hit={hit}
+                  active={hit.id === activeId}
+                  onOpen={() => onJump(hit)}
+                />
+              ) : (
+                <PanelHit key={hit.id} hit={hit} active={hit.id === activeId} onOpen={() => onJump(hit)} />
+              ),
+            )}
+          </section>
+        )
+      })}
+    </div>
+  )
+}
+
+/** A block that is not a single control (jog measure, sampler export, System, Privacy): shown as a way in. */
+function PanelHit({ hit, active, onOpen }: { hit: SettingsHit; active: boolean; onOpen: () => void }) {
+  const p = PANEL_ENTRIES.find((e) => e.id === hit.id)!
+  return (
+    <div
+      id={`result-${hit.id}`}
+      className={`flex items-center gap-3 rounded-[var(--radius-sm)] border bg-surface-1 px-3 py-2.5 ${
+        active ? 'border-[var(--color-accent)]' : 'border-hairline'
+      }`}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-semibold text-grid-text">
+          <Marked text={p.label} ranges={hit.label} />
+        </div>
+        <div className="text-2xs text-grid-dim">
+          <Marked text={p.help} ranges={hit.help} />
+        </div>
+        <Reasons hit={hit} />
+      </div>
+      <Button variant="ghost" size="sm" onClick={onOpen}>
+        Open
+      </Button>
     </div>
   )
 }
@@ -142,16 +405,48 @@ function StorageReport() {
   )
 }
 
-function FieldRow({ field, values }: { field: Field; values: Settings }) {
+function FieldRow({
+  field,
+  values,
+  hit,
+  active = false,
+  flash = false,
+  onOpen,
+}: {
+  field: Field
+  values: Settings
+  /** Set when shown as a search result: what to mark, and why it matched. */
+  hit?: SettingsHit
+  active?: boolean
+  flash?: boolean
+  /** Search results only: open this setting in its own tab. */
+  onOpen?: () => void
+}) {
   const value = values[field.key]
   const isDefault = value === DEFAULTS[field.key]
 
   return (
-    <div className="rounded-[var(--radius-sm)] border border-hairline bg-surface-1 px-3 py-2.5">
+    <div
+      id={hit ? `result-${field.key}` : `setting-${field.key}`}
+      className={`rounded-[var(--radius-sm)] border bg-surface-1 px-3 py-2.5 ${
+        active ? 'border-[var(--color-accent)]' : 'border-hairline'
+      } ${flash ? FLASH : ''}`}
+    >
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
-          <div className="text-xs font-semibold text-grid-text">{field.label}</div>
-          <div className="text-2xs text-grid-dim">{field.help}</div>
+          <div className="text-xs font-semibold text-grid-text">
+            {onOpen ? (
+              <button onClick={onOpen} className="text-left hover:underline" title="Open in its tab">
+                <Marked text={field.label} ranges={hit?.label ?? []} />
+              </button>
+            ) : (
+              field.label
+            )}
+          </div>
+          <div className="text-2xs text-grid-dim">
+            <Marked text={field.help} ranges={hit?.help ?? []} />
+          </div>
+          {hit && <Reasons hit={hit} />}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Control field={field} value={value} />

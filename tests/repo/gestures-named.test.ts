@@ -89,7 +89,13 @@ const NAMED: Record<string, Named[]> = {
   ],
   'src/app/components/KeysScreen.tsx': [{ token: "addEventListener('keydown'", count: 1, exempt: ESC_CLOSES }],
   'src/app/components/SetHistory.tsx': [{ token: "addEventListener('keydown'", count: 1, exempt: ESC_CLOSES }],
-  'src/app/components/Settings.tsx': [{ token: "addEventListener('keydown'", count: 1, exempt: ESC_CLOSES }],
+  'src/app/components/Settings.tsx': [
+    { token: "addEventListener('keydown'", count: 1, exempt: ESC_CLOSES },
+    // v0.9.55: Ctrl+F (⌘F on a Mac) focuses the Settings search; arrows and Enter walk its results
+    { token: 'e.ctrlKey', count: 1, gesture: 'settings.search' },
+    { token: 'e.metaKey', count: 1, gesture: 'settings.search' },
+    { token: 'onKeyDown=', count: 1, gesture: 'settings.search' },
+  ],
   'src/app/components/TaggingScreen.tsx': [
     { token: "addEventListener('keydown'", count: 1, exempt: ESC_CLOSES },
     // v0.9.1: arrows move the "1", Shift makes the step small, Space plays
