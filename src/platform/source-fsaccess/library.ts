@@ -399,6 +399,9 @@ export interface AnalysisQueueProgress {
  * this pass exists *only* to produce an identity and a cached result, so a
  * track it can't hash has nothing for it to do.
  */
+/** How many files the identity pass reads at once — see the measurement where it is used. */
+export const HASH_CONCURRENCY = 1
+
 export async function queueLibraryAnalysis(
   tracks: Track[],
   onUpdate: (patch: Map<string, Partial<Track>>, progress: AnalysisQueueProgress) => void,
@@ -456,7 +459,10 @@ export async function queueLibraryAnalysis(
         if (batch.size >= 25 || performance.now() - lastFlush > 300) flush()
       }
     }
-    await Promise.all(Array.from({ length: Math.min(4, total) }, hasher))
+    // One file at a time, not four (v0.9.56). Measured 07/10 in headless Chromium (scratch bench, 40 reads of 13 MB + SHA-256): four at
+    // once froze the screen up to 100-117 ms, 8-12 frames over 50 ms; one at a time 50-67 ms, 0-1 frames, in the same total time — the
+    // reads and digests wait on memory, not on each other. Those freezes are the waveform jumps Shalom saw right after a page load.
+    await Promise.all(Array.from({ length: Math.min(HASH_CONCURRENCY, total) }, hasher))
     flush()
     if (!opts.signal?.cancelled) opts.onHashed?.()
   }
