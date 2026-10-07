@@ -14,6 +14,7 @@ import {
   queueVocalStripBackfill,
   inDeckPass,
   queueLibraryAnalysis,
+  offMainFallbackReasons,
   readLibraryTags,
   restoreLibraryFolder,
   scanLibrary,
@@ -1422,6 +1423,15 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
               title="בזמן שדק מנגן, הניתוח ברקע עובד על שיר אחד בכל פעם ונח בין שיר לשיר, כדי שהמחשב לא יחנוק את הסאונד. כשהנגינה נעצרת הוא חוזר למהירות מלאה."
             >
               ניתוח מואט בזמן נגינה
+            </span>
+          )}
+          {/* v0.9.57: a song the background decoder could not open went through the browser's decoder (a screen freeze, still a result) — counted, not hidden. */}
+          {offMainFallbackReasons().size > 0 && (
+            <span
+              className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-warn"
+              title={`שירים שהמפענח ברקע לא פתח (קובץ ארוך מאוד, או שהמפענח נכשל), ולכן נפתחו בדרך הרגילה של הדפדפן — המסך עלול לקפוץ רגע בכל אחד.\n${[...offMainFallbackReasons().values()].map(({ name, why }) => `${name}: ${why}`).join('\n')}`}
+            >
+              {offMainFallbackReasons().size} נפתחו בדרך הרגילה
             </span>
           )}
           {/* v0.9.52: the cushion is never silent — while it is on, and once it can go, the header says so. */}
