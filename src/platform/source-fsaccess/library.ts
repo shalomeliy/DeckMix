@@ -494,7 +494,7 @@ export async function queueLibraryAnalysis(
         if (!analysis) {
           // read only now: a cache hit (every track, on a normal reload) needs no bytes at all
           analysis = await pace.run(async () => {
-            return analyzerWorker.analyze(await pcmForAnalysis(track), { hintBpm })
+            return analyzerWorker.analyze(await pcmForAnalysis(track, true), { hintBpm })
           })
           await analysisCache.put(cacheKey, analysis)
         }
@@ -595,7 +595,7 @@ export async function queueEmbeddingBackfill(
         // already resolved for this track — same invariant `loadTrackToDeck`
         // and the rest of this file already rely on.
         bgPass.add(track.id)
-        const embedding = await embeddingFor(track, pace).finally(() => bgPass.delete(track.id))
+        const embedding = await embeddingFor(track, true, pace).finally(() => bgPass.delete(track.id))
         done++
         if (opts.signal?.cancelled) return
         onUpdate(new Map([[track.id, { embedding, embeddingState: 'embedded' }]]), { done, total, failed })
@@ -654,7 +654,7 @@ export async function queueVocalStripBackfill(
     }
     onUpdate(new Map([[track.id, { vocal: { state: 'analysing', timeline: null } }]]), { done, total, failed })
     bgPass.add(track.id)
-    const result = await vocalStripFor(track, taught.has(track.contentHash as string), pace).finally(() => bgPass.delete(track.id))
+    const result = await vocalStripFor(track, taught.has(track.contentHash as string), true, pace).finally(() => bgPass.delete(track.id))
     done++
     if (result.state === 'failed') failed++
     if (opts.signal?.cancelled) return
@@ -674,18 +674,22 @@ const pace = createPacer({
 const unpaced: Pacer = { run: (job) => job() }
 
 /**
- * A song's audio for the background analyses (v0.9.57): decoded in a Worker when its format allows (`platform/decode-worker/`), so the
- * page does not freeze once per song; otherwise — and when that decoder fails — through `engine.decode` on the main thread, as before.
- * A failure there is not silent: it is recorded per song (`offMainFallbacks`), and the library header shows the count and the names.
- * `offMain: false` is the deck's own pass (`analyseDeckTrackNow`): a song the owner just loaded keeps the faster browser decoder rather
- * than waiting in the background decoder's one-song-at-a-time line.
+ * A song's audio for the analyses (v0.9.57): decoded in a Worker when its format allows (`platform/decode-worker/`), so the page does not
+ * freeze once per song; otherwise — and when that decoder fails — through `engine.decode` on the main thread, as before. A failure there is
+ * not silent: it is recorded per song (`offMainFallbacks`), and the library header shows the count and the names.
+ * `offMain: false` is the deck's own pass (`analyseDeckTrackNow`). Measured 07/10 (v0.9.58), loading a song to deck B while A played: in
+ * a Worker of its own that pass froze A's waveform up to 267 ms, on the main thread up to 150 ms (the decoder's resampling competes with
+ * everything else that a load starts at once). So it stays here.
  */
-async function pcmForAnalysis(track: Track, offMain = true): Promise<PcmData> {
-  const data = await (await track.handle.getFile()).arrayBuffer()
+async function pcmForAnalysis(track: Track, offMain: boolean): Promise<PcmData> {
+  const file = await track.handle.getFile()
   let failure: string | null = null
-  if (offMain && offMainFormat(track.name)) {
+  // `file.name`, never `track.name`: the track's name is the title without its extension, so v0.9.57 asked "is this an mp3?" of
+  // "Adam Port - Move", got no, and sent every song down the old path — found 07/10 when the waveform still jumped for Shalom.
+  if (offMain && offMainFormat(file.name)) {
     try {
-      const pcm = await decodeInWorker(data.slice(0), track.name, engine.ctx.sampleRate)
+      // Handed over, not copied: a 10 MB copy per song was garbage the playing deck's frames paid for. A fallback reads the file again.
+      const pcm = await decodeInWorker(await file.arrayBuffer(), file.name, engine.ctx.sampleRate)
       if (pcm) {
         offMainFallbacks.delete(track.id)
         return pcm
@@ -695,7 +699,7 @@ async function pcmForAnalysis(track: Track, offMain = true): Promise<PcmData> {
       console.warn(`decoding "${track.name}" in the background decoder failed, trying the browser's:`, err)
     }
   }
-  const pcm = pcmFromAudioBuffer(await engine.decode(data))
+  const pcm = pcmFromAudioBuffer(await engine.decode(await file.arrayBuffer()))
   // Recorded only once the browser's decoder has actually opened it: if that fails too, the song's own analysis error says so instead.
   if (failure !== null) offMainFallbacks.set(track.id, { name: track.name, why: failure })
   return pcm
@@ -708,7 +712,7 @@ export function offMainFallbackReasons(): ReadonlyMap<string, { name: string; wh
 }
 
 /** One track's embedding, cache first — shared by the background pass and the deck's own pass. Throws; each caller names the failure. */
-async function embeddingFor(track: Track, paced: Pacer = unpaced): Promise<Float32Array> {
+async function embeddingFor(track: Track, offMain: boolean, paced: Pacer = unpaced): Promise<Float32Array> {
   const contentHash = track.contentHash as string
   // Cache first: a backfill cancelled by a rescan has already stored
   // the vector for the track it was on, then dropped the store patch.
@@ -720,7 +724,7 @@ async function embeddingFor(track: Track, paced: Pacer = unpaced): Promise<Float
       // Worker too, copy the PCM *before* the first transfer: afterwards
       // Chromium's copyFromChannel returns zeros and throws nothing, which
       // wrote 349 all-zero embeddings for Shalom's library on 20/09.
-      return classicalEmbedder.embed(await pcmForAnalysis(track, paced !== unpaced))
+      return classicalEmbedder.embed(await pcmForAnalysis(track, offMain))
     })
     await embeddingCache.put(contentHash, classicalEmbedder.modelId, embedding)
   }
@@ -728,7 +732,7 @@ async function embeddingFor(track: Track, paced: Pacer = unpaced): Promise<Float
 }
 
 /** One track's vocal strip, cache first. Never throws: a failure comes back as a named `failed` result, shown on screen like any other. */
-async function vocalStripFor(track: Track, taught: boolean, paced: Pacer = unpaced): Promise<VocalResult> {
+async function vocalStripFor(track: Track, taught: boolean, offMain: boolean, paced: Pacer = unpaced): Promise<VocalResult> {
   if (taught) return { state: 'manual', timeline: null }
   try {
     const contentHash = track.contentHash as string
@@ -736,7 +740,7 @@ async function vocalStripFor(track: Track, taught: boolean, paced: Pacer = unpac
     const cached = await getVocalStrip(contentHash, genre)
     if (cached) return cached
     const result = await paced.run(async () => {
-      return analyseVocalStrip(await pcmForAnalysis(track, paced !== unpaced), genre)
+      return analyseVocalStrip(await pcmForAnalysis(track, offMain), genre)
     })
     try {
       await putVocalStrip(contentHash, genre, result)
@@ -787,12 +791,12 @@ export async function analyseDeckTrackNow(
         console.error('reading the vocal marks before the deck pass failed — computing the strip anyway', err)
       }
       onUpdate({ vocal: { state: 'analysing', timeline: null } })
-      onUpdate({ vocal: await vocalStripFor(track, taught) })
+      onUpdate({ vocal: await vocalStripFor(track, taught, false) })
     }
     if (want.embedding) {
       onUpdate({ embeddingState: 'embedding' })
       try {
-        onUpdate({ embedding: await embeddingFor(track), embeddingState: 'embedded' })
+        onUpdate({ embedding: await embeddingFor(track, false), embeddingState: 'embedded' })
       } catch (err) {
         onUpdate({ embeddingState: 'failed', embeddingError: err instanceof Error ? err.message : String(err) })
       }

@@ -24,6 +24,10 @@ export type OffMainFormat = (typeof OFF_MAIN_FORMATS)[number]
 let wasm: Promise<WebAssembly.Exports> | null = null
 
 async function decodeMp3(bytes: Uint8Array): Promise<{ channels: Float32Array[]; sampleRate: number }> {
+  // An MP4/AAC file named .mp3 (found 07/10 in his Techno folder): minimp3 finds no frames in it. Said plainly, so the badge's reason is true.
+  if (bytes.length > 12 && String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7]) === 'ftyp') {
+    throw new Error('this .mp3 file is really an MP4 (AAC) file — the browser opens it')
+  }
   // `?init` loads the decoder from the app's own bundle — no request leaves the computer, so `privacy-claims.test.ts` (no network calls outside the one lookup) still holds.
   wasm ??= initDecoderWasm({}).then((instance) => instance.exports)
   const decoder = new Decoder(await wasm, bytes)
