@@ -72,6 +72,11 @@ export interface Settings {
    * screen says so rather than pretending the change landed.
    */
   latency: LatencyProfile
+  /**
+   * v0.9.54: boot on Balanced while the library has analysis to do, and leave it once the analysis is done (v0.9.52–53). Off by default
+   * (Shalom, 07/10). Read at boot like `latency`, so it is mirrored the same way (`boot-latency.ts`).
+   */
+  analysisCushion: boolean
 
   // — preferences —
   /** Musical (Am, F#) or Camelot (8A, 11B) in the library and on the decks. */
@@ -134,6 +139,7 @@ export const DEFAULTS: Settings = {
   platterRpm: PLATTER_RPM,
   jogSmoothing: JOG_SMOOTHING,
   latency: 'interactive',
+  analysisCushion: false,
 
   keyMode: 'musical',
   waveformPxPerSec: WAVEFORM_PX_PER_SEC,
@@ -284,6 +290,14 @@ export const FIELDS: Field[] = [
       { value: 'balanced', label: 'Balanced' },
       { value: 'playback', label: 'Safe — fewest dropouts' },
     ],
+  },
+  {
+    kind: 'toggle',
+    key: 'analysisCushion',
+    label: 'Balanced while the library analyses',
+    help: 'When the library has songs to analyse (after a new version), the page opens on Balanced so the analysis does not make playing songs skip. When the analysis is done the page refreshes by itself if nothing would be lost, or shows a "fast jog" button. Only when Audio latency is on Low.',
+    group: 'hardware',
+    requiresReload: true,
   },
 
   {

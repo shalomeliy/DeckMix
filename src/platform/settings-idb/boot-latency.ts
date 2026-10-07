@@ -35,16 +35,17 @@ const HINTS: Record<LatencyProfile, AudioContextLatencyCategory> = {
 export function bootLatencyHint(): AudioContextLatencyCategory {
   let stored: LatencyProfile | null = null
   let settled: string | null = null
+  let enabled = false
   try {
     const raw = localStorage.getItem(BOOT_LATENCY_KEY)
     if (raw && raw in HINTS) stored = raw as LatencyProfile
     settled = localStorage.getItem(ANALYSIS_SETTLED_KEY)
+    enabled = localStorage.getItem(BOOT_CUSHION_KEY) === 'on'
   } catch {
     // Blocked storage throws rather than returning null. Read as "nothing
-    // stored": the owner's default, cushioned because nothing says the
-    // analysis ever finished — the safe side for the sound.
+    // stored": the owner's default, and the cushion switch's default, off.
   }
-  const boot = bootLatency(stored, settled, CURRENT_ANALYSIS)
+  const boot = bootLatency(stored, settled, CURRENT_ANALYSIS, enabled)
   cushioned = boot.cushioned
   return HINTS[boot.hint]
 }
@@ -115,5 +116,16 @@ export function markCushionReload(): boolean {
     return true
   } catch {
     return false
+  }
+}
+
+/** v0.9.54: the Settings switch for the cushion, mirrored for the same reason as `latency` — the engine reads it before IndexedDB answers. */
+export const BOOT_CUSHION_KEY = 'deckmix:bootCushion'
+
+export function writeBootCushion(on: boolean): void {
+  try {
+    localStorage.setItem(BOOT_CUSHION_KEY, on ? 'on' : 'off')
+  } catch {
+    // same as writeBootLatency: the settings store already reports a failed write
   }
 }

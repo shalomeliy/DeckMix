@@ -6,17 +6,22 @@ const NOW = analysisFingerprint({ analyzer: 6, embedder: 2, vocal: 5 })
 describe('sound cushion while the library analyses (v0.9.52)', () => {
   it('a new analysis version boots on Balanced instead of the default', () => {
     const before = analysisFingerprint({ analyzer: 6, embedder: 2, vocal: 4 })
-    expect(bootLatency('interactive', before, NOW)).toEqual({ hint: 'balanced', cushioned: true })
+    expect(bootLatency('interactive', before, NOW, true)).toEqual({ hint: 'balanced', cushioned: true })
   })
 
   it('a session that never finished (nothing settled) boots cushioned, stored setting or not', () => {
-    expect(bootLatency(null, null, NOW)).toEqual({ hint: 'balanced', cushioned: true })
-    expect(bootLatency('interactive', null, NOW)).toEqual({ hint: 'balanced', cushioned: true })
+    expect(bootLatency(null, null, NOW, true)).toEqual({ hint: 'balanced', cushioned: true })
+    expect(bootLatency('interactive', null, NOW, true)).toEqual({ hint: 'balanced', cushioned: true })
   })
 
   it('once the analysis settled on these versions, the owner gets his own setting back', () => {
     expect(bootLatency('interactive', NOW, NOW)).toEqual({ hint: 'interactive', cushioned: false })
     expect(bootLatency(null, NOW, NOW)).toEqual({ hint: 'interactive', cushioned: false })
+  })
+
+  it('with the Settings switch off — the default — nothing is ever lifted, even with analysis to do', () => {
+    expect(bootLatency('interactive', null, NOW)).toEqual({ hint: 'interactive', cushioned: false })
+    expect(bootLatency(null, 'old', NOW, false)).toEqual({ hint: 'interactive', cushioned: false })
   })
 
   it('a profile he picked himself is never touched', () => {

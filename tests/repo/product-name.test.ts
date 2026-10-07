@@ -26,6 +26,8 @@ const STORAGE_KEYS = [
   'deckmix:analysisCache:',
   // new in v0.9.52, never had a soundgrid: copy to move
   'deckmix:analysisSettled',
+  // new in v0.9.54, never had a soundgrid: copy
+  'deckmix:bootCushion',
   'deckmix:bootLatency',
   // new in v0.9.53, per-tab (sessionStorage), never had a soundgrid: copy
   'deckmix:cushionReloaded',

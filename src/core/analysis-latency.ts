@@ -29,9 +29,11 @@ export function bootLatency(
   stored: LatencyProfile | null,
   settledFingerprint: string | null,
   currentFingerprint: string,
+  /** the Settings switch (v0.9.54) — off by default, and then nothing here ever lifts anything */
+  enabled = false,
 ): { hint: LatencyProfile; cushioned: boolean } {
   const own = stored ?? 'interactive'
-  if (own === 'interactive' && settledFingerprint !== currentFingerprint) return { hint: 'balanced', cushioned: true }
+  if (enabled && own === 'interactive' && settledFingerprint !== currentFingerprint) return { hint: 'balanced', cushioned: true }
   return { hint: own, cushioned: false }
 }
 
