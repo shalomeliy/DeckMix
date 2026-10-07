@@ -12,6 +12,7 @@ import {
   pickTrackFiles,
   queueEmbeddingBackfill,
   queueVocalStripBackfill,
+  inDeckPass,
   queueLibraryAnalysis,
   readLibraryTags,
   restoreLibraryFolder,
@@ -739,13 +740,16 @@ export function Library() {
   // asks once per remaining track at every pick.
   let lookupFor: Track[] | null = null
   let lookup = new Map<string, Track>()
-  function lacksBpmOrKey(id: string): boolean {
+  function liveRow(id: string): Track | undefined {
     const current = useStore.getState().library.tracks
     if (current !== lookupFor) {
       lookup = new Map(current.map((t) => [t.id, t]))
       lookupFor = current
     }
-    const t = lookup.get(id)
+    return lookup.get(id)
+  }
+  function lacksBpmOrKey(id: string): boolean {
+    const t = liveRow(id)
     return !!t && (t.bpm == null || t.camelot == null)
   }
 
@@ -775,7 +779,11 @@ export function Library() {
           }),
         })
       },
-      { signal: scan },
+      {
+        signal: scan,
+        // v0.9.49: a deck's track may have been done meanwhile (`analyseDeckTrackNow`), or be in progress there
+        alreadyDone: (id) => inDeckPass(id) || !!liveRow(id)?.embedding,
+      },
     )
     // Then the vocal strip (v0.9.10b): last on purpose, it is the longest pass and nothing waits for it.
     await queueVocalStripBackfill(
@@ -792,6 +800,10 @@ export function Library() {
       },
       {
         signal: scan,
+        alreadyDone: (id) => {
+          const v = liveRow(id)?.vocal
+          return inDeckPass(id) || (!!v && v.state !== 'queued' && v.state !== 'analysing')
+        },
         isUrgent: (id) => {
           const { decks } = useStore.getState()
           return decks.A.track?.id === id || decks.B.track?.id === id

@@ -2,6 +2,7 @@ import { pcmFromAudioBuffer } from '@/platform/analyzer-js/analyze'
 import { clipSpectrogram, type Spectrogram } from '@/core/sound/spectrogram'
 import { detectVocalTimeline } from '@/core/sound/vocal-presence'
 import { kickEnvelope } from '@/platform/analyzer-js/beat'
+import { deckTrackNeeds } from '@/core/analysis-order'
 import { barOneApplies, chooseBarGrid, detectBarOne } from '@/core/downbeat'
 import { analysisCache } from '@/platform/analyze-cache-idb/store'
 import { analyzerWorker } from '@/platform/analyzer-worker'
@@ -81,7 +82,7 @@ import { ownerCorrection, reconcileSavedGrid, resolveGridCorrection } from '@/co
 import { getExcellentPoints, markExcellent } from '@/platform/mix-ratings-idb/store'
 import { markExcellentPair } from '@/platform/mix-pairs-idb/store'
 import { clock } from '@/platform/clock-audio'
-import { readOriginalTempoKey, readTagBpm, readTrackData } from '@/platform/source-fsaccess/library'
+import { analyseDeckTrackNow, inBackgroundPass, readOriginalTempoKey, readTagBpm, readTrackData } from '@/platform/source-fsaccess/library'
 import { analysisCacheKey } from '@/core/analysis-cache'
 import { detectedKeyFields } from '@/core/key-detect'
 import { applyOwnerMeta, clearOwnerMeta, fillDetectedKey, labelAgrees, withLatestKey } from '@/core/tag-merge'
@@ -629,6 +630,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
           : t,
       ),
     })
+    jumpDeckTrackQueue(track.id)
   } catch (err) {
     console.error('analysis failed', err)
     if (useStore.getState().decks[deckId].track?.id !== track.id) return
@@ -4820,6 +4822,47 @@ export async function importVocalMarks(): Promise<void> {
     vocalNotice(`סימוני השירה לא יובאו: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
+
+/**
+ * v0.9.49: a song on a deck gets its vocal strip and its "more like this" fingerprint now, not when the background passes reach it — those
+ * only start after the whole library's BPM pass (06/10: deck A read "vocal: not analysed yet" with 239 rows still queued). Read from the
+ * live row, after this load's own analysis marked it analysed: a row that already has both costs nothing. A genre change leaves the strip
+ * `queued` ("recomputed at the next load"), and this is what makes that note true.
+ */
+function jumpDeckTrackQueue(trackId: string) {
+  const row = useStore.getState().library.tracks.find((t) => t.id === trackId)
+  if (!row || !deckTrackNeeds(row)) return
+  // The owner's genre picks are keyed by hash and land on the rows with the hash pass; the strip depends on the genre and is cached under it,
+  // so before then it would be worked out — and stored — for the folder's genre instead of his. Waits that pass out (~12s on his library).
+  // One waiter per track: reloading the same song while the hash pass runs must not stack them.
+  if (!useStore.getState().library.hashesRead) {
+    if (waitingForHashes.has(trackId)) return
+    waitingForHashes.add(trackId)
+    const stop = useStore.subscribe((st) => {
+      if (!st.library.hashesRead) return
+      stop()
+      waitingForHashes.delete(trackId)
+      if (st.decks.A.track?.id === trackId || st.decks.B.track?.id === trackId) jumpDeckTrackQueue(trackId)
+    })
+    return
+  }
+  const need = deckTrackNeeds(row)
+  if (!need) return
+  // Already on it in the background (it put the deck track first): a second decode of the same song would only cost memory mid-load.
+  const busy = inBackgroundPass(trackId)
+  const want = { vocal: need.vocal && !busy, embedding: need.embedding && !busy }
+  void analyseDeckTrackNow(row, want, (patch) => {
+    const { library, setLibrary } = useStore.getState()
+    // The same file only: a rescan in between may have put another track under this id. And a strip only for the genre it was worked out
+    // for: a genre changed meanwhile left the row `queued` for the new one, and an old-genre result would read as done (review, 07/10).
+    setLibrary({
+      tracks: library.tracks.map((t) =>
+        t.id === trackId && t.contentHash === row.contentHash && (!patch.vocal || (t.genre ?? '') === (row.genre ?? '')) ? { ...t, ...patch } : t,
+      ),
+    })
+  })
+}
+const waitingForHashes = new Set<string>()
 
 /** On every load: drop a mark the old track left open (said so), and bring this song's saved marks into memory. */
 async function onTrackLoadedForVocalMarks(deckId: DeckId, contentHash: string | undefined) {
