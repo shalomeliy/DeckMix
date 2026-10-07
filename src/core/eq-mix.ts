@@ -35,7 +35,16 @@ export interface EqBands {
  * default: what Techno and House DJs do, and the moment the room feels the new song arrive); `gradual` — over one bar, both at half power
  * halfway (equal power, see `swapCurve`).
  */
-export type BassSwapStyle = 'instant' | 'gradual'
+export type BassSwapStyle = 'instant' | 'gradual' | 'together'
+
+/**
+ * `together` (v0.9.33, the owner's choice on 07/10, after the first ear test: "I miss the part where the two basses play together in perfect
+ * harmony before the transition is done"): both LOWs fully open for `MIX_TOGETHER_BARS`, the swap line in their middle — B's opens a bar
+ * before it (or at the join, if that is later), A's shuts a bar after it. This breaks the "never two basslines" rule above on purpose, and
+ * the price was said to him before he chose: two basses at full add up (+1.9 dB in the room model while both play, against +0.6 for
+ * `instant`) and turn to mud when the two songs' basslines do not agree. The limiter catches the peaks; the mud is his ear's call.
+ */
+export const MIX_TOGETHER_BARS = 2
 
 /**
  * The crossfader curve every automatic EQ mix runs on (v0.9.33): `full-middle`, each deck at full level from its side up to the middle —
@@ -161,7 +170,13 @@ export function eqMixFrame(
   const under = incomingUnderA(own.b)
 
   // LOW — the bass swap.
-  if (pos < swapSec) {
+  if (style === 'together') {
+    const half = (MIX_TOGETHER_BARS / 2) * barSec
+    if (pos < Math.max(joinSec, swapSec - half)) b.low = under.low
+    // Never later than `outStart`: on the 5 s plain mix a bar after the swap is past the point where the crossfader starts taking A out
+    // (128 BPM), and under 96 BPM past the end of the mix itself — A's bass would never shut, and there would be no swap at all.
+    if (pos >= Math.min(swapSec + half, outStart)) a.low = EQ_KILL
+  } else if (pos < swapSec) {
     b.low = under.low
   } else if (style === 'instant') {
     a.low = EQ_KILL
