@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { EQ_CUT_DB, EQ_DB } from '@/core/constants'
 import { crossfaderGains, type CrossfaderCurve } from '@/core/fx'
-import { AUTO_MIX_CROSSFADER_CURVE, EQ_KILL, MIX_MID_CUT, eqMixFrame, incomingUnderA, plainEqMixPlan, type BassSwapStyle, type EqBands } from '@/core/eq-mix'
+import { AUTO_MIX_CROSSFADER_CURVE, EQ_KILL, MIX_MID_CUT, MIX_TOGETHER_BARS, eqMixFrame, incomingUnderA, plainEqMixPlan, type BassSwapStyle, type EqBands } from '@/core/eq-mix'
 
 const flat: EqBands = { low: 0, mid: 0, high: 0 }
 const own = { a: flat, b: flat }
@@ -43,6 +43,42 @@ describe('eqMixFrame — never two basses at once (v0.9.18)', () => {
     expect(frame(62, 'gradual').a.low).toBe(EQ_KILL)
     expect(frame(62, 'gradual').b.low).toBe(0)
   })
+})
+
+// The owner, 07/10: "I miss the part where the basses play together in perfect harmony before the transition is done" — and on the card, both
+// basses full together. Two bars, the swap line in the middle; outside them still one bass at a time.
+describe('eqMixFrame — together: both basses full around the swap (v0.9.33)', () => {
+  it('both LOWs fully open from a bar before the swap to a bar after it, and only there', () => {
+    expect(MIX_TOGETHER_BARS).toBe(2)
+    sweep((pos) => {
+      const f = frame(pos, 'together')
+      const both = f.a.low === 0 && f.b.low === 0
+      expect(both).toBe(pos >= 58 && pos < 62)
+      if (!both) expect(f.a.low === EQ_KILL || f.b.low === EQ_KILL).toBe(true)
+    })
+  })
+  it('B still comes in with its bass off, and A ends with its bass off', () => {
+    expect(frame(44, 'together').b.low).toBe(EQ_KILL)
+    expect(frame(57.99, 'together').b.low).toBe(EQ_KILL)
+    expect(frame(62, 'together').a.low).toBe(EQ_KILL)
+    expect(frame(62, 'together').b.low).toBe(0)
+  })
+  // Independent review, 07/10: at a bar after the swap A's bass shut only after the crossfader had started taking A out, and under 96 BPM
+  // (a bar longer than 2.5 s) not at all inside the 5 s mix — no swap. It shuts where A's way out starts, at the latest.
+  for (const bpm of [70, 95, 128, 175])
+    it(`on the 5 s plain mix at ${bpm} BPM both basses play from the join, and A's shuts before A starts leaving`, () => {
+      const bar = (60 / bpm) * 4
+      const p = plainEqMixPlan(5, bar)
+      const outStart = p.swapSec + (p.fadeEndSec - p.swapSec) / 2
+      const shut = Math.min(p.swapSec + bar, outStart)
+      const f = (t: number) => eqMixFrame(p, t, bar, own, 'together')
+      expect(f(0).a.low).toBe(0)
+      expect(f(0).b.low).toBe(0)
+      expect(f(shut - 0.01).a.low).toBe(0)
+      expect(f(shut).a.low).toBe(EQ_KILL)
+      expect(shut).toBeLessThan(p.fadeEndSec)
+      expect(shut).toBeGreaterThan(1.4)
+    })
 })
 
 describe('eqMixFrame — gradual swap with a boosted LOW (independent review, 05/10)', () => {
@@ -155,6 +191,17 @@ describe("eqMixFrame — the room keeps one song's loudness all the way through 
         expect(roomDb(pos, AUTO_MIX_CROSSFADER_CURVE, style)).toBeLessThan(1.5)
       })
     })
+  // Two basses at full add up: the price of 'together', said to the owner before he chose it. Never a drop, and bounded.
+  it('together: never 1 dB under one whole song, and the bass overlap stays under +2.5 dB', () => {
+    let max = -Infinity
+    sweep((pos) => {
+      const db = roomDb(pos, AUTO_MIX_CROSSFADER_CURVE, 'together')
+      expect(db).toBeGreaterThan(-1)
+      max = Math.max(max, db)
+    })
+    expect(max).toBeLessThan(2.5)
+    expect(max).toBeGreaterThan(1.5)
+  })
   it("on the hand crossfader's curve the same knobs sag below −2 dB — why automatic mixes do not use it", () => {
     expect(roomDb(52, 'power')).toBeLessThan(-2)
     expect(roomDb(66, 'power')).toBeLessThan(-2)

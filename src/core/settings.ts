@@ -120,7 +120,7 @@ export interface Settings {
    * Shalom's own request; he asked (06/10) to be able to turn it off. Artists he already accepted stay either way.
    */
   artistSuggestions: boolean
-  /** v0.9.18: how Mix Assist swaps the two basses (`core/eq-mix.ts`). Instant by default (Shalom, 05/10), gradual by choice here. */
+  /** v0.9.18: how Mix Assist swaps the two basses (`core/eq-mix.ts`). Instant by default (Shalom, 05/10), gradual or together (v0.9.33, 07/10) by choice here. */
   bassSwap: BassSwapStyle
   /**
    * v0.9.22: how far Mix Assist may move the incoming song's key by itself (`autoKeySync` in `controls.ts`), in semitones. 0 = off. Two by
@@ -402,12 +402,13 @@ export const FIELDS: Field[] = [
     kind: 'choice',
     key: 'bassSwap',
     label: 'Mix Assist bass swap',
-    help: 'Mix Assist brings the new song in with its bass off, and swaps the two basses where the new part starts. Instant: one shuts and the other opens on the same beat. Gradual: over one bar, both at half power in the middle of it.',
+    help: 'Mix Assist brings the new song in with its bass off, and swaps the two basses where the new part starts. Instant: one shuts and the other opens on the same beat. Gradual: over one bar, both at half power in the middle of it. Together: both basses play at full for 2 bars around the swap — fuller, louder, and muddy if the two basslines do not agree.',
     group: 'feel',
     keywords: ["mix assist", "bass", "eq", "transition", "מיקס", "בס", "באס", "מעבר", "החלפה"],
     options: [
       { value: 'instant', label: 'Instant — on the beat' },
       { value: 'gradual', label: 'Gradual — over one bar' },
+      { value: 'together', label: 'Together — both basses full for 2 bars' },
     ],
   },
   {
