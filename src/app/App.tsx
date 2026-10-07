@@ -242,7 +242,8 @@ export default function App() {
             notice.tone === 'warn' ? 'bg-warn/12 text-warn' : 'bg-surface-2 text-grid-muted'
           }`}
         >
-          <span className="min-w-0 flex-1">{notice.text}</span>
+          {/* dir="auto": a Hebrew notice reads right to left and sits on the right, an English one stays as it was (owner, 07/10). The layout itself stays LTR. */}
+          <span dir="auto" className="min-w-0 flex-1">{notice.text}</span>
           <button
             onClick={() => setNotice(null)}
             className="shrink-0 rounded-[var(--radius-xs)] px-1.5 py-0.5 hover:bg-surface-3"
