@@ -1781,8 +1781,26 @@ export function setHotCue(deckId: DeckId, index: number) {
   const cues = decks[deckId].hotCues
   const existing = cues.find((c) => c.index === index)
   if (existing) {
-    deck.seek(existing.positionSec)
-    patchDeck(deckId, { positionSec: existing.positionSec })
+    // A synced deck that jumps keeps the beat (v0.9.33, the owner, 07/10: the second press of the same "Mix in" pad, on a deck already
+    // playing, put its kicks between the other deck's — "two kicks one after the other"). The jump landed wherever the cue was, off the
+    // master's beat by up to half a beat, and the SYNC loop pulls a deck back by nudging its speed, a few ms a second: the kicks flammed for
+    // seconds. Now it lands at most half a beat from the cue, on the beat — what Quantize does on any DJ deck.
+    const onBeat = syncPhaseDeltaSec(deckId, existing.positionSec)
+    let target = existing.positionSec + (onBeat ?? 0)
+    const beatSec = decks[deckId].beatGrid ? 60 / decks[deckId].beatGrid!.bpm : 0
+    // Before the start: the next beat instead, not 0 — 0 is off the beat, the very thing this snap is for. Past the end: the beat before.
+    if (onBeat != null && target < 0) target += beatSec
+    if (onBeat != null && target > deck.duration) target -= beatSec
+    // A cue inside a running loop stays inside it: the snap may not carry the deck out of a loop the owner set.
+    const { loopStart, loopEnd } = deck
+    if (onBeat != null && loopStart != null && loopEnd != null && existing.positionSec >= loopStart && existing.positionSec < loopEnd) {
+      const span = loopEnd - loopStart
+      if (target >= loopEnd) target -= span
+      if (target < loopStart) target += span
+    }
+    target = Math.min(Math.max(0, target), deck.duration)
+    deck.seek(target)
+    patchDeck(deckId, { positionSec: target })
   } else {
     const next = [
       ...cues,
@@ -3541,33 +3559,39 @@ function followGlidingMaster(glidingId: DeckId) {
   }
 }
 
-function runSyncCorrection() {
+/**
+ * The signed move that would put `positionSec` of a synced deck on the playing master's beat phase, or null when SYNC is not holding this
+ * deck to anything right now (off, either deck stopped, a grid missing, or it is the master itself). One function for the SYNC loop and
+ * for a hot-cue jump on a synced deck (v0.9.33), so the two can never disagree about which beat is "on".
+ */
+function syncPhaseDeltaSec(id: DeckId, positionSec: number): number | null {
   const { decks, masterDeckId } = useStore.getState()
-  if (!masterDeckId) return
+  if (!masterDeckId || id === masterDeckId) return null
   const master = decks[masterDeckId]
+  const st = decks[id]
+  if (!st.syncActive || !st.playing || !master.playing) return null
+  if (!st.beatGrid || !master.beatGrid) return null
+  // Half-time pairs (v0.8.36): the deck's beats are read at the master's
+  // rate, so an 85 locks every beat to every other beat of a 170 instead of
+  // being "half a beat off" on every other one.
+  // Read from what the two decks are *playing*, not their native BPMs: once
+  // SYNC has matched them, the ratio is ~exactly 1, 2 or 0.5 whatever the
+  // faders or the tempo range, so this can't disagree with the choice
+  // `syncTempoFor` made (v0.8.36 review: native BPMs could, at ±16%/±50%).
+  const range = settings.values.tempoRange
+  const mult =
+    st.bpm && master.bpm
+      ? halfDoubleMultiplier(master.bpm * deckRate(master.baseRate, master.tempo, range), st.bpm * deckRate(st.baseRate, st.tempo, range))
+      : 1
+  const deckGrid = mult === 1 ? st.beatGrid : { ...st.beatGrid, bpm: st.beatGrid.bpm * mult }
+  return phaseDeltaSec(positionSec, deckGrid, engine.decks[masterDeckId].position, master.beatGrid)
+}
+
+function runSyncCorrection() {
   for (const id of ['A', 'B'] as DeckId[]) {
-    if (id === masterDeckId) continue
-    const st = decks[id]
-    if (!st.syncActive || !st.playing || !master.playing) continue
-    if (!st.beatGrid || !master.beatGrid) continue
-    const deck = engine.decks[id]
-    const masterDeck = engine.decks[masterDeckId]
-    // Half-time pairs (v0.8.36): the deck's beats are read at the master's
-    // rate, so an 85 locks every beat to every other beat of a 170 instead of
-    // being "half a beat off" on every other one.
-    // Read from what the two decks are *playing*, not their native BPMs: once
-    // SYNC has matched them, the ratio is ~exactly 1, 2 or 0.5 whatever the
-    // faders or the tempo range, so this can't disagree with the choice
-    // `syncTempoFor` made (v0.8.36 review: native BPMs could, at ±16%/±50%).
-    const range = settings.values.tempoRange
-    const mult =
-      st.bpm && master.bpm
-        ? halfDoubleMultiplier(master.bpm * deckRate(master.baseRate, master.tempo, range), st.bpm * deckRate(st.baseRate, st.tempo, range))
-        : 1
-    const deckGrid = mult === 1 ? st.beatGrid : { ...st.beatGrid, bpm: st.beatGrid.bpm * mult }
-    const delta = phaseDeltaSec(deck.position, deckGrid, masterDeck.position, master.beatGrid)
-    if (Math.abs(delta) < SYNC_PHASE_DEADBAND_SEC) continue
-    deck.syncNudge(delta, SYNC_LOOP_INTERVAL_SEC)
+    const delta = syncPhaseDeltaSec(id, engine.decks[id].position)
+    if (delta == null || Math.abs(delta) < SYNC_PHASE_DEADBAND_SEC) continue
+    engine.decks[id].syncNudge(delta, SYNC_LOOP_INTERVAL_SEC)
   }
 }
 
