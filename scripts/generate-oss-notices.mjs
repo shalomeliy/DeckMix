@@ -28,8 +28,11 @@ for (const [key, meta] of Object.entries(lock.packages ?? {})) {
   if (!key.startsWith('node_modules/')) continue // skip the root package itself
   const name = key.slice('node_modules/'.length)
   if (name.startsWith('.bin/')) continue
-  if (!meta?.version) continue
-  packages.set(name, { version: meta.version, license: meta.license ?? 'unknown' })
+  // A package we ship from our own folder (`file:vendor/...`, v0.9.27: the patched Signalsmith Stretch) is a link in the lock file;
+  // its version and license live on the folder's own entry. Skipping the link would drop a shipped component from the credits.
+  const own = meta?.link && meta.resolved ? lock.packages[meta.resolved] : meta
+  if (!own?.version) continue
+  packages.set(name, { version: own.version, license: own.license ?? 'unknown' })
 }
 
 const notices = [...packages.entries()]

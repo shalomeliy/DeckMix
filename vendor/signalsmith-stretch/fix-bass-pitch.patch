@@ -1,0 +1,21 @@
+--- signalsmith-stretch.h (222093b)
++++ signalsmith-stretch.h (DeckMix fix)
+@@ -685,8 +685,16 @@
+ 				prediction.input = getFractional<&Band::input>(c, lowIndex, fracIndex);
+ 
+ 				auto &outputBin = bins[b];
+-				Complex prevInput = getFractional<&Band::prevInput>(c, lowIndex, fracIndex);
+-				Complex freqTwist = _impl::mul<true>(prediction.input, prevInput);
++				// DeckMix fix (pitch error in the bass): each bin's prevInput was advanced by its *own* centre frequency, so the twist of bin k
++				// is the signal's deviation from bin k. Interpolating the complex values of two such bins mixes two different references, which
++				// pulls the frequency towards the louder bin - a fixed fraction of a bin, so a fixed number of Hz, worst in the bass (+86 cents at
++				// 50 Hz). Instead take each bin's own twist, move both to the fractional bin's reference, then interpolate.
++				Complex twistLow = _impl::mul<true>(getBand<&Band::input>(c, lowIndex), getBand<&Band::prevInput>(c, lowIndex));
++				Complex twistHigh = _impl::mul<true>(getBand<&Band::input>(c, lowIndex + 1), getBand<&Band::prevInput>(c, lowIndex + 1));
++				Sample binPhase = (bandToFreq(1) - bandToFreq(0))*stft.defaultInterval()*Sample(2*M_PI);
++				twistLow = _impl::mul(twistLow, std::polar(Sample(1), -binPhase*fracIndex));
++				twistHigh = _impl::mul(twistHigh, std::polar(Sample(1), binPhase*(1 - fracIndex)));
++				Complex freqTwist = twistLow + (twistHigh - twistLow)*fracIndex;
+ 				Complex phase = _impl::mul(outputBin.output, freqTwist);
+ 				outputBin.output = phase/(std::max(prevEnergy, prediction.energy) + noiseFloor);
+ 			}

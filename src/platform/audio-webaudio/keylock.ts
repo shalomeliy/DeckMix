@@ -1,7 +1,10 @@
 /**
- * The key lock's stretch node (v0.9.20): Signalsmith Stretch, the author's own WASM + AudioWorklet build, MIT (notice in
- * `public/third-party-notices.txt`). The owner chose it on 05/10 ("use the small free library, it's enough") over writing a time-stretcher
- * from scratch: a phase vocoder that does not smear drums or sound "phasey" is years of specialist work (ROADMAP.md, old v0.9.0).
+ * The key lock's stretch node (v0.9.20): Signalsmith Stretch, MIT (notice in `public/third-party-notices.txt`). Since v0.9.27 it is
+ * our own rebuild in `vendor/signalsmith-stretch/` (still imported as 'signalsmith-stretch', a `file:` dependency): the author's 1.3.2
+ * put every shifted note 1-2.5 Hz sharp, which is +86 cents at 50 Hz - an out-of-tune bassline under the key lock. Going back to the
+ * npm package brings that back; `tests/platform/keylock-pitch.test.ts` fails if it does.
+ * The owner chose the library on 05/10 ("use the small free library, it's enough") over writing a time-stretcher from scratch:
+ * a phase vocoder that does not smear drums or sound "phasey" is years of specialist work (ROADMAP.md, old v0.9.0).
  *
  * Used in live-input mode: the deck's own player stays the transport (position, loops, scratch, SYNC), and only its output passes through.
  * Loaded on demand — the library is ~110 KB with its WASM inlined, and most sets never touch the key lock.

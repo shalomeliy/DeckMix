@@ -40,6 +40,7 @@ src/
       deck.ts           Deck — גרף Web Audio לדק בודד (EQ = isolator), loops, tempo, vinyl braking
       players.ts        SourcePlayer: BufferSourcePlayer (ישן) + WorkletPlayer (scratch)
       keylock.ts        createKeyLockNode — Signalsmith Stretch (MIT) ל-key-lock, נטען רק בלחיצה הראשונה (v0.9.20)
+                        הספרייה עצמה: vendor/signalsmith-stretch/ — בנייה שלנו עם תיקון הבס (v0.9.27), build.sh + README
       scratch-processor.ts  ★ ה‑AudioWorklet עצמו. אסור שייבא כלום — אין לו DOM.
     source-fsaccess/
       library.ts        File System Access — pick/scan/restore, idb-keyval לתיקייה,
