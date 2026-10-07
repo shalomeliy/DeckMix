@@ -408,7 +408,7 @@ if (!setup.error) {
       const end = Date.now() + 20000
       while (Date.now() < end) {
         const st = useStore.getState(), ch = st.mixer.channels
-        samples.push({ a: st.decks.A.positionSec, bPlaying: st.decks.B.playing, active: !!st.activeTransition, x: st.mixer.crossfader, aLow: ch.A.eqLow, bLow: ch.B.eqLow, aHigh: ch.A.eqHigh, bMid: ch.B.eqMid })
+        samples.push({ a: st.decks.A.positionSec, bPlaying: st.decks.B.playing, active: !!st.activeTransition, x: st.mixer.crossfader, aLow: ch.A.eqLow, bLow: ch.B.eqLow, aHigh: ch.A.eqHigh, bMid: ch.B.eqMid, cd: document.querySelector('[data-testid="mix-countdown"]')?.textContent ?? null, t: performance.now() })
         if (!st.activeTransition && samples.length > 5) break
         await sleep(20)
       }
@@ -426,6 +426,11 @@ if (!setup.error) {
       style === 'instant' ? both.length === 0 : both.length > 0 && both.length < live.length / 2 && maxPower <= 1.01,
       `${live.length} samples, ${both.length} with both open, max summed power ${maxPower.toFixed(3)}`)
     if (style === 'instant') {
+      // v0.9.33: the red button counts down to the end (whole seconds, never up), and the plain mix lasts 5 s, not 8.
+      const secs = plain.samples.filter((s) => s.cd).map((s) => ({ n: Number(/(\d+) שנ/.exec(s.cd)?.[1]), t: s.t }))
+      const first = plain.samples.find((s) => s.active && s.bPlaying), last = plain.samples.filter((s) => s.active).pop()
+      ok('v0.9.33: the cancel button shows a countdown that only goes down', secs.length > 20 && secs.every((x, i) => i === 0 || x.n <= secs[i - 1].n) && secs[0].n <= 5 && secs[0].n >= 4, `${secs.length} readings, from ${secs[0]?.n} to ${secs.at(-1)?.n}; texts: ${[...new Set(plain.samples.map((s) => s.cd))].join(' | ')}`)
+      ok('v0.9.33: a plain mix lasts about 5 seconds', !!first && !!last && (last.t - first.t) / 1000 > 3.5 && (last.t - first.t) / 1000 < 6.5, `${(((last?.t ?? 0) - (first?.t ?? 0)) / 1000).toFixed(2)} s from B's start to the end`)
       // The swap counts whole bars from the join; it must fall in the frame that crosses one of A's yellow lines, not tens of ms after it.
       const i = plain.samples.findIndex((s) => s.active && s.aLow === -1)
       const bar = (60 / setup.gridA.bpm) * 4

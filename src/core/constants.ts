@@ -249,7 +249,9 @@ export const LONG_PRESS_MS = 500
  * section: a control here is a way to let the user break a transition they
  * haven't heard yet.
  */
-export const TRANSITION_CROSSFADE_SEC = 8
+export const TRANSITION_CROSSFADE_SEC = 5
+// v0.9.33 (the owner, 07/10: "8 seconds is too much"): 8 -> 5. Still two bars at 128 BPM (3.75 s) plus a beat or two: the bass swap sits
+// one bar in (`plainEqMixPlan`), so the order inside the mix is the same, only tighter. Picked by the owner's complaint, not measured.
 
 /**
  * Mix Assist (v0.4.6): once a track comes off a deck (replaced by another

@@ -219,6 +219,30 @@ function ChannelStrip({ deckId }: { deckId: DeckId }) {
   )
 }
 
+/**
+ * The seconds left on the red cancel button (v0.9.33, the owner's request, 07/10): until the new song comes in while the mix waits for its
+ * line, then until the mix is over. Whole seconds, rounded up, so it reads 1 until the very end and never shows 0 while the fade runs.
+ */
+function TransitionCountdown() {
+  const [c, setC] = useState<{ to: 'join' | 'end'; sec: number } | null>(null)
+  useEffect(() => {
+    const tick = () => {
+      const next = ctl.transitionCountdown()
+      setC((prev) => (prev?.to === next?.to && prev?.sec === next?.sec ? prev : next))
+    }
+    tick()
+    const id = window.setInterval(tick, 200)
+    return () => window.clearInterval(id)
+  }, [])
+  if (!c) return null
+  const sec = Math.ceil(c.sec - 1e-6)
+  return (
+    <span className="mx-1 inline-block rounded bg-black/25 px-1.5 tabular-nums" data-testid="mix-countdown">
+      {c.to === 'join' ? `כניסה בעוד ${ctl.formatMinSec(sec)}` : `נגמר בעוד ${sec} שנ'`}
+    </span>
+  )
+}
+
 export function Mixer() {
   const mixer = useStore((s) => s.mixer)
   const activeTransition = useStore((s) => s.activeTransition)
@@ -239,6 +263,7 @@ export function Mixer() {
           className="w-full rounded-[var(--radius-md)] py-2.5 text-sm font-bold uppercase tracking-wide text-white shadow-[var(--shadow-control)] transition-transform active:translate-y-px"
           style={{ background: 'var(--color-danger)' }}
         >
+          <TransitionCountdown />
           {activeTransition.handoffSec != null
             ? activeTransition.waitingForBar && activeTransition.waitingUntilSec != null
               ? `דק ${activeTransition.toDeckId} נכנס כשדק ${activeTransition.fromDeckId} יגיע ל-${ctl.formatMinSec(activeTransition.waitingUntilSec)} · ${activeTransition.swap ? 'החלפת שירה' : `מסירה ב-${ctl.formatMinSec(activeTransition.handoffSec)}`} · ביטול`

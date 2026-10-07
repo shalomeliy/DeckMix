@@ -245,6 +245,13 @@ export interface AppState {
     onPhrase: boolean
     /** The vocal swap (`core/vocal-swap-mix.ts`) rides on the handoff fields; this only picks its name on screen. `handoffSec` is then where B's voice comes in. */
     swap?: boolean
+    /**
+     * v0.9.33, the countdown on the cancel button: where the mix ends. `endSec` is on the outgoing deck's own seconds (a handoff or a swap,
+     * which follow its position); `endAtClock` is the audio clock's second (a plain transition, which runs on wall time and only knows
+     * its end once it has started). `null` when not known yet — a plain transition still waiting for its bar line.
+     */
+    endSec?: number | null
+    endAtClock?: number | null
   } | null
 
   /**

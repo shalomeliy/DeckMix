@@ -4062,7 +4062,18 @@ export function startAutoTransition(
     })
     if (activeTransition) activeTransition.unsubscribe = unsubscribeFade
     useStore.setState({
-      activeTransition: { fromDeckId, toDeckId, exitPointSec, waitingForBar: false, waitingUntilSec: null, handoffSec: handoff?.handoffSec ?? null, onPhrase: waitIsPhrase, swap: !!vocalSwap },
+      activeTransition: {
+        fromDeckId,
+        toDeckId,
+        exitPointSec,
+        waitingForBar: false,
+        waitingUntilSec: null,
+        handoffSec: handoff?.handoffSec ?? null,
+        onPhrase: waitIsPhrase,
+        swap: !!vocalSwap,
+        endSec: handoff?.fadeEndSec ?? null,
+        endAtClock: handoff ? null : startedAtSec + TRANSITION_CROSSFADE_SEC,
+      },
     })
   }
 
@@ -4149,7 +4160,7 @@ export function startAutoTransition(
   // bar line, B is already in and fading up — then nothing is switched, and the notice says so (`autoKeySync`).
   void autoKeySync(activeTransition, noticeBefore)
   useStore.setState({
-    activeTransition: { fromDeckId, toDeckId, exitPointSec, waitingForBar: true, waitingUntilSec: waitUntilSec, handoffSec: handoff?.handoffSec ?? null, onPhrase: waitIsPhrase, swap: !!vocalSwap },
+    activeTransition: { fromDeckId, toDeckId, exitPointSec, waitingForBar: true, waitingUntilSec: waitUntilSec, handoffSec: handoff?.handoffSec ?? null, onPhrase: waitIsPhrase, swap: !!vocalSwap, endSec: handoff?.fadeEndSec ?? null, endAtClock: null },
   })
 }
 
@@ -4287,6 +4298,24 @@ function passedExitText(fromDeckId: DeckId, exitSec: number): string {
 }
 
 /** `3:05` — the same m:ss the deck header shows, so a notice names a second the owner can find on screen. */
+/**
+ * The countdown on the cancel button (v0.9.33, the owner, 07/10): how long until the incoming deck comes in (`'join'`, while the mix is
+ * waiting for A to reach its line) or until the mix is over (`'end'`), in wall seconds — A's seconds divided by its playback rate, since a
+ * deck playing at +6% gets there sooner. `null` when there is nothing honest to count to: a plain transition waiting for its next bar line
+ * (under one bar) or a transition no longer running.
+ */
+export function transitionCountdown(): { to: 'join' | 'end'; sec: number } | null {
+  const t = useStore.getState().activeTransition
+  if (!t) return null
+  const from = useStore.getState().decks[t.fromDeckId]
+  const rate = deckRate(from.baseRate, from.tempo, settings.values.tempoRange) || 1
+  const pos = engine.decks[t.fromDeckId].position
+  if (t.waitingForBar) return t.waitingUntilSec != null ? { to: 'join', sec: Math.max(0, (t.waitingUntilSec - pos) / rate) } : null
+  if (t.endSec != null) return { to: 'end', sec: Math.max(0, (t.endSec - pos) / rate) }
+  if (t.endAtClock != null) return { to: 'end', sec: Math.max(0, t.endAtClock - engine.currentTime) }
+  return null
+}
+
 export function formatMinSec(sec: number): string {
   const whole = Math.max(0, Math.floor(sec))
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
