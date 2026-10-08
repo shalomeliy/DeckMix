@@ -8,8 +8,10 @@ import {
   enoughSongAfterMix,
   handoffEndInB,
   nextPhraseStartSec,
-  PHRASE_BARS,
+  RUN_IN_BARS,
+  firstVoiceInSec,
   planHandoff,
+  quietJoinSec,
   plainMixEndInB,
   plainTransitionClashSec,
   type HandoffPlan,
@@ -56,46 +58,53 @@ describe('bVoiceStarts', () => {
   })
 })
 
-describe('planHandoff', () => {
+/** v0.9.63, the owner's rule (07/10): from the join until A is out, A never sings — B is never heard over A's voice, drums or otherwise. */
+function aSingsWhileBPlays(a: HandoffSide, p: HandoffPlan): boolean {
+  for (let t = p.joinSec; t < p.fadeEndSec; t += 0.05) if (a.timeline.cells[Math.floor(t / VOCAL_CELL_SEC)] !== CELL_NONE) return true
+  return false
+}
+
+describe('planHandoff (v0.9.63: B joins only after A has stopped singing)', () => {
   const [bv] = bVoiceStarts(B)
-  it('hands over exactly where A stops singing, with the full runway when there is time', () => {
+  it('joins on the line where A stops singing, runs in with no voice, and B sings when A is out', () => {
+    // A quiet 60–80: 10 bars → the longest run-in that fits is 8; B sings at 32, so it enters 8 bars earlier, at 16.
     const p = planHandoff(A, 30, B, bv)!
-    expect(p).toMatchObject({ joinSec: 44, entrySec: 16, handoffSec: 60, bVoiceSec: 32, fadeEndSec: 76, runwayBars: 8, fadeBars: 8, onVoiceEnd: true })
+    expect(p).toMatchObject({ joinSec: 60, entrySec: 16, handoffSec: 68, bVoiceSec: 32, fadeEndSec: 76, runwayBars: 8, onVoiceEnd: true })
+    expect(aSingsWhileBPlays(A, p)).toBe(false)
     expect(voiceOverVoice(A, B, p)).toBe(false)
   })
-  // v0.9.17, the owner: "you mixed right away instead of waiting for the right moment". At 50 the old planner cut the runway to 4 bars and
-  // joined on the very next bar (52); at 55 it slid the handoff into A's quiet and joined at 56 — one bar after the click, both times.
-  it('never shortens the runway to fit the playhead: too late for this voice end → the next one, a whole phrase ahead', () => {
-    for (const pos of [50, 55]) {
-      const p = planHandoff(A, pos, B, bv)!
-      expect(p).toMatchObject({ joinSec: 84, handoffSec: 100, runwayBars: PHRASE_BARS, onVoiceEnd: true })
-      expect(voiceOverVoice(A, B, p)).toBe(false)
+  it('the old plan put B under A’s last 8 bars of singing — this one never does, from any click', () => {
+    for (let pos = 0; pos < 100; pos += 0.5) {
+      const p = planHandoff(A, pos, B, bv)
+      if (p) expect(aSingsWhileBPlays(A, p)).toBe(false)
     }
   })
-  it('A still quiet for long: the handoff can be a whole phrase after its voice end — never at a bar in between', () => {
+  it('16 bars when both quiets have room — what DJs use in house and techno', () => {
     const a = side(160, [[20, 40], [120, 150]])
     const p = planHandoff(a, 35, B, bv)!
-    expect(p).toMatchObject({ joinSec: 40, handoffSec: 56, runwayBars: PHRASE_BARS, onVoiceEnd: false })
+    expect(p).toMatchObject({ joinSec: 40, entrySec: 0, handoffSec: 56, fadeEndSec: 72, runwayBars: 16, onVoiceEnd: true })
+    expect(RUN_IN_BARS[0]).toBe(16)
+    expect(aSingsWhileBPlays(a, p)).toBe(false)
     expect(voiceOverVoice(a, B, p)).toBe(false)
   })
-  it('B with less than a phrase of quiet before its voice: half a phrase of runway, still not cut to the playhead', () => {
+  it('too late for this voice end → a whole phrase later in the same quiet if it still fits, else A’s next voice end', () => {
+    // From 61 the line at 60 is behind; 76 leaves 2 bars of quiet — no run-in fits. The next voice end is 100, with 10 bars after it.
+    expect(planHandoff(A, 61, B, bv)).toMatchObject({ joinSec: 100, fadeEndSec: 116, runwayBars: 8, onVoiceEnd: true })
+    const a = side(200, [[20, 40], [150, 190]]) // quiet 40–150
+    expect(planHandoff(a, 41, B, bv)).toMatchObject({ joinSec: 56, runwayBars: 16, onVoiceEnd: false })
+  })
+  it('B with 6 quiet bars before its voice: a run-in of 4', () => {
     const b6 = side(120, [[2, 12], [24, 90]]) // quiet 12–24: 6 bars before the voice at 24
     const [v] = bVoiceStarts(b6)
     expect(v.quietBars).toBe(6)
-    expect(planHandoff(A, 30, b6, v)).toMatchObject({ joinSec: 52, handoffSec: 60, runwayBars: MIN_RUNWAY_BARS })
-    expect(planHandoff(A, 53, b6, v)).toMatchObject({ joinSec: 92, handoffSec: 100 })
-  })
-  it('not enough quiet left for the fade → the next time A stops singing', () => {
-    const p = planHandoff(A, 66, B, bv)!
-    expect(p).toMatchObject({ handoffSec: 100, joinSec: 84, fadeEndSec: 116, onVoiceEnd: true })
-    expect(voiceOverVoice(A, B, p)).toBe(false)
+    expect(planHandoff(A, 30, b6, v)).toMatchObject({ joinSec: 60, entrySec: 16, handoffSec: 64, fadeEndSec: 68, runwayBars: MIN_RUNWAY_BARS })
   })
   it('null — never a guess — when A has no clean moment left', () => {
     const short = side(104, [[20, 60], [80, 100]])
     expect(planHandoff(short, 66, B, bv)).toBeNull()
     expect(planHandoff(side(120, [[0, 120]]), 10, B, bv)).toBeNull()
   })
-  it('a quiet stretch shorter than the minimum fade does not count', () => {
+  it('a quiet stretch shorter than the shortest run-in does not count', () => {
     const tight = side(120, [[20, 60], [60 + 2 * MIN_FADE_BARS - 2, 120]])
     expect(planHandoff(tight, 30, B, bv)).toBeNull()
   })
@@ -110,7 +119,7 @@ describe('planHandoff', () => {
     const p = planHandoff(A, 30, b100, v)!
     expect(p.runwayBars).toBe(8)
     expect(p.entrySec).toBeCloseTo(48 - 8 * 2.4)
-    expect(p.joinSec).toBeCloseTo(44)
+    expect(p.joinSec).toBeCloseTo(60)
     expect(voiceOverVoice(A, b100, p)).toBe(false)
   })
   it('joins on a yellow line of A and enters B on a yellow line of B, with a grid offset', () => {
@@ -119,9 +128,49 @@ describe('planHandoff', () => {
     const [v] = bVoiceStarts(b)
     const p = planHandoff(a, 30, b, v)!
     const onLine = (sec: number, off: number) => Math.abs(((sec - off) / 2) - Math.round((sec - off) / 2)) < 1e-6
-    expect(onLine(p.joinSec, 0.7) && onLine(p.handoffSec, 0.7) && onLine(p.entrySec, 1.1) && onLine(p.bVoiceSec, 1.1)).toBe(true)
-    expect(p.handoffSec).toBeCloseTo(60.7)
+    expect(onLine(p.joinSec, 0.7) && onLine(p.handoffSec, 0.7) && onLine(p.fadeEndSec, 0.7) && onLine(p.entrySec, 1.1) && onLine(p.bVoiceSec, 1.1)).toBe(true)
+    expect(p.joinSec).toBeCloseTo(60.7)
+    expect(aSingsWhileBPlays(a, p)).toBe(false)
     expect(voiceOverVoice(a, b, p)).toBe(false)
+  })
+})
+
+describe('quietJoinSec (v0.9.63: energy points, Mix-in pads, excellent pairs)', () => {
+  const need = 9 // an 8 s mix and half a bar
+  it('in a verse: waits for the line where A stops singing', () => {
+    expect(quietJoinSec(A, 30, need)).toEqual({ sec: 60, onVoiceEnd: true })
+  })
+  it('a quiet too short for the whole mix is skipped — the next voice end', () => {
+    expect(quietJoinSec(A, 61, need)).toEqual({ sec: 100, onVoiceEnd: true })
+  })
+  it('null when A has no quiet moment left with room for the mix and its last bars', () => {
+    expect(quietJoinSec(A, 101, need)).toBeNull()
+    expect(quietJoinSec(side(120, [[0, 120]]), 10, need)).toBeNull()
+  })
+  it("in A's intro: phrases counted back from A's first voice, as nextPhraseStartSec counts them (a 6-bar intro would put a forward count 2 bars off)", () => {
+    const intro = side(120, [[44, 100]]) // the voice starts on line 44: phrase lines at 12 and 28, not 16 and 32
+    expect(quietJoinSec(intro, 1, need)).toEqual({ sec: 12, onVoiceEnd: false })
+    expect(nextPhraseStartSec({ bpm: 120, offsetSec: 0 }, intro.timeline, 120, 1).sec).toBe(12)
+  })
+  it('a song with no voice: whole phrases from its first yellow line', () => {
+    expect(quietJoinSec(side(120, []), 30, need)).toEqual({ sec: 32, onVoiceEnd: false })
+  })
+  it('never joins where A sings during the mix, from any click', () => {
+    for (let pos = 0; pos < 110; pos += 0.5) {
+      const j = quietJoinSec(A, pos, need)
+      if (j) expect(firstVoiceInSec(A, j.sec, j.sec + need)).toBeNull()
+    }
+  })
+})
+
+describe('firstVoiceInSec', () => {
+  it('the first second A sings inside the window, or null', () => {
+    expect(firstVoiceInSec(A, 50, 70)).toBe(50)
+    expect(firstVoiceInSec(A, 60, 80)).toBeNull()
+    expect(firstVoiceInSec(A, 75, 85)).toBe(80)
+  })
+  it('a yellow line a float hair before a voice end is not a voice (170.99999999999892 against 171, one of his House songs)', () => {
+    expect(firstVoiceInSec(A, 60 - 1e-12, 70)).toBeNull()
   })
 })
 
@@ -219,8 +268,10 @@ describe('enough of B left after the mix (v0.9.23)', () => {
     expect(late).toBeTruthy()
     const plan = planHandoff(a, 0, b, late)!
     expect(plan).toBeTruthy() // the planner alone offers it — that was the bug
-    expect(enoughSongAfterMix(b.durationSec, b.grid, handoffEndInB(plan, b.grid))).toBe(false)
-    expect(handoffEndInB(plan, b.grid)).toBeCloseTo(plan.bVoiceSec + plan.fadeBars * bar, 9)
+    expect(enoughSongAfterMix(b.durationSec, b.grid, handoffEndInB(plan))).toBe(false)
+    // v0.9.63: A is out when B's voice comes in, so that is where the mix ends in B.
+    expect(handoffEndInB(plan)).toBe(plan.bVoiceSec)
+    expect(b.durationSec - handoffEndInB(plan)).toBeLessThan(MIN_BARS_AFTER_MIX * bar)
   })
   it(`needs ${MIN_BARS_AFTER_MIX} of B's own bars after the mix, no fewer`, () => {
     const grid = { bpm: 120, offsetSec: 0 } // 2 s a bar

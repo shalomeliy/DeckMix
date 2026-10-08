@@ -239,7 +239,7 @@ export interface AppState {
      * transition.
      */
     waitingUntilSec: number | null
-    /** v0.9.15: a vocal handoff — the second (on the outgoing deck) where its voice ends and the incoming one's starts. `null` otherwise. */
+    /** v0.9.15: a vocal handoff — its bass swap, on the outgoing deck's seconds (v0.9.63: halfway through the run-in; B sings at `endSec`). `null` otherwise. */
     handoffSec: number | null
     /** v0.9.17: `waitingUntilSec` is a phrase start of the outgoing deck (an energy point or a Mix-in pad), not an excellent pair's exit second. */
     onPhrase: boolean

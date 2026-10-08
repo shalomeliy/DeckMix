@@ -12,6 +12,9 @@
  *  - today's plain transition from B's 30 s point is flagged "שירה על שירה" in the panel;
  *  - v0.9.17: neither kind of row comes in right away — a handoff joins a whole phrase before A's voice end, an energy point on A's next
  *    phrase start (counted from where A's voice starts), and the row says when; a Mix-in pad the same; in A's last bars, the next bar, said;
+ *  - v0.9.63 (the owner, 07/10: "only after the singing in the outgoing song is over"): the handoff joins on the line where A's voice ends
+ *    and B sings when A is out; an energy point and a Mix-in pad join where A is quiet for the whole mix, and the row says so; when A sings
+ *    to its end the row is red and says it will come in over A's voice;
  *  - v0.9.18: the EQ mix — B under A has its LOW killed, the lows swap on the handoff line, never both open, A's HIGH leaves before the
  *    crossfader takes A out, every knob is back at the end; a plain transition does the same inside its 8 s, instant and gradual;
  *  - nothing throws.
@@ -119,7 +122,9 @@ if (setup.error) {
   // Read straight from the DOM: a locator that misses waits out its whole timeout while A keeps playing, and the click below would then land
   // half a minute later in A than this script planned for.
   const panelText = await page.evaluate(() => [...document.querySelectorAll('div')].find((d) => d.firstElementChild?.textContent === 'מסירת שירה — לפי הצליל')?.innerText ?? '')
-  ok('energy points carry their own vocal line, separate from the energy dot (B\'s lift at 30 s: voice over voice)', /שירה על שירה ב-/.test(panelText), panelText.split('\n').filter((l) => l.includes('שירה')).slice(0, 3).join(' | '))
+  // v0.9.63: the energy point joins where A is quiet for the whole mix, so its vocal line reads clean — it used to read "voice over voice" here,
+  // and before that "clean" for a B intro under A's verse.
+  ok('energy points carry their own vocal line, separate from the energy dot (A quiet through the mix: clean)', /שירה: נקי/.test(panelText) && !/שירה על שירה ב-/.test(panelText), panelText.split('\n').filter((l) => l.includes('שירה')).slice(0, 3).join(' | '))
   const clashFlag = await page.evaluate(async () => {
     const core = await window.mod('/src/core/vocal-handoff.ts')
     const ctl = await window.mod('/src/controls.ts')
@@ -159,16 +164,19 @@ if (setup.error) {
     const firstB = run.samples.find((s) => s.bPlaying)
     ok('B stays paused until the join line, then plays', !!firstB && t && firstB.a >= t.waitingUntilSec - 0.6, firstB ? `B started with A at ${firstB.a.toFixed(2)} s` : 'B never played')
     const barA = (60 / setup.gridA.bpm) * 4
-    ok("v0.9.17: B waits for the phrase start — a whole phrase (8 bars) before A's voice end, not the next bar after the click",
-      !!t && !!firstB && Math.abs(t.handoffSec - t.waitingUntilSec - 8 * barA) < 0.05 && firstB.a - clickA > 2 * barA,
-      t && firstB ? `click at A ${clickA.toFixed(2)} s, B in at A ${firstB.a.toFixed(2)} s, ${((t.handoffSec - t.waitingUntilSec) / barA).toFixed(2)} bars before the handoff` : '')
+    // v0.9.63: B joins on the yellow line after A's voice ends (30 s), never under A's last lines; B has 10 quiet bars before its voice, so the
+    // run-in is 8 bars and the bass swap halfway, 4 bars in.
+    ok("v0.9.63: B joins only once A's voice is over (A sings to 30 s) — the bass swap halfway through an 8-bar run-in",
+      !!t && !!firstB && firstB.a >= 30 - 0.05 && Math.abs(t.handoffSec - t.waitingUntilSec - 4 * barA) < 0.05 && Math.abs(t.endSec - t.waitingUntilSec - 8 * barA) < 0.05 && firstB.a - clickA > 2 * barA,
+      t && firstB ? `click at A ${clickA.toFixed(2)} s, B in at A ${firstB.a.toFixed(2)} s, run-in ${((t.endSec - t.waitingUntilSec) / barA).toFixed(2)} bars` : '')
     ok('B starts in its quiet stretch (before its voice at 20 s)', !!firstB && firstB.b < 20, firstB ? `B at ${firstB.b.toFixed(2)} s` : '')
     if (t) {
       const near = run.samples.filter((s) => Math.abs(s.a - t.handoffSec) < 0.15)
       const mid = near.length ? near[Math.floor(near.length / 2)].x : NaN
-      ok("on A's voice end the crossfader is about the middle", Math.abs(mid) < 0.15, `crossfader ${mid.toFixed(3)} at A ${t.handoffSec.toFixed(2)} s`)
-      const handoffB = near.length ? near[Math.floor(near.length / 2)].b : NaN
-      ok("B's voice comes in at the handoff (within a bar)", Math.abs(handoffB - 20) < 2.1 && handoffB <= 20.2, `B at ${handoffB.toFixed(2)} s at the handoff`)
+      ok('on the bass swap the crossfader is about the middle', Math.abs(mid) < 0.15, `crossfader ${mid.toFixed(3)} at A ${t.handoffSec.toFixed(2)} s`)
+      // v0.9.63: B's voice comes in when A is out — the last sample of the transition has B at its voice line and the crossfader on B.
+      const last = run.samples.filter((s) => s.active).pop()
+      ok("v0.9.63: B's voice comes in as A goes out (within a bar), not before", !!last && Math.abs(last.b - 20) < 2.1 && last.b <= 20.2 && last.x > 0.9, last ? `B at ${last.b.toFixed(2)} s, crossfader ${last.x.toFixed(3)} at the end` : '')
     }
     ok('never a voice over a voice while both decks are audible', !run.clash, run.clash ? JSON.stringify(run.clash) : `${run.samples.length} samples every 50 ms`)
     // v0.9.16: the MID knobs. Under A, B's middle is down; one bar after the handoff they have swapped; at the end A's is back where it was.
@@ -191,9 +199,9 @@ if (setup.error) {
       const goingOut = run.samples.filter((s) => s.active && s.x > 0.05)
       ok("v0.9.18: A's HIGH is gone before the crossfader takes A out, B's HIGH never touched", goingOut.length > 5 && goingOut.every((s) => s.aHigh === -1) && run.samples.every((s) => s.bHigh === 0),
         `${goingOut.length} samples past the middle, A high ${goingOut[0]?.aHigh}`)
-      // The fade here is 8 bars, so A goes out from 4 bars after the handoff: two bars after the join through two bars after the handoff is
-      // well inside the hold.
-      const hold = run.samples.filter((s) => s.active && s.bPlaying && s.a > t.waitingUntilSec + 2 * barA + 0.2 && s.a < t.handoffSec + 2 * barA)
+      // v0.9.63: the run-in is 8 bars and the swap 4 bars in, so A goes out from 2 bars after the swap: two bars after the join through one bar
+      // after the swap is well inside the hold.
+      const hold = run.samples.filter((s) => s.active && s.bPlaying && s.a > t.waitingUntilSec + 2 * barA + 0.2 && s.a < t.handoffSec + barA)
       const off = hold.filter((s) => Math.abs(s.x) >= 0.01)
       ok('v0.9.18: the crossfader holds the middle from two bars after the join through the swap', hold.length > 10 && off.length === 0, `${hold.length} samples${off.length ? `, off: ${JSON.stringify(off[0])}` : ', all at the middle'}`)
       // v0.9.33 (the owner, 07/10: "the volume drops during the mix"): in the middle both decks play at full level, read from the engine's
@@ -295,7 +303,7 @@ if (!setup.error) {
   })
   const phraseLine = page.locator('[data-testid="phrase-join"]').first()
   const shown = await phraseLine.innerText({ timeout: 5000 }).catch(() => '')
-  ok('v0.9.17: each energy point says when it will come in — the phrase start of A', /תחילת קטע/.test(shown), shown || 'no line')
+  ok('v0.9.63: each energy point says when it will come in — where A stops singing', /כשהשירה שלו נגמרת/.test(shown), shown || 'no line')
   if (prep && shown) {
     const clickA = await page.evaluate(async () => (await window.mod('/src/app/state/store.ts')).useStore.getState().decks.A.positionSec)
     await phraseLine.locator('xpath=..').click()
@@ -303,8 +311,9 @@ if (!setup.error) {
       const { useStore } = await window.mod('/src/app/state/store.ts')
       const ctl = await window.mod('/src/controls.ts')
       const core = await window.mod('/src/core/vocal-handoff.ts')
+      const { TRANSITION_CROSSFADE_SEC } = await window.mod('/src/core/constants.ts')
       const side = ctl.deckHandoffSide('A')
-      const expected = core.nextPhraseStartSec(side.grid, side.timeline, side.durationSec, clickA).sec
+      const expected = core.quietJoinSec(side, clickA, TRANSITION_CROSSFADE_SEC + 120 / side.grid.bpm).sec
       const t = useStore.getState().activeTransition
       const notice = useStore.getState().notice?.text
       let firstB = null
@@ -318,9 +327,9 @@ if (!setup.error) {
       return { expected, waitingUntilSec: t?.waitingUntilSec ?? null, notice, firstB }
     }, clickA)
     const barA = (60 / setup.gridA.bpm) * 4
-    ok('v0.9.17: an energy point waits for that phrase start, then B plays — not on the next bar after the click',
-      run.waitingUntilSec != null && Math.abs(run.waitingUntilSec - run.expected) < 0.05 && run.firstB != null && run.firstB >= run.expected - 0.1 && run.firstB < run.expected + barA && run.firstB - clickA > 2 * barA && /תחילת קטע/.test(run.notice ?? ''),
-      `click at A ${clickA.toFixed(2)} s, phrase start ${run.expected.toFixed(2)} s, B in at A ${run.firstB?.toFixed(2)} s · "${run.notice}"`)
+    ok("v0.9.63: an energy point waits until A's voice is over, then B plays — not during A's verse",
+      run.waitingUntilSec != null && Math.abs(run.waitingUntilSec - run.expected) < 0.05 && run.firstB != null && run.firstB >= 30 - 0.05 && run.firstB >= run.expected - 0.1 && run.firstB < run.expected + barA && /כשהשירה שלו נגמרת/.test(run.notice ?? ''),
+      `click at A ${clickA.toFixed(2)} s, A's voice ends 30 s, join ${run.expected.toFixed(2)} s, B in at A ${run.firstB?.toFixed(2)} s · "${run.notice}"`)
   }
 }
 
@@ -354,7 +363,8 @@ if (!setup.error) {
     const clickA = useStore.getState().decks.A.positionSec
     ctl.pressHotCue('B', idx)
     const t = useStore.getState().activeTransition
-    const expected = core.nextPhraseStartSec(side.grid, side.timeline, side.durationSec, clickA).sec
+    const { TRANSITION_CROSSFADE_SEC } = await window.mod('/src/core/constants.ts')
+    const expected = core.quietJoinSec(side, clickA, TRANSITION_CROSSFADE_SEC + 120 / side.grid.bpm).sec
     const padResult = { clickA, expected, waitingUntilSec: t?.waitingUntilSec ?? null, onPhrase: t?.onPhrase }
     // The crossfader moved by hand during the phrase wait: the cancel notice names the phrase wait, not an "excellent mix".
     ctl.setCrossfader(-1)
@@ -376,10 +386,75 @@ if (!setup.error) {
   })
   const barA = (60 / setup.gridA.bpm) * 4
   const p = pad.padResult
-  ok('v0.9.17: a Mix-in pad waits for the same phrase start as the panel', !pad.error && p.onPhrase === true && Math.abs(p.waitingUntilSec - p.expected) < 0.05 && p.expected - p.clickA > 2 * barA, JSON.stringify(pad.error ?? p))
+  ok("v0.9.63: a Mix-in pad waits for the same join as the panel — where A's voice is over", !pad.error && p.onPhrase === true && Math.abs(p.waitingUntilSec - p.expected) < 0.05 && p.expected - p.clickA > 2 * barA, JSON.stringify(pad.error ?? p))
   ok('v0.9.17: moving the crossfader during the phrase wait cancels it and says so in Hebrew — not "excellent mix"', !pad.error && p.cancelled && /תחילת הקטע/.test(p.cancelNotice ?? '') && !/Excellent/.test(p.cancelNotice ?? ''), p?.cancelNotice)
   const e = pad.endResult
   ok("v0.9.17: in A's last bars, with no phrase start left, B comes in on the next bar and the notice says why", !pad.error && e && e.nextBar.by === 'end' && e.bIn != null && e.bIn - e.clickEnd < barA + 0.3 && /אין עוד תחילת קטע/.test(e.notice ?? ''), JSON.stringify(e))
+}
+
+// v0.9.63: A sings to its very end — no quiet moment holds a whole mix. The energy point is still offered (never hidden), red, and says it
+// will come in over A's voice; the notice on the click says the same.
+if (!setup.error) {
+  const over = await page.evaluate(async () => {
+    const { useStore } = await window.mod('/src/app/state/store.ts')
+    const ctl = await window.mod('/src/controls.ts')
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+    ctl.cancelTransition()
+    const s = useStore.getState()
+    const a = s.decks.A.track
+    const before = s.vocalManual[a.contentHash]
+    s.setVocalManual(a.contentHash, { ...before, regions: [{ fromSec: 8, toSec: 100 }], updatedAt: Date.now() })
+    ctl.seekDeck('A', 12)
+    if (!useStore.getState().decks.A.playing) ctl.play('A')
+    await sleep(1500)
+    const join = ctl.deckPhraseJoin('A', useStore.getState().decks.A.positionSec)
+    const lines = [...document.querySelectorAll('[data-testid="phrase-join"]')].map((e) => e.parentElement?.innerText ?? '')
+    ctl.startAutoTransitionOnPhrase('A', 'B', 30)
+    const notice = useStore.getState().notice?.text
+    ctl.cancelTransition()
+    useStore.getState().setVocalManual(a.contentHash, before)
+    return { join, line: lines[0] ?? '', notice }
+  })
+  ok('v0.9.63: A sings to its end — the energy point stays, red, and says it will come in over the voice',
+    over.join?.aVoiceSec != null && /על השירה שלו/.test(over.line) && /שר ב-/.test(over.line) && /על השירה שלו/.test(over.notice ?? ''),
+    JSON.stringify({ aVoiceSec: over.join?.aVoiceSec, line: over.line.replace(/\n/g, ' | '), notice: over.notice }))
+}
+
+// v0.9.63: an excellent pair whose saved exit second lands on A's singing moves to where A's voice is over, and says from where to where;
+// when A sings to its end, it stays where it was saved and says it will come in over the voice.
+if (!setup.error) {
+  const pair = await page.evaluate(async () => {
+    const { useStore } = await window.mod('/src/app/state/store.ts')
+    const ctl = await window.mod('/src/controls.ts')
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+    const run = async (regions) => {
+      ctl.cancelTransition(); ctl.pause('A'); ctl.pause('B')
+      const s = useStore.getState()
+      const ta = s.library.tracks.find((t) => t.name.startsWith('Handoff A'))
+      const tb = s.library.tracks.find((t) => t.name.startsWith('Handoff B'))
+      await ctl.loadTrackToDeck('A', ta)
+      const deadline = Date.now() + 30000
+      while (Date.now() < deadline && !(useStore.getState().decks.A.beatGrid && !useStore.getState().decks.A.loading)) await sleep(200)
+      const hash = useStore.getState().decks.A.track.contentHash
+      const before = useStore.getState().vocalManual[hash]
+      if (regions) useStore.getState().setVocalManual(hash, { ...before, regions, updatedAt: Date.now() })
+      ctl.seekDeck('A', 5); ctl.play('A')
+      await sleep(300)
+      await ctl.startExcellentPairTransition('A', hash, tb, tb.contentHash, 2, 12)
+      const t = useStore.getState().activeTransition
+      const out = { waitingUntilSec: t?.waitingUntilSec ?? null, notice: useStore.getState().notice?.text ?? '' }
+      ctl.cancelTransition()
+      if (regions) useStore.getState().setVocalManual(hash, before)
+      return out
+    }
+    return { moved: await run(null), over: await run([{ fromSec: 8, toSec: 100 }]) }
+  })
+  ok("v0.9.63: an excellent pair saved at 0:12, inside A's singing, moves to where A's voice is over and says so",
+    pair.moved.waitingUntilSec != null && pair.moved.waitingUntilSec >= 30 - 0.05 && pair.moved.waitingUntilSec < 33 && /נשמר ב-0:12/.test(pair.moved.notice),
+    JSON.stringify(pair.moved))
+  ok('v0.9.63: when A sings to its end, the pair stays at its saved second and says it will come in over the voice',
+    pair.over.waitingUntilSec != null && Math.abs(pair.over.waitingUntilSec - 12) < 0.05 && /ייכנס על שירה/.test(pair.over.notice),
+    JSON.stringify(pair.over))
 }
 
 // v0.9.18: a plain transition (energy point) mixes with the EQ too, inside its same 8 seconds — once with the instant swap, once gradual.

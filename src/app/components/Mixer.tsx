@@ -220,6 +220,14 @@ function ChannelStrip({ deckId }: { deckId: DeckId }) {
 }
 
 /**
+ * v0.9.63: what the handoff's button says about where B sings. Until then it named `handoffSec`, which was where B's voice came in; since the
+ * handoff waits for A's voice to be over, B sings when A is out (`endSec`), and `handoffSec` is only the bass swap halfway there.
+ */
+function handoffSingsText(t: { toDeckId: string; fromDeckId: string; endSec?: number | null }): string {
+  return t.endSec != null ? `דק ${t.toDeckId} שר כשדק ${t.fromDeckId} יגיע ל-${ctl.formatMinSec(t.endSec)}` : 'מסירת שירה'
+}
+
+/**
  * The seconds left on the red cancel button (v0.9.33, the owner's request, 07/10): until the new song comes in while the mix waits for its
  * line, then until the mix is over. Whole seconds, rounded up, so it reads 1 until the very end and never shows 0 while the fade runs.
  */
@@ -268,8 +276,10 @@ export function Mixer() {
             ? `דק ${activeTransition.toDeckId} מחכה למטה עד שהקיקים יושבים · ביטול`
             : activeTransition.handoffSec != null
             ? activeTransition.waitingForBar && activeTransition.waitingUntilSec != null
-              ? `דק ${activeTransition.toDeckId} נכנס כשדק ${activeTransition.fromDeckId} יגיע ל-${ctl.formatMinSec(activeTransition.waitingUntilSec)} · ${activeTransition.swap ? 'החלפת שירה' : `מסירה ב-${ctl.formatMinSec(activeTransition.handoffSec)}`} · ביטול`
-              : `${activeTransition.swap ? 'החלפת שירה' : 'מסירת שירה'} ב-${ctl.formatMinSec(activeTransition.handoffSec)} · ביטול`
+              ? `דק ${activeTransition.toDeckId} נכנס כשדק ${activeTransition.fromDeckId} יגיע ל-${ctl.formatMinSec(activeTransition.waitingUntilSec)} · ${activeTransition.swap ? 'החלפת שירה' : handoffSingsText(activeTransition)} · ביטול`
+              : activeTransition.swap
+                ? `החלפת שירה ב-${ctl.formatMinSec(activeTransition.handoffSec)} · ביטול`
+                : `מסירת שירה · ${handoffSingsText(activeTransition)} · ביטול`
             : activeTransition.waitingUntilSec != null
             ? `Waiting for ${ctl.formatMinSec(activeTransition.waitingUntilSec)} · cancel`
             : activeTransition.waitingForBar
