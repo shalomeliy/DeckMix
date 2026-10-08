@@ -2,14 +2,14 @@ import { useEffect, useState } from 'react'
 import { create } from 'zustand'
 
 /**
- * A short flash on the control that just did something (v0.9.62). A press on the FLX4 gave no sign on screen that it was received; the
+ * A short flash on the control that just did something (v0.9.62; 150 ms → 450 ms the same day: the owner found 150 ms too fast to notice, 08/10). A press on the FLX4 gave no sign on screen that it was received; the
  * actions below call `pressFlash` from `controls.ts`, so a click, a key, MIDI and AI all light the same place.
  *
  * Only discrete actions may call this. Never the jog (~670 messages a second) and never anything drawn every frame: a flash re-renders
  * the one component that listens to its key, and a stream of them would be the stutter v0.9.58 spent a version removing.
  * `prefers-reduced-motion` already shortens every animation to nothing (`index.css`), so the flash is skipped for those users, as today.
  */
-export const FLASH_MS = 150
+export const FLASH_MS = 450
 
 export type FlashKey = `deck:${'A' | 'B'}` | `sync:${'A' | 'B'}` | 'mix' | `export:${'A' | 'B'}`
 

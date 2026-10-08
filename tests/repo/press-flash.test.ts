@@ -44,10 +44,10 @@ describe('press flash', () => {
     expect(body(fn)).not.toContain('pressFlash')
   })
 
-  it('the flash is 150 ms in both places and reduced motion still shortens it', () => {
-    expect(readFileSync('src/app/state/flash.ts', 'utf8')).toContain('FLASH_MS = 150')
+  it('the flash is 450 ms in both places and reduced motion still shortens it', () => {
+    expect(readFileSync('src/app/state/flash.ts', 'utf8')).toContain('FLASH_MS = 450')
     const css = readFileSync('src/index.css', 'utf8')
-    expect(css).toMatch(/\.press-flash\s*\{\s*animation: press-flash 150ms/)
+    expect(css).toMatch(/\.press-flash\s*\{\s*animation: press-flash 450ms/)
     expect(css).toMatch(/prefers-reduced-motion: reduce[\s\S]*animation-duration: 0\.01ms/)
   })
 })

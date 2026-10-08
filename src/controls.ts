@@ -153,6 +153,7 @@ import {
 import { getFxBank, saveFxBank, type StoredFxBank } from '@/platform/fx-idb/store'
 import { getLibraryExpanded, saveLibraryExpanded } from '@/platform/layout-idb/store'
 import { pressFlash } from '@/app/state/flash'
+import { REVEAL_SELECTION_EVENT } from '@/core/reveal-row'
 import { useStore, type AppState, type FxState } from '@/app/state/store'
 import type { AIMessage, AIToolCall } from '@/core/ports/ai'
 import type { ArtistOption } from '@/core/artist-suggest'
@@ -4649,6 +4650,8 @@ export function moveSelection(delta: number) {
   const idx = ids.indexOf(library.selectedId ?? '')
   const nextIdx = idx < 0 ? 0 : Math.max(0, Math.min(ids.length - 1, idx + delta))
   setLibrary({ selectedId: ids[nextIdx] })
+  // The highlight moved by the owner's own hand (arrow keys, the controller's browse wheel): the table scrolls to keep it in view. `Library.tsx` listens.
+  window.dispatchEvent(new Event(REVEAL_SELECTION_EVENT))
 }
 
 /**

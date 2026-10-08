@@ -139,18 +139,20 @@ body {
   animation: rec-pulse 1s ease-in-out infinite;
 }
 
-/* v0.9.62: the flash on a control that just did something (app/state/flash.ts). 150 ms, same length as FLASH_MS there. */
+/* v0.9.62: the flash on a control that just did something (app/state/flash.ts). 450 ms, same length as FLASH_MS there: it holds at full strength
+   for the first third and then fades, because a 150 ms fade-out was too quick to notice (owner, 08/10). */
 @keyframes press-flash {
-  from {
-    box-shadow: inset 0 0 0 2px var(--color-accent);
-    background-color: color-mix(in srgb, var(--color-accent), transparent 78%);
+  0%,
+  35% {
+    box-shadow: inset 0 0 0 3px var(--color-accent);
+    background-color: color-mix(in srgb, var(--color-accent), transparent 55%);
   }
-  to {
-    box-shadow: inset 0 0 0 2px transparent;
+  100% {
+    box-shadow: inset 0 0 0 3px transparent;
   }
 }
 .press-flash {
-  animation: press-flash 150ms ease-out;
+  animation: press-flash 450ms ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {

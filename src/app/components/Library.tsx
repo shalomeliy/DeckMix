@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as ctl from '@/controls'
+import { REVEAL_SELECTION_EVENT, scrollTopToReveal } from '@/core/reveal-row'
 import { GENRES } from '@/core/genres'
 import { rowBpm, speedPercent } from '@/core/constants'
 import { getGenreOverrides, getGenreOverridesByHash } from '@/platform/genre-overrides-idb/store'
@@ -1014,6 +1015,37 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
   // play/pause switches Mix Only by itself, and coming back to the whole library must land where he left it, not at the top.
   const listView = listViewKey({ similarTo, mixOnly, dupOnly, deckIds: [aId, bId] })
   useScrollMemory(containerRef, listView, rows.length > 0, `${rows.length}:${start}:${end}:${padTop}:${padBottom}`)
+  // The highlight moved by the owner's hand (arrow keys, the controller's browse wheel) scrolls the table with it. Only on that event, never
+  // when the selection changes some other way (a click on a visible row, a rescan): the list does not jump on its own (06/10 rule).
+  const rowsRef = useRef(rows)
+  rowsRef.current = rows
+  useEffect(() => {
+    const reveal = () => {
+      const el = containerRef.current
+      if (!el) return
+      const id = useStore.getState().library.selectedId
+      const index = rowsRef.current.findIndex((t) => t.id === id)
+      if (index < 0) return
+      const headerH = el.querySelector('thead')?.getBoundingClientRect().height ?? ROW_HEIGHT
+      // Measured when the row is on screen: the rendered row is a little taller than ROW_HEIGHT (borders), and an estimate drifts a pixel or two
+      // per row. Estimated only to bring a row that is not drawn yet into the window; the next frame measures the real one.
+      const measure = () => {
+        const row = el.querySelector('tr[aria-selected="true"]')
+        if (!row) return false
+        const r = row.getBoundingClientRect()
+        const b = el.getBoundingClientRect()
+        if (r.top < b.top + headerH) el.scrollTop -= b.top + headerH - r.top
+        else if (r.bottom > b.bottom) el.scrollTop += r.bottom - b.bottom
+        return true
+      }
+      // The store write above has not been drawn yet: the row carrying `aria-selected` is still the old one. Measure after the next two frames.
+      const to = scrollTopToReveal(index, ROW_HEIGHT, el.scrollTop, el.clientHeight, headerH)
+      if (to != null) el.scrollTop = to
+      requestAnimationFrame(() => requestAnimationFrame(measure))
+    }
+    window.addEventListener(REVEAL_SELECTION_EVENT, reveal)
+    return () => window.removeEventListener(REVEAL_SELECTION_EVENT, reveal)
+  }, [containerRef])
   const emptyAction = similarTo ? (
     <Button variant="toggle" active tone="var(--color-accent)" onClick={() => setSimilarTo(null)}>
       Clear similar filter

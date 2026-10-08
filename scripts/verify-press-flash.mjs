@@ -50,13 +50,13 @@ try {
   await take()
   await page.locator('button[aria-label="Load to deck A"]').nth(0).click()
   await page.waitForSelector('[aria-label="Loaded on deck A"]')
-  await page.waitForTimeout(400)
+  await page.waitForTimeout(900)
   let log = await take()
   const on = log.find((e) => e.on && e.tag === 'SECTION'), off = log.find((e) => !e.on && e.tag === 'SECTION')
   ok('loading a song flashes a deck panel', !!on)
-  ok('and it goes away after about 150 ms', !!on && !!off && off.t - on.t >= 120 && off.t - on.t < 400, on && off ? `${Math.round(off.t - on.t)} ms` : 'no off')
+  ok('and it goes away after about 450 ms', !!on && !!off && off.t - on.t >= 400 && off.t - on.t < 800, on && off ? `${Math.round(off.t - on.t)} ms` : 'no off')
   await page.getByRole('button', { name: 'Sync', exact: true }).first().click()
-  await page.waitForTimeout(400)
+  await page.waitForTimeout(900)
   log = await take()
   ok('Sync flashes the Sync button', log.some((e) => e.on && e.tag === 'BUTTON' && /sync/i.test(e.text)), JSON.stringify(log.map((e) => [e.tag, e.on, e.text])))
   await page.getByRole('button', { name: 'Play', exact: true }).first().click()
@@ -71,12 +71,25 @@ try {
   await page.waitForTimeout(30)
   await page.locator('button[aria-label="Load to deck B"]').nth(1).click()
   await page.waitForSelector('[aria-label="Loaded on deck B"]')
-  await page.waitForTimeout(500)
+  await page.waitForTimeout(900)
   ok('after two different flashes overlap, no element is left flashing', (await page.locator('.press-flash').count()) === 0)
   await take()
   await page.getByRole('button', { name: 'Sync', exact: true }).first().click()
-  await page.waitForTimeout(300)
+  await page.waitForTimeout(900)
   ok('and the next Sync press flashes again', (await take()).some((e) => e.on && e.tag === 'BUTTON'))
+  // browse selection stays in view (v0.9.62): arrow keys use the same moveSelection as the controller's wheel
+  const inView = () => page.evaluate(() => {
+    const row = document.querySelector('tr[aria-selected="true"]')
+    if (!row) return { found: false }
+    const box = row.closest('div[class*="overflow"]') ?? row.parentElement
+    const r = row.getBoundingClientRect(), b = box.getBoundingClientRect()
+    const head = document.querySelector('thead')?.getBoundingClientRect().height ?? 0
+    return { found: true, ok: r.top >= b.top + head - 1 && r.bottom <= b.bottom + 1, row: [Math.round(r.top), Math.round(r.bottom)], box: [Math.round(b.top), Math.round(b.bottom)], head: Math.round(head), scrollTop: box.scrollTop, cls: String(box.className).slice(0, 40) }
+  })
+  await page.locator('tbody tr[aria-selected]').first().click()
+  let allIn = true, steps = 0
+  for (let i = 0; i < 10; i++) { await page.keyboard.press('ArrowDown'); await page.waitForTimeout(60); const v = await inView(); steps++; if (!v.found || !v.ok) { allIn = false; console.log('  step', i, JSON.stringify(v)) } }
+  ok('after each of 10 ArrowDown presses the selected row is fully visible', allIn)
   ok('no page errors', errors.length === 0, errors[0])
 } finally { await browser.close(); server.close() }
 process.exit(results.every(Boolean) ? 0 : 1)
