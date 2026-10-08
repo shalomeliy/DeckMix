@@ -10,7 +10,7 @@ describe('Start audio engine cannot stay disabled without a word', () => {
   const start = bar.slice(bar.indexOf('async function start()'), bar.indexOf('async function startUnsafe()'))
 
   it('start() clears busy in a finally and names the failure', () => {
-    expect(start).toMatch(/try\s*\{[\s\S]*startUnsafe\(\)[\s\S]*catch[\s\S]*setNotice[\s\S]*finally\s*\{\s*setBusy\(false\)/)
+    expect(start).toMatch(/try\s*\{[\s\S]*startUnsafe\(\)[\s\S]*catch[\s\S]*setNotice[\s\S]*finally\s*\{\s*starting\.current = false\s*setBusy\(false\)/)
   })
 
   it('every browser call it waits on has a timeout', () => {

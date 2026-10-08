@@ -97,7 +97,7 @@ export const FLX4_MAPPING: MidiMapping = {
     [bindingKey('cc', 6, 0x40)]: { action: 'browse', mode: 'relative' },
     [bindingKey('note', 6, 0x41)]: { action: 'browseEnter', mode: 'button' },
     // LOAD buttons — **LOAD for deck 1 measured 08/10** on the owner's FLX4: `note ch7 #70 = 127`, i.e. channel 6, note 0x46, not on the deck's own
-    // channel as `deck()` above guesses. Deck 2's LOAD (0x47, same channel) is the Pioneer layout, **not yet measured** — checked when he presses it.
+    // channel as `deck()` above guesses. Deck 2's LOAD (0x47, same channel) was confirmed by the owner on 08/10 ("LOAD B works").
     [bindingKey('note', 6, 0x46)]: { action: 'load', deck: 'A', mode: 'button' },
     [bindingKey('note', 6, 0x47)]: { action: 'load', deck: 'B', mode: 'button' },
     // SHIFT (v0.5.0) — one physical button for the whole controller, not

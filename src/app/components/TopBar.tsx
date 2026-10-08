@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { engine } from '@/platform/audio-webaudio/engine'
 import * as ctl from '@/controls'
 import { initAudio, toggleAiControl, toggleQuantize } from '@/controls'
@@ -56,7 +56,39 @@ export function TopBar({
     setOutput({ sinkSupported: typeof engine.ctx.setSinkId === 'function' })
   }, [setOutput])
 
+  // v0.9.63b: the controller is connected as soon as the app opens (Web MIDI needs no click), so "DDJ-FLX4 connected" shows
+  // right away. Only the sound has to wait for a click — Chrome refuses to start audio before the page was touched once, and
+  // a knob turn on the controller does not count as touching it.
+  useEffect(() => {
+    const m = useStore.getState().midi.status
+    if (m !== 'idle') return
+    withTimeout(midi.init(), ENGINE_START_TIMEOUT_MS, 'the browser did not answer the MIDI request — close other programs that use the controller, then click anywhere or press the Connect MIDI button to try again').catch((err) => {
+      useStore.getState().setMidi({ status: 'idle' })
+      useStore.getState().setNotice({ text: `MIDI did not start: ${err instanceof Error ? err.message : String(err)}`, tone: 'warn', source: 'output' })
+    })
+  }, [])
+
+  // The first click or key press anywhere starts the engine, so nobody has to find the button. Until then the bar says so.
+  useEffect(() => {
+    if (audioReady) return
+    const onFirstTouch = (e: Event) => {
+      // Shift/Ctrl/Alt/Meta/Esc and key repeats are not a "touch" for Chrome: starting on them would time out and show a scary sound-system warning.
+      if (e instanceof KeyboardEvent && (e.repeat || ['Shift', 'Control', 'Alt', 'Meta', 'Escape'].includes(e.key))) return
+      if (!useStore.getState().audioReady) void start()
+    }
+    window.addEventListener('pointerdown', onFirstTouch, true)
+    window.addEventListener('keydown', onFirstTouch, true)
+    return () => {
+      window.removeEventListener('pointerdown', onFirstTouch, true)
+      window.removeEventListener('keydown', onFirstTouch, true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioReady])
+
+  const starting = useRef(false)
   async function start() {
+    if (starting.current) return
+    starting.current = true
     setBusy(true)
     try {
       await startUnsafe()
@@ -69,6 +101,7 @@ export function TopBar({
         source: 'output',
       })
     } finally {
+      starting.current = false
       setBusy(false)
     }
   }
@@ -84,7 +117,8 @@ export function TopBar({
       multichannel: engine.isMultichannel,
     })
     try {
-      await withTimeout(midi.init(), ENGINE_START_TIMEOUT_MS, 'the browser did not answer the MIDI request — close other programs that use the controller, then press the MIDI retry button')
+      // Already connected on open (see the effect above) → do not ask the browser a second time.
+      if (useStore.getState().midi.status === 'idle') await withTimeout(midi.init(), ENGINE_START_TIMEOUT_MS, 'the browser did not answer the MIDI request — close other programs that use the controller, then press the MIDI retry button')
     } catch (err) {
       // The sound still works without a controller: only the MIDI part is reported, and `idle` brings the retry button back.
       useStore.getState().setMidi({ status: 'idle' })
@@ -135,12 +169,15 @@ export function TopBar({
       </h1>
 
       {!audioReady ? (
+        <>
         <span className="relative inline-flex">
           <Button variant="toggle" active tone="var(--color-accent)" onClick={start} disabled={busy}>
             {busy ? 'Starting…' : 'Start audio engine'}
           </Button>
           <HintIcon id="topbar.startEngine" className="absolute -right-1.5 -top-1.5" />
         </span>
+        <span className="text-2xs text-grid-dim">or click anywhere</span>
+        </>
       ) : (
         <>
           <label className="flex items-center gap-2 text-xs text-grid-muted">
@@ -204,7 +241,7 @@ export function TopBar({
             {midiState.lastJog}
           </span>
         )}
-        {midiState.status === 'idle' && audioReady && (
+        {midiState.status === 'idle' && (
           <span className="relative inline-flex">
             <Button variant="ghost" size="sm" onClick={() => midi.init()}>
               Connect MIDI

@@ -30,6 +30,10 @@ const NAMED: Record<string, Named[]> = {
     { token: "addEventListener('keydown'", count: 1, exempt: 'the global keys — checked key by key in the last test below' },
     { token: "addEventListener('keyup'", count: 1, exempt: 'release half of the same global keys' },
   ],
+  // v0.9.63b: the first click or key anywhere starts the sound engine (the bar says "or click anywhere")
+  'src/app/components/TopBar.tsx': [
+    { token: "addEventListener('keydown'", count: 1, exempt: 'any first key press starts the audio engine — said on the bar itself ("or click anywhere")' },
+  ],
   'src/app/components/PadGrid.tsx': [
     { token: 'e.shiftKey', count: 1, gesture: 'pads.hotcue' },
     { token: 'e.altKey', count: 1, gesture: 'pads.hotcue' },

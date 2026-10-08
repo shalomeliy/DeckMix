@@ -1,5 +1,5 @@
 /** Fired by `moveSelection` after the highlight moved by hand; the track table answers it by scrolling the selected row into view. */
-export const REVEAL_SELECTION_EVENT = 'deckmix:reveal-selection'
+export const REVEAL_SELECTION_EVENT = 'deckmix-reveal-selection'
 
 /**
  * Where to scroll so that row `index` is fully visible (v0.9.62), or `null` when it already is.

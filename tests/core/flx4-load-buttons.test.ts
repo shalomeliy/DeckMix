@@ -7,7 +7,7 @@ describe('FLX4 LOAD buttons', () => {
   it('deck 1 LOAD (measured: channel 6, note 0x46) loads deck A', () => {
     expect(FLX4_MAPPING.bindings[bindingKey('note', 6, 0x46)]).toMatchObject({ action: 'load', deck: 'A' })
   })
-  it('deck 2 LOAD (Pioneer layout, not yet measured: note 0x47) loads deck B', () => {
+  it('deck 2 LOAD (Pioneer layout, owner-confirmed 08/10: note 0x47) loads deck B', () => {
     expect(FLX4_MAPPING.bindings[bindingKey('note', 6, 0x47)]).toMatchObject({ action: 'load', deck: 'B' })
   })
 })
