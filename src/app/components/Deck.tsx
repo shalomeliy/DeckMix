@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as ctl from '@/controls'
 import { LONG_PRESS_MS, PLATTER_SIZE } from '@/core/constants'
 import { useSettings } from '@/app/hooks/useSettings'
+import { useFlash } from '@/app/state/flash'
 import { useStore } from '@/app/state/store'
 import type { DeckId } from '@/core/types'
 import { heardSemitones, shiftCamelot } from '@/core/key-sync'
@@ -113,6 +114,8 @@ export function Deck({ deckId }: { deckId: DeckId }) {
   // the CUE button's window-level pointerup listener just below — the
   // release has to be caught even if the pointer drifted off the button
   // first, the same reason CUE doesn't rely on onPointerUp alone.
+  const deckFlash = useFlash(`deck:${deckId}`)
+  const syncFlash = useFlash(`sync:${deckId}`)
   const syncHoldTimer = useRef(0)
   const syncLongFired = useRef(false)
   useEffect(() => () => window.clearTimeout(syncHoldTimer.current), [])
@@ -237,7 +240,7 @@ export function Deck({ deckId }: { deckId: DeckId }) {
 
   return (
     <section
-      className="panel relative flex min-h-0 min-w-0 flex-col gap-2 p-2.5 transition-shadow"
+      className={`panel relative flex min-h-0 min-w-0 flex-col gap-2 p-2.5 transition-shadow${deckFlash ? ' press-flash' : ''}`}
       style={dropActive ? { boxShadow: `0 0 0 2px ${color}, var(--shadow-panel)` } : undefined}
       onDragOver={(e) => {
         if (!e.dataTransfer.types.includes(TRACK_MIME)) return
@@ -549,7 +552,7 @@ export function Deck({ deckId }: { deckId: DeckId }) {
             <span className="relative flex">
               <Button
                 variant="transport"
-                className="flex-1"
+                className={`flex-1${syncFlash ? ' press-flash' : ''}`}
                 active={deck.syncActive}
                 tone={color}
                 onPointerDown={onSyncDown}

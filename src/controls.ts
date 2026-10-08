@@ -152,6 +152,7 @@ import {
 } from '@/platform/sampler-bank-fsaccess/store'
 import { getFxBank, saveFxBank, type StoredFxBank } from '@/platform/fx-idb/store'
 import { getLibraryExpanded, saveLibraryExpanded } from '@/platform/layout-idb/store'
+import { pressFlash } from '@/app/state/flash'
 import { useStore, type AppState, type FxState } from '@/app/state/store'
 import type { AIMessage, AIToolCall } from '@/core/ports/ai'
 import type { ArtistOption } from '@/core/artist-suggest'
@@ -505,6 +506,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     keySyncShift: null,
   })
   loadMark('ready')
+  pressFlash(`deck:${deckId}`)
   // Never silent (v0.9.46): a track that starts off its own speed says so, and says it is his saved choice.
   // Never over a warning already on screen — the first load once wiped the "audio device not connected" one (see the clearNotice above).
   const shown = useStore.getState().notice
@@ -1746,6 +1748,7 @@ export async function saveDeckTempo(deckId: DeckId, opts: { forget?: boolean } =
     setNotice({ text: `"${name}" has no identity yet, so its tempo cannot be saved — try again once it has finished loading.`, tone: 'warn', source: 'tempo' })
     return
   }
+  pressFlash(`deck:${deckId}`)
   const rate = opts.forget ? 1 : deckRate(deck.baseRate, deck.tempo, settings.values.tempoRange)
   const isFile = Math.abs(rate - 1) < 1e-4
   try {
@@ -3644,6 +3647,7 @@ function runSyncCorrection() {
  */
 export function syncDeck(deckId: DeckId) {
   if (!engine.decks[deckId].hasTrack) return
+  pressFlash(`sync:${deckId}`)
   // The gliding deck is always master, so the press below ends in "already
   // master" before reaching setTempo — and the glide notice promises SYNC stops it.
   cancelTempoGlide(deckId)
@@ -3963,6 +3967,8 @@ export function startAutoTransition(
     })
     return
   }
+  // After the refusals above: the Mix panel lights only for a transition that actually starts.
+  pressFlash('mix')
   // v0.4.10: an unconfirmed grid is a guess, not a refusal reason — Shalom's
   // call (05/09): "like a blinking yellow light: it's a risk, but I'm doing
   // it" rather than blocking mid-set. Named explicitly so the DJ knows which
@@ -4937,7 +4943,8 @@ export async function clearVocalMarks(deckId: DeckId): Promise<void> {
 }
 
 /** Every song's hand-made marks to a new file the owner names — a backup that survives clearing the browser's data, and the input for training. */
-export async function exportVocalMarks(): Promise<void> {
+export async function exportVocalMarks(fromDeck?: DeckId): Promise<void> {
+  if (fromDeck) pressFlash(`export:${fromDeck}`)
   const day = new Date().toISOString().slice(0, 10)
   try {
     const all = await getAllVocalManual()

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import * as ctl from '@/controls'
+import { useFlash } from '@/app/state/flash'
 import { useStore } from '@/app/state/store'
 import type { DeckId } from '@/core/types'
 import { Button, Fader, HintIcon, Knob } from '@/app/components/controls'
@@ -255,8 +256,9 @@ export function Mixer() {
   const mixer = useStore((s) => s.mixer)
   const activeTransition = useStore((s) => s.activeTransition)
   const compact = useStore((s) => s.libraryExpanded)
+  const mixFlash = useFlash('mix')
   return (
-    <section className="panel flex flex-col items-center gap-2.5 overflow-hidden p-2.5">
+    <section className={`panel flex flex-col items-center gap-2.5 overflow-hidden p-2.5${mixFlash ? ' press-flash' : ''}`}>
       <span className="label self-start">Mix</span>
 
       {/* Mix Assist (v0.4.6): fixed, always in the same spot, no menu, no

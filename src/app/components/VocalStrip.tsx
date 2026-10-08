@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { HintIcon } from '@/app/components/controls'
 import { useSettings } from '@/app/hooks/useSettings'
+import { useFlash } from '@/app/state/flash'
 import { useStore } from '@/app/state/store'
 import { useShallow } from 'zustand/react/shallow'
 import * as ctl from '@/controls'
@@ -59,6 +60,7 @@ function countdownText(c: VocalCountdown): string {
  */
 export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHash }: Props) {
   const { vocalMarking } = useSettings()
+  const exportFlash = useFlash(`export:${deckId}`)
   const tag = useStore((s) => (contentHash ? s.vocalManual[contentHash] : undefined))
   const openMark = useStore((s) => s.vocalMarkOpen[deckId])
   const open = openMark && openMark.contentHash === contentHash ? openMark : null
@@ -273,7 +275,7 @@ export function VocalStrip({ vocal, durationSec, positionSec, deckId, contentHas
               </button>
             </>
           )}
-          <button type="button" onClick={() => void ctl.exportVocalMarks()} title="שומר את הסימונים של כל השירים לקובץ חדש (גיבוי, ואחר כך אימון)." className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted">
+          <button type="button" onClick={() => void ctl.exportVocalMarks(deckId)} title="שומר את הסימונים של כל השירים לקובץ חדש (גיבוי, ואחר כך אימון)." className={`rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted${exportFlash ? ' press-flash' : ''}`}>
             ייצא סימונים
           </button>
           <button type="button" onClick={() => void ctl.importVocalMarks()} title="מחזיר סימונים מקובץ גיבוי. שיר שכבר יש לו סימון כאן לא נדרס." className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted">
