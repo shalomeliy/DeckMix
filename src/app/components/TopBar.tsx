@@ -8,6 +8,25 @@ import { useStore } from '@/app/state/store'
 import { useSettings } from '@/app/hooks/useSettings'
 import { Button, HintIcon, Pill, type PillTone } from '@/app/components/controls'
 
+const ENGINE_START_TIMEOUT_MS = 10_000
+
+/** Rejects with `what` if `p` has not settled in `ms`; a hung browser call must end in a message, not a button that stays disabled. */
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const id = window.setTimeout(() => reject(new Error(what)), ms)
+    p.then(
+      (v) => {
+        window.clearTimeout(id)
+        resolve(v)
+      },
+      (e) => {
+        window.clearTimeout(id)
+        reject(e)
+      },
+    )
+  })
+}
+
 export function TopBar({
   onOpenSettings,
   onOpenLegal,
@@ -39,8 +58,24 @@ export function TopBar({
 
   async function start() {
     setBusy(true)
-    await initAudio()
-    const outs = await engine.listOutputs()
+    try {
+      await startUnsafe()
+    } catch (err) {
+      // v0.9.62: the button used to stay greyed out for good when this threw or never answered — no message, no way to try again
+      // (owner, 08/10: "Start audio engine" disabled, MIDI idle). The failure is named and the button comes back.
+      useStore.getState().setNotice({
+        text: `The audio engine did not start: ${err instanceof Error ? err.message : String(err)}`,
+        tone: 'warn',
+        source: 'output',
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function startUnsafe() {
+    await withTimeout(initAudio(), ENGINE_START_TIMEOUT_MS, `no answer from the sound system after ${ENGINE_START_TIMEOUT_MS / 1000} s — check that the Windows default output device works and is not in use by another program`)
+    const outs = await withTimeout(engine.listOutputs(), ENGINE_START_TIMEOUT_MS, 'the list of audio devices did not arrive')
     setOutput({
       devices: outs.map((d) => ({
         deviceId: d.deviceId,
@@ -48,7 +83,13 @@ export function TopBar({
       })),
       multichannel: engine.isMultichannel,
     })
-    await midi.init()
+    try {
+      await withTimeout(midi.init(), ENGINE_START_TIMEOUT_MS, 'the browser did not answer the MIDI request — close other programs that use the controller, then press the MIDI retry button')
+    } catch (err) {
+      // The sound still works without a controller: only the MIDI part is reported, and `idle` brings the retry button back.
+      useStore.getState().setMidi({ status: 'idle' })
+      useStore.getState().setNotice({ text: `MIDI did not start: ${err instanceof Error ? err.message : String(err)}`, tone: 'warn', source: 'output' })
+    }
 
     // A remembered device that is never re-applied is a setting that pretends
     // to work. Applied when the card is still here; named when it is not,
@@ -67,7 +108,6 @@ export function TopBar({
         })
       }
     }
-    setBusy(false)
   }
 
   async function pickOutput(deviceId: string) {
