@@ -4,7 +4,7 @@ import { EQ_KILL, type EqBands } from '@/core/eq-mix'
 import { crossfaderGains } from '@/core/fx'
 import { CELL_NONE, CELL_VOCAL, VOCAL_CELL_SEC, type VocalTimeline } from '@/core/sound/vocal-timeline'
 import { MIN_BARS_AFTER_MIX, PHRASE_BARS, type HandoffSide } from '@/core/vocal-handoff'
-import { SWAP_BARS, SWAP_CROSSFADER_CURVE, planVocalSwap, swapEntries, swapIncoming, vocalSwapFrame, type VocalSwapPlan } from '@/core/vocal-swap-mix'
+import { BASS_HOLD_FADE_BARS, SWAP_BARS, SWAP_CROSSFADER_CURVE, bassEntrySec, planVocalSwap, swapEntries, swapIncoming, vocalSwapFrame, type VocalSwapPlan } from '@/core/vocal-swap-mix'
 
 function timeline(durationSec: number, voices: [number, number][]): VocalTimeline {
   const cells = new Uint8Array(Math.floor(durationSec / VOCAL_CELL_SEC)).fill(CELL_NONE)
@@ -150,5 +150,68 @@ describe('vocalSwapFrame', () => {
   })
   it("on the mixer's usual curve the same knobs would sag to −3 dB — why this mix uses its own", () => {
     expect(roomDb(65, 'power')).toBeLessThan(-2.5)
+  })
+})
+
+// The owner, 08/10: near the end of the outgoing song B came in on a near-acapella voice, A's bass went at the swap and B's had not started.
+describe("bass held until B's bass starts", () => {
+  // 120 BPM, bar 2 s. B: acapella 32–60 (no bass), bass from 60 on; 1 bucket = 0.5 s. A: 200 s, sings 20–60, quiet to the end.
+  const bands = (durationSec: number, bassFrom: number): Float32Array => {
+    const out = new Float32Array(durationSec * 2 * 3) // 2 buckets a second
+    for (let i = 0; i < durationSec * 2; i++) {
+      out[i * 3] = i / 2 >= bassFrom ? 1 : 0.02
+      out[i * 3 + 1] = 0.5
+      out[i * 3 + 2] = 0.3
+    }
+    return out
+  }
+  const withBands = (s: HandoffSide, bassFrom: number): HandoffSide => ({ ...s, bands: bands(s.durationSec, bassFrom) })
+  const a = side(200, [[20, 60]])
+  const b = withBands(side(300, [[32, 120]]), 60)
+  const entry = { voiceSec: 32 }
+
+  it("finds the bass line, ignoring a lone kick", () => {
+    expect(bassEntrySec(b, 32)).toBe(60)
+    const kick = bands(300, 60)
+    kick[80 * 3] = 1 // one half-second of bass at 40 s, inside the acapella
+    expect(bassEntrySec({ ...b, bands: kick }, 32)).toBe(60)
+  })
+  it("is null without bands, and the voice line itself when the bass is already there", () => {
+    expect(bassEntrySec(side(300, [[32, 120]]), 32)).toBeNull()
+    expect(bassEntrySec(withBands(side(300, [[32, 120]]), 0), 32)).toBe(32)
+  })
+  it("moves the swap to where B's bass starts and fades A's bass over the hold bars", () => {
+    const p = planVocalSwap(a, 30, b, entry)!
+    expect(p.bassHold).toBe(true)
+    expect(p.joinSec).toBe(60)
+    expect(p.swapSec).toBe(60 + (60 - 32)) // B's bass 28 s after its voice line
+    expect(p.endSec).toBe(p.swapSec + BASS_HOLD_FADE_BARS * 2)
+  })
+  it("keeps A's bass until the swap, then takes it down slowly while the crossfader stays in the middle", () => {
+    const p = planVocalSwap(a, 30, b, entry)!
+    const f = (pos: number) => vocalSwapFrame(p, pos, 2, own)
+    expect(f(p.swapSec - 0.1).a.low).toBe(own.a.low)
+    expect(f(p.swapSec - 0.1).b.low).toBe(EQ_KILL)
+    const mid = f(p.swapSec + 1)
+    expect(mid.a.low).toBeLessThan(own.a.low)
+    expect(mid.a.low).toBeGreaterThan(EQ_KILL)
+    expect(mid.b).toEqual(own.b)
+    expect(mid.progress).toBe(0.5)
+    expect(f(p.endSec).progress).toBe(1)
+    expect(f(p.endSec).a.low).toBe(EQ_KILL)
+  })
+  it("keeps the plain swap when B has no bands, or A sings more than 2 s before the bass is out, or A ends first", () => {
+    expect(planVocalSwap(a, 30, side(300, [[32, 120]]), entry)!.bassHold).toBe(false)
+    expect(planVocalSwap(side(200, [[20, 60], [80, 84]]), 30, b, entry)!.bassHold).toBe(false)
+    const ends = planVocalSwap(side(90, [[20, 60]]), 30, b, entry)!
+    expect(ends.bassHold).toBe(false)
+    expect(ends.holdSkipped).toContain('נגמר')
+    expect(planVocalSwap(a, 30, side(300, [[32, 120]]), entry)!.holdSkipped).toContain('עוד לא נותח')
+    // A sings again after the fade ends: the rule is for the end of A's song only, so no hold and nothing to say.
+    const later = planVocalSwap(side(200, [[20, 60], [150, 160]]), 30, b, entry)!
+    expect(later).toMatchObject({ bassHold: false, holdSkipped: null })
+  })
+  it("a short voice (2 s or less) in A's tail does not stop the hold", () => {
+    expect(planVocalSwap(side(200, [[20, 60], [100, 102]]), 30, b, entry)!.bassHold).toBe(true)
   })
 })

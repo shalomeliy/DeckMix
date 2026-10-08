@@ -4354,7 +4354,8 @@ export function deckHandoffSide(deckId: DeckId): HandoffSide | { missing: string
   if (!deck.track) return { missing: 'אין שיר בדק' }
   const vocal = s.library.tracks.find((t) => t.id === deck.track?.id)?.vocal
   const tag = deck.track.contentHash ? s.vocalManual[deck.track.contentHash] : undefined
-  return handoffSide(vocal, tag, deck.beatGrid, deck.durationSec)
+  const side = handoffSide(vocal, tag, deck.beatGrid, deck.durationSec)
+  return 'missing' in side ? side : { ...side, bands: deck.bands }
 }
 
 /**

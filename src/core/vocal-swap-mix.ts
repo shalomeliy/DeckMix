@@ -66,6 +66,17 @@ export const SWAP_BARS = SWAP_VOICE_DOWN_BARS + SWAP_INSTRUMENTS_DOWN_BARS + SWA
 /** B must keep singing at least this long from its line: from S to the swap it is the voice the room hears over A's bass. */
 const MIN_VOICE_BARS = SWAP_BARS
 
+/**
+ * The owner, 08/10, on a swap near the end of the outgoing song: B came in on a near-acapella voice, A's drums went at the swap, and B's bass
+ * had not started — "suddenly the song sounds with no drums". The rule he gave: when A has no voice from the mix to its end, A's bass keeps
+ * playing exactly until B's bass comes in, and only then goes down, slowly. `BASS_HOLD_FADE_BARS` is that "slowly": chosen, not measured.
+ */
+export const BASS_HOLD_FADE_BARS = 2
+/** B's bass has started when its LOW band reaches this share of the song's own bass level (the 80th percentile of its LOW buckets)... */
+export const BASS_ENTRY_LEVEL = 0.5
+/** ...and stays there this long, so a single kick under an acapella is not taken for the bass line. */
+export const BASS_ENTRY_HOLD_SEC = 1
+
 const EPS = 1e-6
 const barSec = (bpm: number) => (60 / bpm) * BEATS_PER_BAR
 
@@ -89,6 +100,39 @@ export interface VocalSwapPlan {
   endSec: number
   /** True when S is where A's voice ends; false when A was already quiet and S is a phrase later. */
   onVoiceEnd: boolean
+  /**
+   * True when `swapSec` was moved later, to where B's bass starts (`bassEntrySec`): A's bass is held until then and goes down over
+   * `BASS_HOLD_FADE_BARS` bars, ending at `endSec`. False is the mix of the table above.
+   */
+  bassHold: boolean
+  /** Why the 08/10 bass hold was not kept although A has no voice to its end (shown on the panel row); null otherwise. */
+  holdSkipped: string | null
+}
+
+/**
+ * Where B's bass starts at or after `fromSec` (B seconds, on a yellow line), read from its LOW band; null when the song has no bands or its
+ * bass never starts. The level is the song's own (80th percentile), so a quiet master and a loud one read alike. Pure.
+ */
+export function bassEntrySec(b: HandoffSide, fromSec: number): number | null {
+  const bands = b.bands
+  if (!bands || b.durationSec <= 0) return null
+  const n = Math.floor(bands.length / 3)
+  if (n < 2) return null
+  const low = new Float32Array(n)
+  for (let i = 0; i < n; i++) low[i] = bands[i * 3]
+  const ref = [...low].sort((x, y) => x - y)[Math.floor(n * 0.8)]
+  if (!(ref > 0)) return null
+  const level = ref * BASS_ENTRY_LEVEL
+  const bucketSec = b.durationSec / n
+  const need = Math.max(1, Math.round(BASS_ENTRY_HOLD_SEC / bucketSec))
+  for (let i = Math.max(0, Math.ceil(fromSec / bucketSec)); i + need <= n; i++) {
+    let ok = true
+    for (let k = 0; k < need; k++) if (!(low[i + k] >= level)) { ok = false; break }
+    if (!ok) continue
+    // The bass starts somewhere in its first bucket: the line at or before the bucket's end, as `swapEntries` reads a voice.
+    return Math.max(fromSec, barLineAtOrBeforeSec((i + 1) * bucketSec - EPS, b.grid))
+  }
+  return null
 }
 
 /**
@@ -121,7 +165,7 @@ export function swapEntries(b: HandoffSide): { entries: SwapEntry[]; short: numb
  * The earliest vocal swap into B's voice at `entry`, with A at `aPositionSec` now; null when A has no stretch left that stays quiet for the
  * whole mix. With SYNC playing B straight (the caller checks, as for the handoff), a bar of A and a bar of B take the same time.
  */
-export function planVocalSwap(a: HandoffSide, aPositionSec: number, _b: HandoffSide, entry: SwapEntry): VocalSwapPlan | null {
+export function planVocalSwap(a: HandoffSide, aPositionSec: number, b: HandoffSide, entry: SwapEntry): VocalSwapPlan | null {
   const barA = barSec(a.grid.bpm)
   const mixSec = SWAP_BARS * barA + (XFADE_BEATS * barA) / BEATS_PER_BAR
   const firstJoin = nextBarLineSec(aPositionSec + EPS, a.grid)
@@ -129,7 +173,7 @@ export function planVocalSwap(a: HandoffSide, aPositionSec: number, _b: HandoffS
     const voiceEnd = barLineAtOrAfterSec(q.from, a.grid)
     for (let s = voiceEnd; s + mixSec <= q.to + EPS; s += PHRASE_BARS * barA) {
       if (s < firstJoin - EPS) continue
-      return {
+      const base: VocalSwapPlan = {
         joinSec: s,
         entrySec: entry.voiceSec,
         bVoiceSec: entry.voiceSec,
@@ -138,10 +182,40 @@ export function planVocalSwap(a: HandoffSide, aPositionSec: number, _b: HandoffS
         // Clamped like the handoff's fade end: the engine's position stops at the song's end and would never pass a later second.
         endSec: Math.min(q.to, s + mixSec),
         onVoiceEnd: q.afterVoice && s === voiceEnd,
+        bassHold: false,
+        holdSkipped: null,
       }
+      return withBassHold(base, a, b, entry)
     }
   }
   return null
+}
+
+/** A voice this short in A's last stretch is not a "significant" one (the owner, 08/10: more than 2 seconds is). */
+const SIGNIFICANT_VOICE_SEC = 2
+
+/**
+ * The 08/10 rule: when A has no significant voice from the mix to the end of the song, the swap waits for B's bass (`bassEntrySec`) —
+ * A's bass keeps playing until then — and A's bass then goes down over `BASS_HOLD_FADE_BARS`. null (the plan stays as it was) when B's bass
+ * never starts, when it starts no later than the plain swap would, or when the rest does not fit: A's song would end, or A sings for more
+ * than 2 s, before A's bass is out, or B would be left with too little song after the mix.
+ */
+function withBassHold(plan: VocalSwapPlan, a: HandoffSide, b: HandoffSide, entry: SwapEntry): VocalSwapPlan {
+  // The rule is for the end of A's song only: any voice of more than 2 s from the mix to the song's end and the plan stays as it was.
+  if (voiceRuns(a.timeline, a.durationSec).some((r) => r.to > plan.joinSec && r.to - r.from > SIGNIFICANT_VOICE_SEC)) return plan
+  // From here the rule applies, so every way it cannot be kept is said on the row (never skipped silently).
+  const skip = (holdSkipped: string): VocalSwapPlan => ({ ...plan, holdSkipped })
+  if (!b.bands) return skip('הבס של השיר הנכנס עוד לא נותח')
+  const bEntry = bassEntrySec(b, entry.voiceSec)
+  if (bEntry == null) return skip('לא נמצאה כניסת בס בשיר הנכנס')
+  const barA = barSec(a.grid.bpm)
+  const barB = barSec(b.grid.bpm)
+  const swapSec = plan.joinSec + ((bEntry - entry.voiceSec) / barB) * barA
+  if (swapSec <= plan.swapSec + EPS) return plan
+  const endSec = swapSec + BASS_HOLD_FADE_BARS * barA
+  if (endSec > a.durationSec + EPS) return skip('השיר היוצא נגמר לפני שהבס הנכנס מתחיל')
+  if (!enoughSongAfterMix(b.durationSec, b.grid, bEntry + BASS_HOLD_FADE_BARS * barB)) return skip('לשיר הנכנס לא נשאר מספיק אחרי הכניסה של הבס')
+  return { ...plan, swapSec, endSec, bassHold: true }
 }
 
 /** B's knobs from the moment it starts until the swap: everything but its bass — its voice, as near as an EQ gets without muffling it. */
@@ -162,8 +236,11 @@ export function vocalSwapFrame(plan: VocalSwapPlan, pos: number, barSecA: number
 
   // The crossfader brings B up to the middle — on `full-middle`, to its full level — over the same bar A's MID goes down: one voice out as
   // the other comes in.
+  // With the bass held, A is still playing after the swap (its bass going down slowly): the crossfader stays in the middle, both decks at
+  // full level, until A's bass is out, and only then goes to B (A is silent by then, so the move is not heard).
+  const holdSec = Math.max(EPS, plan.endSec - plan.swapSec)
   let progress = 0
-  if (pos >= plan.swapSec) progress = 0.5 + 0.5 * clamp01((pos - plan.swapSec) / xf)
+  if (pos >= plan.swapSec) progress = plan.bassHold ? 0.5 : 0.5 + 0.5 * clamp01((pos - plan.swapSec) / xf)
   else if (pos >= plan.joinSec) progress = 0.5 * clamp01((pos - plan.joinSec) / (SWAP_VOICE_DOWN_BARS * barSecA))
   // The end may be clamped to A's last second, inside the last beat: then the move finishes there.
   if (pos >= plan.endSec) progress = 1
@@ -174,6 +251,6 @@ export function vocalSwapFrame(plan: VocalSwapPlan, pos: number, barSecA: number
     a.mid = swapCurve(own.a.mid, (pos - plan.joinSec) / (SWAP_VOICE_DOWN_BARS * barSecA), 'down', boostDb)
     a.high = swapCurve(own.a.high, (pos - highFrom) / (SWAP_INSTRUMENTS_DOWN_BARS * barSecA), 'down', boostDb)
   }
-  if (pos >= plan.swapSec) a.low = Math.min(own.a.low, EQ_KILL)
+  if (pos >= plan.swapSec) a.low = plan.bassHold ? swapCurve(own.a.low, (pos - plan.swapSec) / holdSec, 'down', boostDb) : Math.min(own.a.low, EQ_KILL)
   return { progress, a, b }
 }

@@ -47,6 +47,11 @@ export interface HandoffSide {
   timeline: VocalTimeline
   grid: BeatGrid
   durationSec: number
+  /**
+   * The deck's per-bucket low/mid/high energy (`Deck.bands`, 3 per bucket), when the song has been analysed. Only the vocal swap reads it,
+   * to find where an incoming song's bass starts (`bassEntrySec`); without it that mix behaves as it did before.
+   */
+  bands?: Float32Array | null
 }
 
 export interface HandoffPlan {

@@ -297,6 +297,7 @@ export function TransitionPointsPanel({
                 <span className="h-1 w-1 shrink-0 rounded-full" style={{ background: 'var(--color-live)' }} />
                 {plan.onVoiceEnd ? `דק ${otherDeckId} מסיים לשיר ב-${fmtSec(plan.joinSec)}` : `דק ${otherDeckId} שקט ב-${fmtSec(plan.joinSec)}`}
                 {` · בעוד ${fmtSec(plan.joinSec - otherPositionBucketSec)} · ${Math.round(plan.endSec - plan.joinSec)} שנ'`}
+                {plan.bassHold ? ` · הבס של דק ${otherDeckId} ממשיך עד שהבס הנכנס מתחיל` : plan.holdSkipped ? ` · בלי המשך בס: ${plan.holdSkipped}` : ''}
               </span>
             </button>
           ))}

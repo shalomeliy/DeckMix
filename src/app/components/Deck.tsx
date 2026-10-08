@@ -70,12 +70,12 @@ export function Deck({ deckId }: { deckId: DeckId }) {
   const vocalSide = useMemo(
     () => (showTransitionPoints ? ctl.deckHandoffSide(deckId) : { missing: '' }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [showTransitionPoints, trackVocal, manualTags, deck.beatGrid, deck.durationSec, deck.track],
+    [showTransitionPoints, trackVocal, manualTags, deck.beatGrid, deck.durationSec, deck.track, deck.bands],
   )
   const otherVocalSide = useMemo(
     () => (showTransitionPoints ? ctl.deckHandoffSide(otherDeckId) : { missing: '' }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [showTransitionPoints, otherTrackVocal, manualTags, otherBeatGrid, otherDurationSec, otherTrack],
+    [showTransitionPoints, otherTrackVocal, manualTags, otherBeatGrid, otherDurationSec, otherTrack, otherBands],
   )
   // v0.5.4: this deck's own suggested exit point, shown the moment it becomes
   // the outgoing side of a running transition — transparently, per the
