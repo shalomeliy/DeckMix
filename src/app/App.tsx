@@ -1,13 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { AiControlBar } from '@/app/components/AiControlBar'
 import { Deck } from '@/app/components/Deck'
 import { Library } from '@/app/components/Library'
 import { LibraryResizeHandle } from '@/app/components/LibraryResizeHandle'
 import { Mixer } from '@/app/components/Mixer'
-import { SettingsScreen } from '@/app/components/Settings'
-import { SetHistoryScreen } from '@/app/components/SetHistory'
-import { KeysScreen } from '@/app/components/KeysScreen'
-import { TaggingScreen } from '@/app/components/TaggingScreen'
+import { PanelLoadBoundary } from '@/app/components/PanelLoadBoundary'
 import { TopBar } from '@/app/components/TopBar'
 import { TransitionRatingPrompt } from '@/app/components/TransitionRatingPrompt'
 import * as ctl from '@/controls'
@@ -16,6 +13,14 @@ import { getCrates } from '@/platform/crates-idb/store'
 import { useRenderLoop } from '@/app/hooks/useRenderLoop'
 import { useStore } from '@/app/state/store'
 import type { DeckId } from '@/core/types'
+
+// v0.9.61: the four full-screen panels load only when opened. They were part of the first download although most
+// sessions never open them. `fallback={null}` is safe: they are local files, so the wait is a few milliseconds, and each
+// panel paints its own backdrop the moment it arrives.
+const SettingsScreen = lazy(() => import('@/app/components/Settings').then((m) => ({ default: m.SettingsScreen })))
+const SetHistoryScreen = lazy(() => import('@/app/components/SetHistory').then((m) => ({ default: m.SetHistoryScreen })))
+const KeysScreen = lazy(() => import('@/app/components/KeysScreen').then((m) => ({ default: m.KeysScreen })))
+const TaggingScreen = lazy(() => import('@/app/components/TaggingScreen').then((m) => ({ default: m.TaggingScreen })))
 
 export default function App() {
   useRenderLoop()
@@ -263,12 +268,21 @@ export default function App() {
         <LibraryResizeHandle />
         <Library screenOpen={settingsOpen || historyOpen || keysOpen || taggingOpen} />
       </div>
-      {settingsOpen && (
-        <SettingsScreen onClose={() => setSettingsOpen(false)} initialGroup={settingsGroup} />
-      )}
-      {historyOpen && <SetHistoryScreen onClose={() => setHistoryOpen(false)} />}
-      {keysOpen && <KeysScreen onClose={() => setKeysOpen(false)} />}
-      {taggingOpen && <TaggingScreen onClose={() => setTaggingOpen(false)} />}
+      <PanelLoadBoundary
+        onClose={() => {
+          setSettingsOpen(false)
+          setHistoryOpen(false)
+          setKeysOpen(false)
+          setTaggingOpen(false)
+        }}
+      >
+        <Suspense fallback={null}>
+          {settingsOpen && <SettingsScreen onClose={() => setSettingsOpen(false)} initialGroup={settingsGroup} />}
+          {historyOpen && <SetHistoryScreen onClose={() => setHistoryOpen(false)} />}
+          {keysOpen && <KeysScreen onClose={() => setKeysOpen(false)} />}
+          {taggingOpen && <TaggingScreen onClose={() => setTaggingOpen(false)} />}
+        </Suspense>
+      </PanelLoadBoundary>
     </div>
   )
 }
