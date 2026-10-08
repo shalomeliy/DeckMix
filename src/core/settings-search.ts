@@ -27,7 +27,7 @@ export const SETTINGS_SECTIONS: { id: SettingsSection; label: string; blurb: str
  * A named set, not an omission: the same rule as `COMPANION_EXT`.
  */
 export const PANEL_ENTRIES: {
-  id: 'jogMeasure' | 'samplerBank' | 'system' | 'legal'
+  id: 'jogMeasure' | 'samplerBank' | 'genreCoverage' | 'system' | 'legal'
   section: SettingsSection
   label: string
   help: string
@@ -46,6 +46,13 @@ export const PANEL_ENTRIES: {
     label: 'Sampler bank export and import',
     help: 'Save the sampler pads to a file or folder, or load them back.',
     keywords: ['sampler', 'pads', 'samples', 'backup', 'export', 'import', 'סאמפלר', 'סמפלר', 'פדים', 'גיבוי', 'ייצוא', 'ייבוא', 'סאמפלים'],
+  },
+  {
+    id: 'genreCoverage',
+    section: 'library',
+    label: 'Vocal strip: which genres learned from your marks',
+    help: 'Per genre: songs you finished marking, and whether the vocal strip has a model learned from them.',
+    keywords: ['vocal', 'strip', 'marks', 'genre', 'model', 'coverage', 'hip hop', 'שירה', 'סימונים', "ז'אנר", 'זאנר', 'מודל', 'כיסוי'],
   },
   {
     id: 'system',

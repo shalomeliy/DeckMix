@@ -16,6 +16,9 @@ import { settings } from '@/platform/settings-idb/store'
 import { useSettings } from '@/app/hooks/useSettings'
 import { useStore } from '@/app/state/store'
 import { Button, HintIcon } from '@/app/components/controls'
+import { MIN_SONGS_FOR_GENRE_MODEL, genreCoverage, modelSongCounts } from '@/core/sound/genre-coverage'
+import genreModelsJson from '@/core/sound/vocal-genre-models.json'
+import { getAllVocalManual } from '@/platform/vocal-manual-idb/store'
 import {
   COPYRIGHT_NOTICE,
   ossNoticeCount,
@@ -234,6 +237,11 @@ export function SettingsScreen({
                 {group === 'library' && (
                   <div id="setting-samplerBank" className={flash === 'samplerBank' ? FLASH : undefined}>
                     <SamplerBankIO />
+                  </div>
+                )}
+                {group === 'library' && (
+                  <div id="setting-genreCoverage" className={flash === 'genreCoverage' ? FLASH : undefined}>
+                    <GenreCoverage />
                   </div>
                 )}
                 {FIELDS.filter((f) => f.group === group).map((f) => (
@@ -613,6 +621,70 @@ function JogMeasure() {
             {ticks == null ? '' : `${ticks} ticks`}
           </span>
         </div>
+      )}
+    </div>
+  )
+}
+
+/** v0.9.38: which genres the vocal strip learned from his marks, and how many finished songs the others lack. */
+function GenreCoverage() {
+  const tracks = useStore((st) => st.library.tracks)
+  const [marked, setMarked] = useState<(string | undefined)[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    getAllVocalManual()
+      .then((all) => live && setMarked(all.filter((t) => t.finished).map((t) => t.genre)))
+      .catch((e) => live && setError(e instanceof Error ? e.message : String(e)))
+    return () => {
+      live = false
+    }
+  }, [])
+  const rows = useMemo(
+    () => (marked ? genreCoverage(tracks.map((t) => t.genre), marked, modelSongCounts(genreModelsJson)) : []),
+    [tracks, marked],
+  )
+  return (
+    <div className="rounded-[var(--radius-sm)] border border-hairline bg-surface-1 px-3 py-2.5" data-testid="genre-coverage">
+      <div className="mb-1 text-xs font-semibold text-grid-text">Vocal strip: genres learned from your marks</div>
+      <p className="mb-1.5 text-2xs text-grid-dim">
+        A genre gets its own model only after enough songs you finished marking ({MIN_SONGS_FOR_GENRE_MODEL}+), and only if it beat the general one in a test on songs it never saw.
+      </p>
+      {error ? (
+        <p className="text-2xs text-warn">Your marks could not be read, so this table is not shown: {error}</p>
+      ) : !marked ? (
+        <p className="text-2xs text-grid-dim">Reading your marks…</p>
+      ) : (
+        <table className="w-full text-2xs">
+          <thead>
+            <tr className="text-left text-grid-dim">
+              <th className="py-1 pr-2 font-normal">Genre</th>
+              <th className="py-1 pr-2 font-normal">Marked</th>
+              <th className="py-1 pr-2 font-normal">In library</th>
+              <th className="py-1 font-normal">Vocal strip</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.genre} className="border-t border-hairline">
+                <td className="py-1 pr-2 font-semibold text-grid-text">{r.genre}</td>
+                <td className="py-1 pr-2 tabular-nums">{r.marked}</td>
+                <td className="py-1 pr-2 tabular-nums">{r.inLibrary}</td>
+                <td className={r.state === 'learned' ? 'py-1 text-live' : 'py-1 text-grid-dim'}>
+                  {r.state === 'learned'
+                    ? `learned from ${r.detail} songs`
+                    : r.state === 'unassigned'
+                      ? 'general model · set a genre to use a learned one'
+                      : r.state === 'rule'
+                      ? 'fixed rule: no strip, not measured'
+                      : r.detail > 0
+                        ? `general model · ${r.detail} more marked songs needed${r.genre === 'Hip Hop' && r.marked > 0 ? ' (tried 08/10: the models missed more of your singing, so it stays general)' : ''}`
+                        : 'general model · enough marks, not yet beating the general model'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   )
