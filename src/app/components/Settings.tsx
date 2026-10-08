@@ -1,5 +1,5 @@
 import { latencyCushioned } from '@/platform/settings-idb/boot-latency'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import * as ctl from '@/controls'
 import { DEFAULTS, FIELDS, FIELD_BY_KEY, type Field, type Settings } from '@/core/settings'
 import {
@@ -13,6 +13,7 @@ import {
   type SettingsSection,
 } from '@/core/settings-search'
 import { settings } from '@/platform/settings-idb/store'
+import { getPredecodeStatus, subscribePredecodeStatus } from '@/platform/audio-webaudio/predecode-slot'
 import { useSettings } from '@/app/hooks/useSettings'
 import { useStore } from '@/app/state/store'
 import { Button, HintIcon } from '@/app/components/controls'
@@ -450,6 +451,11 @@ function FieldRow({
             ) : (
               field.label
             )}
+            {field.premium && (
+              <span className="ml-2 rounded-[var(--radius-xs)] border border-hairline px-1 py-px align-middle text-2xs font-normal text-grid-muted" title="Labelled Premium; open to everyone for now">
+                Premium
+              </span>
+            )}
           </div>
           <div className="text-2xs text-grid-dim">
             <Marked text={field.help} ranges={hit?.help ?? []} />
@@ -481,7 +487,21 @@ function FieldRow({
         </p>
       )}
       {field.pending && <p className="mt-1.5 text-2xs text-warn">{field.pending}</p>}
+      {field.key === 'predecodeNext' && value === true && <PredecodeStatusLine />}
     </div>
+  )
+}
+
+/** What the ahead-of-time decode is doing, or why it did not: told here, never silently dropped. */
+function PredecodeStatusLine() {
+  const st = useSyncExternalStore(subscribePredecodeStatus, getPredecodeStatus)
+  if (st.state === 'idle') return <p className="mt-1.5 text-2xs text-grid-dim">Waiting for a song to stay selected.</p>
+  if (st.state === 'decoding') return <p className="mt-1.5 text-2xs text-grid-dim">Decoding "{st.name}"…</p>
+  if (st.state === 'ready') return <p className="mt-1.5 text-2xs text-grid-dim">Ready: "{st.name}" ({st.megabytes} MB in memory).</p>
+  return (
+    <p className="mt-1.5 text-2xs text-warn">
+      {st.state === 'skipped' ? 'Not decoded ahead' : 'Decoding ahead failed'}: "{st.name}" — {st.why}. It loads the normal way.
+    </p>
   )
 }
 

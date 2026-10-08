@@ -671,6 +671,10 @@ const pace = createPacer({
   now: () => performance.now(),
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
 })
+/** The same single slot for work that is not a library pass but must give way to the music just as they do (the ahead-of-time decode, v0.9.66). */
+export function runInBackgroundPace<T>(job: () => Promise<T>): Promise<T> {
+  return pace.run(job)
+}
 const unpaced: Pacer = { run: (job) => job() }
 
 /**

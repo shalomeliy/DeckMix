@@ -105,6 +105,8 @@ export interface Settings {
   autoSyncGlide: boolean
   /** Refuse to load a track onto a deck that is playing. */
   lockPlayingDeck: boolean
+  /** Premium label (core/premium.ts). Decode the selected song ahead, while a deck plays, so loading it is fast. Costs 80–230 MB of memory while on. */
+  predecodeNext: boolean
   /** Chosen audio output device, or null for the system default. */
   outputDeviceId: string | null
   /** Show a "?" beside every control, with a short explanation on hover/focus. */
@@ -153,6 +155,7 @@ export const DEFAULTS: Settings = {
   onLoadPlayhead: 'start',
   waveformMouseInSync: 'likeJog',
   lockPlayingDeck: true,
+  predecodeNext: false,
   autoSyncGlide: true,
   outputDeviceId: null,
   hintMode: true, // temporary — user asked for hints on by default until further notice (2026-09-04)
@@ -195,6 +198,8 @@ interface FieldBase {
    * keywords.test.ts` fails when either language is missing.
    */
   keywords: readonly string[]
+  /** Shows the "Premium" label (core/premium.ts). A label only: `PREMIUM_ENFORCED` is false. */
+  premium?: true
   /** True when the value can only take effect on the next page load. */
   requiresReload?: boolean
   /**
@@ -431,6 +436,15 @@ export const FIELDS: Field[] = [
     help: 'Refuses a load onto that deck only — the other deck stays free, which is how you mix.',
     group: 'feel',
     keywords: ["lock", "deck", "load", "safety", "נעילה", "דק", "טעינה", "הגנה", "נועל"],
+  },
+  {
+    kind: 'toggle',
+    key: 'predecodeNext',
+    label: 'Decode the next song ahead',
+    help: 'After a song stays selected for a moment, the app decodes it in the background so loading it takes a fraction of a second instead of 2–3. Holds one song in memory (about 80–230 MB) while on. Skipped songs and failures are listed under this switch.',
+    group: 'feel',
+    premium: true,
+    keywords: ["decode", "preload", "next song", "ahead", "load speed", "premium", "פענוח", "טעינה", "מראש", "השיר הבא", "מהירות", "פרימיום"],
   },
 
   {

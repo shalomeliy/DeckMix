@@ -1,4 +1,8 @@
 import { pcmFromAudioBuffer } from '@/platform/analyzer-js/analyze'
+import { isPremiumUnlocked } from '@/core/premium'
+import { PREDECODE_DWELL_MS } from '@/core/predecode'
+import { clearPredecoded, setPredecodeStatus, slotOccupied, takePredecoded } from '@/platform/audio-webaudio/predecode-slot'
+import { predecodeKeyFor, predecodeTrack } from '@/platform/source-fsaccess/predecode'
 import { clipSpectrogram, type Spectrogram } from '@/core/sound/spectrogram'
 import { detectVocalTimeline } from '@/core/sound/vocal-presence'
 import { kickEnvelope } from '@/platform/analyzer-js/beat'
@@ -186,6 +190,17 @@ let cfg: Settings = DEFAULTS
 settings.subscribe((v) => {
   const prev = cfg
   cfg = v
+  // v0.9.66: off frees the slot at once (80–230 MB); on starts from the row already selected.
+  if (prev.predecodeNext && !v.predecodeNext) {
+    predecodeWanted = null
+    if (predecodeTimer) clearTimeout(predecodeTimer)
+    predecodeTimer = null
+    clearPredecoded()
+  } else if (!prev.predecodeNext && v.predecodeNext) {
+    // An old "not decoded ahead" from before it was switched off is about a song the owner may have left long ago.
+    setPredecodeStatus({ state: 'idle' })
+    schedulePredecode()
+  }
   // Two of these values are baked into an audio node the moment a knob or a
   // fader is moved, so changing them on the screen would otherwise do nothing
   // until the user happened to touch that control again — a setting that
@@ -344,23 +359,34 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
   let buffer: AudioBuffer
   let contentHash: string | undefined
   try {
-    const data = await readTrackData(track)
-    loadMark('read')
-    // Hashed from the raw file bytes, *before* decode — `decodeAudioData`
-    // neuters its input `ArrayBuffer` per spec (its `byteLength` becomes 0
-    // once decoding starts), so hashing `data` after `engine.decode(data)`
-    // would silently hash an empty buffer and give every track the same
-    // "identity". Caught on its own: a hash failure degrades to "not yet
-    // identified" (`contentHash` stays `undefined`) rather than blocking
-    // playback — the track still loads either way.
-    try {
-      contentHash = await hashBytes(data)
-    } catch (hashErr) {
-      console.error('hash failed', hashErr)
+    // v0.9.66: the song may already be decoded (Settings › Decode the next song ahead). Same file, unchanged, same sample rate, or this
+    // is a miss and everything below runs as it always did.
+    const ahead = slotOccupied() ? takePredecoded(await predecodeKeyFor(track)) : null
+    if (ahead) {
+      buffer = ahead.buffer
+      contentHash = ahead.contentHash
+      loadMark('read')
+      loadMark('hash')
+      loadMark('decode', { predecoded: true })
+    } else {
+      const data = await readTrackData(track)
+      loadMark('read')
+      // Hashed from the raw file bytes, *before* decode — `decodeAudioData`
+      // neuters its input `ArrayBuffer` per spec (its `byteLength` becomes 0
+      // once decoding starts), so hashing `data` after `engine.decode(data)`
+      // would silently hash an empty buffer and give every track the same
+      // "identity". Caught on its own: a hash failure degrades to "not yet
+      // identified" (`contentHash` stays `undefined`) rather than blocking
+      // playback — the track still loads either way.
+      try {
+        contentHash = await hashBytes(data)
+      } catch (hashErr) {
+        console.error('hash failed', hashErr)
+      }
+      loadMark('hash')
+      buffer = await engine.decode(data)
+      loadMark('decode')
     }
-    loadMark('hash')
-    buffer = await engine.decode(data)
-    loadMark('decode')
   } catch (err) {
     console.error('load failed', err)
     patchDeck(deckId, { loading: false })
@@ -4650,6 +4676,7 @@ export function moveSelection(delta: number) {
   const idx = ids.indexOf(library.selectedId ?? '')
   const nextIdx = idx < 0 ? 0 : Math.max(0, Math.min(ids.length - 1, idx + delta))
   setLibrary({ selectedId: ids[nextIdx] })
+  schedulePredecode()
   // The highlight moved by the owner's own hand (arrow keys, the controller's browse wheel): the table scrolls to keep it in view. `Library.tsx` listens.
   window.dispatchEvent(new Event(REVEAL_SELECTION_EVENT))
 }
@@ -4723,6 +4750,70 @@ export function setActiveCrate(id: string | null) {
  */
 export function selectTrack(id: string) {
   useStore.getState().setLibrary({ selectedId: id })
+  schedulePredecode()
+}
+
+// ————————————————————————————————————————————————————————————————
+// Decode the next song ahead (v0.9.66, Premium label, off by default; plan docs/research/predecode-next-plan.md).
+// A row that stays selected for PREDECODE_DWELL_MS is decoded into the one slot while the decks play, so loading it later skips the
+// 2–3 s the browser's decoder takes (measured on the owner's PC 08/10: deck B load 2008 ms → 343 ms). Not built yet: the Mix Assist
+// suggestion and a future full-auto picker as callers; both would call `requestPredecode`.
+// ————————————————————————————————————————————————————————————————
+
+let predecodeTimer: ReturnType<typeof setTimeout> | null = null
+let predecodeRunning = false
+/** What the selection is now: asked again by an in-flight decode so one nobody wants any more is dropped, not stored. */
+let predecodeWanted: string | null = null
+
+function predecodeEnabled(): boolean {
+  return settings.values.predecodeNext && isPremiumUnlocked('predecodeNext')
+}
+
+/** `go`: safe to decode now. `busy`: a deck is loading or a transition is live (retry). `onDeck`: the song is already loaded, nothing to do. */
+function predecodeGate(trackId: string): 'go' | 'busy' | 'onDeck' {
+  const { decks } = useStore.getState()
+  if (decks.A.track?.id === trackId || decks.B.track?.id === trackId) return 'onDeck'
+  if (decks.A.loading || decks.B.loading || activeTransition) return 'busy'
+  return 'go'
+}
+
+function schedulePredecode() {
+  if (predecodeTimer) clearTimeout(predecodeTimer)
+  predecodeTimer = null
+  if (!predecodeEnabled()) return
+  predecodeTimer = setTimeout(() => {
+    predecodeTimer = null
+    void requestPredecode(selectedTrack())
+  }, PREDECODE_DWELL_MS)
+}
+
+/** Decode `track` into the slot now, if the switch is on and the moment is safe. One decode at a time; the latest request waits its turn. */
+export async function requestPredecode(track: Track | undefined) {
+  if (!track || !predecodeEnabled()) return
+  predecodeWanted = track.id
+  if (predecodeRunning) return
+  predecodeRunning = true
+  try {
+    // Loop: a request that arrived mid-decode (the owner kept scrolling) is served once the current one ends.
+    let target: Track | undefined = track
+    while (target) {
+      const wanted = target.id
+      const gate = predecodeGate(wanted)
+      if (gate === 'go') {
+        // Asked again before the expensive step and before storing: a deck load or a transition that began meanwhile, or the song
+        // landing on a deck, makes the result worthless (a buffer for a song already loaded would sit in memory with nothing to take it).
+        await predecodeTrack(target, (navigator as { deviceMemory?: number }).deviceMemory, () => predecodeWanted === wanted && predecodeEnabled() && predecodeGate(wanted) === 'go')
+      } else if (gate === 'busy') {
+        // Said, and tried again: the moments a deck loads or a transition runs are the ones the owner hears, so nothing is decoded then.
+        setPredecodeStatus({ state: 'skipped', name: target.title ?? target.name, why: 'a deck is loading or a mix is running; trying again in a moment' })
+        schedulePredecode()
+      }
+      const next: Track | undefined = predecodeEnabled() ? selectedTrack() : undefined
+      target = next && next.id !== target.id && predecodeWanted === next.id ? next : undefined
+    }
+  } finally {
+    predecodeRunning = false
+  }
 }
 
 /**
