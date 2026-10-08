@@ -3,6 +3,7 @@ import { clipSpectrogram, type Spectrogram } from '@/core/sound/spectrogram'
 import { detectVocalTimeline } from '@/core/sound/vocal-presence'
 import { kickEnvelope } from '@/platform/analyzer-js/beat'
 import { deckTrackNeeds } from '@/core/analysis-order'
+import { beginDeckLoad, endDeckLoad } from '@/core/deck-load-gate'
 import { barOneApplies, chooseBarGrid, detectBarOne } from '@/core/downbeat'
 import { analysisCache } from '@/platform/analyze-cache-idb/store'
 import { analyzerWorker } from '@/platform/analyzer-worker'
@@ -341,6 +342,8 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
   }
   let buffer: AudioBuffer
   let contentHash: string | undefined
+  // Background analysis starts nothing new while this runs (`core/deck-load-gate.ts`); released in the finally below, success or not.
+  beginDeckLoad()
   try {
     const data = await readTrackData(track)
     loadMark('read')
@@ -359,9 +362,11 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     loadMark('hash')
     buffer = await engine.decode(data)
     loadMark('decode')
+    endDeckLoad()
   } catch (err) {
     console.error('load failed', err)
     patchDeck(deckId, { loading: false })
+    endDeckLoad()
     // Every call site fires this with `void` (mouse, keyboard, MIDI) and none
     // attaches its own `.catch` — a decode failure (corrupt file, or a file
     // whose extension matches but Chromium can't actually decode) used to

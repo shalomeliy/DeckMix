@@ -15,12 +15,22 @@
 /** A rest shorter than this is not worth a timer. */
 export const MIN_REST_MS = 250
 
+/** How often a held job asks again whether the deck load is over, and the longest it waits for that (a load that never reports must not freeze the analysis). */
+export const LOAD_POLL_MS = 100
+export const LOAD_HOLD_MAX_MS = 15_000
+
 export interface Pacer {
   /** Runs `job` now if nothing plays; otherwise waits for the single slot and keeps it through a rest after the job. */
   run<T>(job: () => Promise<T>): Promise<T>
 }
 
-export function createPacer(deps: { isPlaying: () => boolean; now: () => number; sleep: (ms: number) => Promise<void> }): Pacer {
+export function createPacer(deps: {
+  isPlaying: () => boolean
+  /** a song is being read and decoded for a deck: no new job starts until it is done (`core/deck-load-gate.ts`) */
+  isLoading?: () => boolean
+  now: () => number
+  sleep: (ms: number) => Promise<void>
+}): Pacer {
   let held = false
   const waiting: (() => void)[] = []
   // Wakes every waiter, not one: each re-checks for itself. Handing the slot straight to the next waiter kept the passes one at a time
@@ -31,6 +41,8 @@ export function createPacer(deps: { isPlaying: () => boolean; now: () => number;
   }
   return {
     async run<T>(job: () => Promise<T>): Promise<T> {
+      const heldSince = deps.now()
+      while (deps.isLoading?.() && deps.now() - heldSince < LOAD_HOLD_MAX_MS) await deps.sleep(LOAD_POLL_MS)
       // Checked once per job, not during it: a decode already running cannot be slowed, only the next one held back.
       if (!deps.isPlaying()) return job()
       while (held) {
