@@ -1,0 +1,233 @@
+[
+ {
+  "name": "Argy & Omnya - Aria Remix.mp3",
+  "mb": 4.523155212402344,
+  "browserMs": 523.8300000000163,
+  "oursMs": 495.7949999999837,
+  "browserFrames": 4571759,
+  "oursFrames": 4571759,
+  "maxDiff": 0.00006103515625,
+  "rmsDiff": 0.000016760878556474514,
+  "rmsSignal": 0.3311435721884502,
+  "snrDb": 85.91439100104483,
+  "bestLag": 0,
+  "maxDiffAtBestLag": 0.00006103515625,
+  "rmsDiffAtBestLag": 0.000016760878556474514,
+  "channels": [
+   2,
+   2
+  ],
+  "ctxRate": 44100,
+  "fileRate": 0
+ },
+ {
+  "name": "Aria (Remix) - ARGY & ANYMA.mp3",
+  "mb": 4.249359130859375,
+  "browserMs": 437.41499999997905,
+  "oursMs": 356.1049999999814,
+  "browserFrames": 4893696,
+  "oursFrames": 4892544,
+  "maxDiff": 0.00006103515625,
+  "rmsDiff": 0.000016709955603294922,
+  "rmsSignal": 0.32897889955258447,
+  "snrDb": 85.88385495040129,
+  "bestLag": 0,
+  "maxDiffAtBestLag": 0.00006103515625,
+  "rmsDiffAtBestLag": 0.000016709955603294922,
+  "channels": [
+   2,
+   2
+  ],
+  "ctxRate": 44100,
+  "fileRate": 0
+ },
+ {
+  "name": "Banjo - Fun.mp3",
+  "mb": 11.388293266296387,
+  "browserMs": 864.4500000000116,
+  "oursMs": 838.789999999979,
+  "browserFrames": 13083264,
+  "oursFrames": 13083264,
+  "maxDiff": 0.00006103515625,
+  "rmsDiff": 0.000016847418981686978,
+  "rmsSignal": 0.3443749241976176,
+  "snrDb": 86.20996288100656,
+  "bestLag": 0,
+  "maxDiffAtBestLag": 0.00006103515625,
+  "rmsDiffAtBestLag": 0.000016847418981686978,
+  "channels": [
+   2,
+   2
+  ],
+  "ctxRate": 44100,
+  "fileRate": 0
+ },
+ {
+  "name": "Dali - Baglami (Remix).mp3",
+  "mb": 4.545434951782227,
+  "browserMs": 823.9249999999884,
+  "oursMs": 1877.2600000000093,
+  "browserFrames": 5210503,
+  "oursFrames": 5209445,
+  "maxDiff": 0.05773983895778656,
+  "rmsDiff": 0.0017557426209588146,
+  "rmsSignal": 0.2976127694557057,
+  "snrDb": 44.58381418789653,
+  "bestLag": 0,
+  "maxDiffAtBestLag": 0.05773983895778656,
+  "rmsDiffAtBestLag": 0.0017557426209588146,
+  "channels": [
+   2,
+   2
+  ],
+  "ctxRate": 44100,
+  "fileRate": 0
+ },
+ {
+  "name": "David Guetta & OneRepublic - I Don_t Wanna Wait .mp3",
+  "mb": 6.980494499206543,
+  "browserMs": 1137.695000000007,
+  "oursMs": 3393.5599999999977,
+  "browserFrames": 10079143,
+  "oursFrames": 10078085,
+  "maxDiff": 0.040689945220947266,
+  "rmsDiff": 0.0020702268926567537,
+  "rmsSignal": 0.42525212472794943,
+  "snrDb": 46.252570926797176,
+  "bestLag": 0,
+  "maxDiffAtBestLag": 0.040689945220947266,
+  "rmsDiffAtBestLag": 0.0020702268926567537,
+  "channels": [
+   2,
+   2
+  ],
+  "ctxRate": 44100,
+  "fileRate": 0
+ },
+ {
+  "name": "Gimme! Gimme! Gimme! - ABBA.mp3",
+  "mb": 11.9630126953125,
+  "browserMs": 720.2449999999953,
+  "oursMs": 914.9800000000396,
+  "browserFrames": 13835520,
+  "oursFrames": 13835520,
+  "maxDiff": 0.00006103515625,
+  "rmsDiff": 0.000016515244408317536,
+  "rmsSignal": 0.3092496513035986,
+  "snrDb": 85.44848426863086,
+  "bestLag": 0,
+  "maxDiffAtBestLag": 0.00006103515625,
+  "rmsDiffAtBestLag": 0.000016515244408317536,
+  "channels": [
+   2,
+   2
+  ],
+  "ctxRate": 44100,
+  "fileRate": 0
+ },
+ {
+  "name": "Guy Haliva - Uma.mp3",
+  "mb": 7.724573135375977,
+  "browserMs": 350.2150000000256,
+  "oursMs": 486.67499999998836,
+  "browserFrames": 8931456,
+  "oursFrames": 8931456,
+  "maxDiff": 0.00006103515625,
+  "rmsDiff": 0.00001656442905222659,
+  "rmsSignal": 0.31186162161842756,
+  "snrDb": 85.49570923446419,
+  "bestLag": 0,
+  "maxDiffAtBestLag": 0.00006103515625,
+  "rmsDiffAtBestLag": 0.00001656442905222659,
+  "channels": [
+   2,
+   2
+  ],
+  "ctxRate": 44100,
+  "fileRate": 0
+ },
+ {
+  "name": "I Adore You - Argy & Mor Avrahami.mp3",
+  "mb": 7.637229919433594,
+  "browserMs": 483.95000000001164,
+  "oursMs": 547.7550000000047,
+  "browserFrames": 8171759,
+  "oursFrames": 8171759,
+  "maxDiff": 0.00006103515625,
+  "rmsDiff": 0.000016685476939369475,
+  "rmsSignal": 0.3309319009121777,
+  "snrDb": 85.94800017737231,
+  "bestLag": 0,
+  "maxDiffAtBestLag": 0.00006103515625,
+  "rmsDiffAtBestLag": 0.000016685476939369475,
+  "channels": [
+   2,
+   2
+  ],
+  "ctxRate": 44100,
+  "fileRate": 0
+ },
+ {
+  "name": "Massano - The Feeling.mp3",
+  "mb": 4.0790605545043945,
+  "browserMs": 310.59500000003027,
+  "oursMs": 371.4199999999837,
+  "browserFrames": 4671360,
+  "oursFrames": 4670208,
+  "maxDiff": 0.00006103515625,
+  "rmsDiff": 0.00001687758138682379,
+  "rmsSignal": 0.33863948089798607,
+  "snrDb": 86.04854757640227,
+  "bestLag": 0,
+  "maxDiffAtBestLag": 0.00006103515625,
+  "rmsDiffAtBestLag": 0.00001687758138682379,
+  "channels": [
+   2,
+   2
+  ],
+  "ctxRate": 44100,
+  "fileRate": 0
+ },
+ {
+  "name": "Move - Anyma Remix.mp3",
+  "mb": 3.9279842376708984,
+  "browserMs": 734.7199999999721,
+  "oursMs": 777.1300000000047,
+  "browserFrames": 11334048,
+  "oursFrames": 11334048,
+  "maxDiff": 0.00006103515625,
+  "rmsDiff": 0.000015953552054961262,
+  "rmsSignal": 0.22294737530444741,
+  "snrDb": 82.90689940316192,
+  "bestLag": 0,
+  "maxDiffAtBestLag": 0.00006103515625,
+  "rmsDiffAtBestLag": 0.000015953552054961262,
+  "channels": [
+   2,
+   2
+  ],
+  "ctxRate": 44100,
+  "fileRate": 0
+ },
+ {
+  "name": "Nicola Fasano, Fatman Scoop, Alex Guesta - Push The Feeling On.mp3",
+  "mb": 5.316258430480957,
+  "browserMs": 841.289999999979,
+  "oursMs": 723.0750000000116,
+  "browserFrames": 10075968,
+  "oursFrames": 10075968,
+  "maxDiff": 0.00006103515625,
+  "rmsDiff": 0.00001686318238806725,
+  "rmsSignal": 0.34953117862378663,
+  "snrDb": 86.33092768332438,
+  "bestLag": 0,
+  "maxDiffAtBestLag": 0.00006103515625,
+  "rmsDiffAtBestLag": 0.00001686318238806725,
+  "channels": [
+   2,
+   2
+  ],
+  "ctxRate": 44100,
+  "fileRate": 0
+ }
+]
