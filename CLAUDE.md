@@ -57,6 +57,13 @@ and which task it is for.** Installing is something he approves on the card; a s
 If the directory has nothing that matches (it had no Perplexity entry on 2026-10-07), say so and name the
 closest options and what the session uses meanwhile (`WebSearch`).
 
+**The Compound Engineering plugin** (installed user-wide on 2026-10-06) is used here for two skills only:
+`ce-debug` and `ce-compound`. The rest of it is not used unless Shalom asks for it by name. Most of it
+duplicates this repo's own process (expert subagents, `change-reviewer`, `HANDOFF.md`), and several of
+its skills (`lfg`, `ce-worktree`, `ce-commit-push-pr`) work through branches and PRs, which "Where code
+goes" forbids. The plugin cannot be installed partially — `ce-compound` leans on the plugin's own agents
+— so the limit lives here rather than in what is installed.
+
 ## Stack
 
 - React 19 + TypeScript (strict — on in all three tsconfigs since v0.2.7, and
