@@ -150,7 +150,18 @@ try {
   console.log(`load to deck B (A plays): ${b.ms} ms`)
   console.log(`frames > ${SLOW_MS} ms in ${PLAYSEC}s of playback: ${all.length}  longest ${all.length ? Math.max(...all) : 0} ms  [${all.join(', ')}]`)
   console.log(`  of which around the deck-B load (until 3 s after it): ${duringB.length} [${duringB.join(', ')}]`)
-  console.log(`page errors: ${errors.length}${errors[0] ? ' — ' + errors[0] : ''}`)
+  const marks = await page.evaluate(() =>
+  performance.getEntriesByType('mark').filter((m) => m.name.startsWith('deckload:')).map((m) => [m.name, Math.round(m.startTime), m.detail]))
+for (const deck of ['A', 'B']) {
+  const at = (step) => marks.find(([n]) => n === `deckload:${deck}:${step}`)
+  const start = at('start')
+  if (!start) continue
+  const steps = ['read', 'hash', 'decode', 'ready'].map((st) => [st, at(st)]).filter(([, m]) => m)
+  let prev = start[1]
+  const parts = steps.map(([st, m]) => { const d = m[1] - prev; prev = m[1]; return `${st} ${d} ms` })
+  console.log(`  deck ${deck} load steps: ${parts.join(' · ')}  (at start: library hashes read = ${start[2]?.hashesRead}, songs being analysed = ${start[2]?.analysing})`)
+}
+console.log(`page errors: ${errors.length}${errors[0] ? ' — ' + errors[0] : ''}`)
 
 } finally {
   await browser.close()

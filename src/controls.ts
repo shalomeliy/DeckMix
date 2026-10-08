@@ -331,10 +331,19 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     cancelTransition()
   }
   patchDeck(deckId, { loading: true })
+  // v0.9.61: where a deck load spends its time, read by scripts/measure-speed.mjs from `performance.getEntriesByType('mark')`.
+  // Marks only: nothing on screen, and a few bytes per load. Measured 08/10 on the owner's PC: 9 s to load B while the
+  // background passes ran, 2 s after they finished; this says which step waits.
+  const loadMark = (step: string, detail?: object) => performance.mark(`deckload:${deckId}:${step}`, { detail })
+  {
+    const lib = useStore.getState().library
+    loadMark('start', { hashesRead: lib.hashesRead, analysing: lib.tracks.filter((t) => t.analysisState === 'analyzing').length })
+  }
   let buffer: AudioBuffer
   let contentHash: string | undefined
   try {
     const data = await readTrackData(track)
+    loadMark('read')
     // Hashed from the raw file bytes, *before* decode — `decodeAudioData`
     // neuters its input `ArrayBuffer` per spec (its `byteLength` becomes 0
     // once decoding starts), so hashing `data` after `engine.decode(data)`
@@ -347,7 +356,9 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     } catch (hashErr) {
       console.error('hash failed', hashErr)
     }
+    loadMark('hash')
     buffer = await engine.decode(data)
+    loadMark('decode')
   } catch (err) {
     console.error('load failed', err)
     patchDeck(deckId, { loading: false })
@@ -493,6 +504,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     loopRange: null,
     keySyncShift: null,
   })
+  loadMark('ready')
   // Never silent (v0.9.46): a track that starts off its own speed says so, and says it is his saved choice.
   // Never over a warning already on screen — the first load once wiped the "audio device not connected" one (see the clearNotice above).
   const shown = useStore.getState().notice
