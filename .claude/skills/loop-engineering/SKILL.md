@@ -20,7 +20,7 @@ description: Execute a feature through a bounded build-test-review-repair loop w
 2. Implement the current bounded task.
 3. Run the narrowest relevant check and inspect its output.
 4. Mark the task complete only after that check produced evidence; otherwise repair or route the failure.
-5. Run `npm run verify` before claiming completion.
+5. Run `npm run check` before claiming completion.
 6. Ask `change-reviewer` for an independent review.
 7. Map every failure or finding to an acceptance criterion or engineering boundary.
 8. Repair blockers and repeat verification.

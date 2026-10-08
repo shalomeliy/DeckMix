@@ -18,13 +18,13 @@ Produce:
 7. Risks, rollback, and deliberate non-goals.
 8. Ordered implementation steps with verification after each meaningful step.
 
-After the participant approves the Plan, turn those ordered steps into a visible task list for execution:
+After Shalom approves the Plan, turn those ordered steps into a visible task list for execution:
 
 - one bounded chunk per task,
 - exactly one task in progress,
 - verification as an explicit task,
 - complete only after the nearest check produces evidence.
 
-If a new product or architecture decision appears during planning, stop and return it to the participant instead of hiding it inside an implementation step.
+If a new product or architecture decision appears during planning, stop and return it to Shalom instead of hiding it inside an implementation step.
 
 Prefer existing dependencies and patterns. If the plan requires a new library, explain why the current stack cannot satisfy the requirement.

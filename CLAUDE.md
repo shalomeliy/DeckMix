@@ -62,7 +62,25 @@ closest options and what the session uses meanwhile (`WebSearch`).
 duplicates this repo's own process (expert subagents, `change-reviewer`, `HANDOFF.md`), and several of
 its skills (`lfg`, `ce-worktree`, `ce-commit-push-pr`) work through branches and PRs, which "Where code
 goes" forbids. The plugin cannot be installed partially — `ce-compound` leans on the plugin's own agents
-— so the limit lives here rather than in what is installed.
+— so the limit lives here rather than in what is installed. Inside this repo those two are replaced by
+`deckmix-debug` and `deckmix-compound` (next section).
+
+## Which skill when
+
+(2026-10-08, Shalom approved.) The repo carries its own skills in `.claude/skills/`, so every session
+here sees them, in the cloud and on Shalom's PC. `deckmix-debug` and `deckmix-compound` are `ce-debug`
+and `ce-compound` rewritten for this repo (main only, lessons go into tests and the existing docs, never
+a new "solutions" folder the way upstream does). **Where both are present, the `deckmix-` one wins.**
+
+| What is happening | Use |
+| --- | --- |
+| Something is broken, stuck, glitching or slow | `deckmix-debug` |
+| A fix or finding is verified and must not be rediscovered | `deckmix-compound` |
+| A new feature whose shape is not settled yet | `write-feature-spec`, then `architecture-plan`, then `loop-engineering` |
+| A small, clear change (text, colour, one number) | no skill: explain in Hebrew, change, then the usual Definition of done |
+| Any change to what is on screen | `ui-ux-review` + `drop-generic-design` (through `design-expert`) |
+| It touches the user's files, the library, or any `fetch(` | `security-expert` |
+| Before every commit of code | `change-reviewer` |
 
 ## Stack
 

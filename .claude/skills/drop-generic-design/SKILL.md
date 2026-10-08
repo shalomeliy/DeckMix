@@ -28,5 +28,3 @@ Flag:
 5. Expose uncertainty instead of inventing confidence.
 6. Reuse the existing visual system.
 7. Verify accessibility and responsive behavior.
-
-Use `/design-demo` in the running application as a deterministic before/after teaching example.
