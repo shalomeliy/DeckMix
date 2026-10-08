@@ -7,6 +7,7 @@ import { FLX4_MAPPING } from '@/platform/transport-webmidi/mappings/flx4'
 import {
   bindingKey,
   parseMessage,
+  browseDelta,
   relativeDelta,
   type Binding,
   type MidiMapping,
@@ -232,7 +233,7 @@ class MidiManager {
         if (value > 0 && deck) ctl.toggleCueMonitor(deck)
         break
       case 'browse':
-        ctl.moveSelection(relativeDelta(value, this.mapping.relativeEncoding))
+        ctl.moveSelection(browseDelta(value))
         break
       case 'browseEnter': {
         if (value > 0) {

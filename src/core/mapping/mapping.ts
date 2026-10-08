@@ -114,6 +114,15 @@ export function parseMessage(data: Uint8Array): {
  * tick was amplified 63x **and inverted** — forward (65) came through as -63.
  * Nothing about it looked broken from the code, which is why it needed hardware.
  */
+/**
+ * The browse wheel (CC 0x40 on channel 7) always sends 1 per tick one way and 127 the other — two's complement — whatever the jogs on
+ * the same unit send. Measured 08/10 on the owner's FLX4: `cc ch7 #64 = 1`. Decoding it with the jogs' `offset-64` made one tick 1 - 64 = -63 rows
+ * (clamped at the top, so "nothing happens") and the other +63, which is why it took as many ticks back as forward to reach the first song.
+ */
+export function browseDelta(value: number): number {
+  return relativeDelta(value, 'twos-complement')
+}
+
 export function relativeDelta(value: number, encoding: RelativeEncoding = 'twos-complement'): number {
   return encoding === 'offset-64' ? value - 64 : value < 64 ? value : value - 128
 }

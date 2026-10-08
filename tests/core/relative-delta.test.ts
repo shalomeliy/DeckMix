@@ -50,3 +50,18 @@ describe('relativeDelta', () => {
     }
   })
 })
+
+import { browseDelta } from '@/core/mapping/mapping'
+
+describe('browse wheel (08/10, owner measured `cc ch7 #64 = 1`)', () => {
+  it('is two\'s complement: 1 is one row down, 127 one row up', () => {
+    expect(browseDelta(1)).toBe(1)
+    expect(browseDelta(2)).toBe(2)
+    expect(browseDelta(127)).toBe(-1)
+    expect(browseDelta(126)).toBe(-2)
+  })
+
+  it('never jumps a whole screen for one tick (the offset-64 reading gave -63 / +63)', () => {
+    for (const v of [1, 127]) expect(Math.abs(browseDelta(v))).toBe(1)
+  })
+})
