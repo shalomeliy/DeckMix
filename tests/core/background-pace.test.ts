@@ -145,31 +145,3 @@ describe('background analysis pacing (v0.9.51)', () => {
     await all
   })
 })
-
-describe('a deck load holds new background jobs (v0.9.61)', () => {
-  it('starts nothing while a song is being decoded for a deck, then runs at full speed', async () => {
-    const time = fakeTime()
-    let loading = true
-    const pacer = createPacer({ isPlaying: () => false, isLoading: () => loading, ...time })
-    const log: string[] = []
-    const a = manualJob(log, 'a')
-    void pacer.run(a.job)
-    await flush()
-    expect(log).toEqual([])
-    await time.advance(500)
-    expect(log).toEqual([])
-    loading = false
-    await time.advance(100)
-    expect(log).toEqual(['start a'])
-  })
-
-  it('does not hold forever if the load never reports being done', async () => {
-    const time = fakeTime()
-    const pacer = createPacer({ isPlaying: () => false, isLoading: () => true, ...time })
-    const log: string[] = []
-    const a = manualJob(log, 'a')
-    void pacer.run(a.job)
-    for (let i = 0; i < 160; i++) await time.advance(100)
-    expect(log).toEqual(['start a'])
-  })
-})

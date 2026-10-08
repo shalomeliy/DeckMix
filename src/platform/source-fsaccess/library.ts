@@ -8,7 +8,6 @@ import { readTags } from '@/platform/source-fsaccess/tags'
 import { analysisCacheKey } from '@/core/analysis-cache'
 import { takeNextForAnalysis } from '@/core/analysis-order'
 import { createPacer, type Pacer } from '@/core/background-pace'
-import { isDeckLoading } from '@/core/deck-load-gate'
 import { hashBytes } from '@/platform/source-fsaccess/hash'
 import { engine } from '@/platform/audio-webaudio/engine'
 import { pcmFromAudioBuffer } from '@/platform/analyzer-js/analyze'
@@ -669,7 +668,6 @@ export async function queueVocalStripBackfill(
  */
 const pace = createPacer({
   isPlaying: () => engine.decks.A.playing || engine.decks.B.playing,
-  isLoading: isDeckLoading,
   now: () => performance.now(),
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
 })
