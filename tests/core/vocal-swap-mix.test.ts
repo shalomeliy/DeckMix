@@ -4,7 +4,7 @@ import { EQ_KILL, type EqBands } from '@/core/eq-mix'
 import { crossfaderGains } from '@/core/fx'
 import { CELL_NONE, CELL_VOCAL, VOCAL_CELL_SEC, type VocalTimeline } from '@/core/sound/vocal-timeline'
 import { MIN_BARS_AFTER_MIX, PHRASE_BARS, type HandoffSide } from '@/core/vocal-handoff'
-import { BASS_HOLD_FADE_BARS, SWAP_BARS, SWAP_CROSSFADER_CURVE, bassEntrySec, planVocalSwap, swapEntries, swapIncoming, vocalSwapFrame, type VocalSwapPlan } from '@/core/vocal-swap-mix'
+import { BASS_HOLD_FADE_BARS, SWAP_BARS, SWAP_CROSSFADER_CURVE, bassEndSec, bassEntrySec, planVocalSwap, swapEntries, swapIncoming, vocalSwapFrame, type VocalSwapPlan } from '@/core/vocal-swap-mix'
 
 function timeline(durationSec: number, voices: [number, number][]): VocalTimeline {
   const cells = new Uint8Array(Math.floor(durationSec / VOCAL_CELL_SEC)).fill(CELL_NONE)
@@ -180,12 +180,22 @@ describe("bass held until B's bass starts", () => {
     expect(bassEntrySec(side(300, [[32, 120]]), 32)).toBeNull()
     expect(bassEntrySec(withBands(side(300, [[32, 120]]), 0), 32)).toBe(32)
   })
-  it("moves the swap to where B's bass starts and fades A's bass over the hold bars", () => {
+  it("starts the mix so that B's bass starts exactly where A's bass goes down, with no limit on the wait", () => {
     const p = planVocalSwap(a, 30, b, entry)!
     expect(p.bassHold).toBe(true)
-    expect(p.joinSec).toBe(60)
-    expect(p.swapSec).toBe(60 + (60 - 32)) // B's bass 28 s after its voice line
-    expect(p.endSec).toBe(p.swapSec + BASS_HOLD_FADE_BARS * 2)
+    expect(p.endSec).toBe(200) // A has no bands: its bass is taken to play to the end
+    expect(p.swapSec).toBe(200 - BASS_HOLD_FADE_BARS * 2)
+    expect(p.joinSec).toBe(p.swapSec - (60 - 32)) // B's bass is 28 s after its voice line: B plays 28 s of voice before the swap
+    expect(p.joinSec).toBeGreaterThan(60) // a long wait (here 108 s past the earliest start), by his rule
+  })
+  it("ends where A's own bass ends, when it ends before the song does", () => {
+    const aBands = new Float32Array(200 * 2 * 3)
+    for (let i = 0; i < 200 * 2; i++) aBands[i * 3] = i / 2 < 150 ? 1 : 0.01
+    const aEnds: HandoffSide = { ...a, bands: aBands }
+    expect(bassEndSec(aEnds)).toBe(150)
+    expect(bassEndSec(a)).toBe(200)
+    const p = planVocalSwap(aEnds, 30, b, entry)!
+    expect(p).toMatchObject({ bassHold: true, endSec: 150, swapSec: 146, joinSec: 118 })
   })
   it("keeps A's bass until the swap, then takes it down slowly while the crossfader stays in the middle", () => {
     const p = planVocalSwap(a, 30, b, entry)!
@@ -203,9 +213,10 @@ describe("bass held until B's bass starts", () => {
   it("keeps the plain swap when B has no bands, or A sings more than 2 s before the bass is out, or A ends first", () => {
     expect(planVocalSwap(a, 30, side(300, [[32, 120]]), entry)!.bassHold).toBe(false)
     expect(planVocalSwap(side(200, [[20, 60], [80, 84]]), 30, b, entry)!.bassHold).toBe(false)
+    // A ends at 90: B's 28 s of voice before its bass would have to start at 58, before A's voice is over at 60.
     const ends = planVocalSwap(side(90, [[20, 60]]), 30, b, entry)!
     expect(ends.bassHold).toBe(false)
-    expect(ends.holdSkipped).toContain('נגמר')
+    expect(ends.holdSkipped).toContain('אין מספיק מקום')
     expect(planVocalSwap(a, 30, side(300, [[32, 120]]), entry)!.holdSkipped).toContain('עוד לא נותח')
     // A sings again after the fade ends: the rule is for the end of A's song only, so no hold and nothing to say.
     const later = planVocalSwap(side(200, [[20, 60], [150, 160]]), 30, b, entry)!

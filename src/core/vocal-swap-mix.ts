@@ -136,6 +136,26 @@ export function bassEntrySec(b: HandoffSide, fromSec: number): number | null {
 }
 
 /**
+ * Where A's bass ends (A seconds, on a yellow line at or before it): the end of the last stretch whose LOW band is at the song's own bass
+ * level (`BASS_ENTRY_LEVEL`), or the song's end when its bass plays to the last second, or when it has no bands. Pure.
+ */
+export function bassEndSec(a: HandoffSide): number {
+  const bands = a.bands
+  const n = bands ? Math.floor(bands.length / 3) : 0
+  if (!bands || n < 2 || a.durationSec <= 0) return a.durationSec
+  const low = new Float32Array(n)
+  for (let i = 0; i < n; i++) low[i] = bands[i * 3]
+  const ref = [...low].sort((x, y) => x - y)[Math.floor(n * 0.8)]
+  if (!(ref > 0)) return a.durationSec
+  const bucketSec = a.durationSec / n
+  let last = n - 1
+  while (last > 0 && !(low[last] >= ref * BASS_ENTRY_LEVEL)) last--
+  // The last buckets of a song are often its fade-out: a bass that is there up to the final second counts as playing to the end.
+  if ((n - 1 - last) * bucketSec <= BASS_ENTRY_HOLD_SEC) return a.durationSec
+  return barLineAtOrBeforeSec((last + 1) * bucketSec, a.grid)
+}
+
+/**
  * B's voices this mix can enter on, and how many it cannot, with the reason counted. The panel shows none of the counts (the owner,
  * 06/10: points left out are simply not shown); they stay here for the tests that pin each reason.
  * - `short`: the voice lasts less than `MIN_VOICE_BARS` from its yellow line — it would run out before the swap.
@@ -195,10 +215,12 @@ export function planVocalSwap(a: HandoffSide, aPositionSec: number, b: HandoffSi
 const SIGNIFICANT_VOICE_SEC = 2
 
 /**
- * The 08/10 rule: when A has no significant voice from the mix to the end of the song, the swap waits for B's bass (`bassEntrySec`) —
- * A's bass keeps playing until then — and A's bass then goes down over `BASS_HOLD_FADE_BARS`. null (the plan stays as it was) when B's bass
- * never starts, when it starts no later than the plain swap would, or when the rest does not fit: A's song would end, or A sings for more
- * than 2 s, before A's bass is out, or B would be left with too little song after the mix.
+ * The 08/10 rule, as the owner finished it the same night: when A has no significant voice from the mix to the end of the song, B comes in
+ * so that its bass starts exactly when A's bass ends. Backwards from A's bass end (`bassEndSec`): A's bass goes down over the last
+ * `BASS_HOLD_FADE_BARS` bars, B's bass (`bassEntrySec`) starts where that fade starts, and B's voice line, however far before its bass, is
+ * where the mix starts — there is no limit on how long that wait is. A's MID and HIGH go down at the start, as in every swap. The plan
+ * stays as it was (with the reason in `holdSkipped`, shown on the row) when this cannot be kept: B's bass is not known or never starts, the
+ * start would be before the earliest the plain mix can start, or B would be left with too little song.
  */
 function withBassHold(plan: VocalSwapPlan, a: HandoffSide, b: HandoffSide, entry: SwapEntry): VocalSwapPlan {
   // The rule is for the end of A's song only: any voice of more than 2 s from the mix to the song's end and the plan stays as it was.
@@ -210,12 +232,13 @@ function withBassHold(plan: VocalSwapPlan, a: HandoffSide, b: HandoffSide, entry
   if (bEntry == null) return skip('לא נמצאה כניסת בס בשיר הנכנס')
   const barA = barSec(a.grid.bpm)
   const barB = barSec(b.grid.bpm)
-  const swapSec = plan.joinSec + ((bEntry - entry.voiceSec) / barB) * barA
-  if (swapSec <= plan.swapSec + EPS) return plan
-  const endSec = swapSec + BASS_HOLD_FADE_BARS * barA
-  if (endSec > a.durationSec + EPS) return skip('השיר היוצא נגמר לפני שהבס הנכנס מתחיל')
+  const bassBars = Math.round((bEntry - entry.voiceSec) / barB)
+  const endSec = bassEndSec(a)
+  const swapSec = endSec - BASS_HOLD_FADE_BARS * barA
+  const joinSec = swapSec - bassBars * barA
+  if (joinSec < plan.joinSec - EPS) return skip('אין מספיק מקום בשיר היוצא עד שהבס שלו נגמר')
   if (!enoughSongAfterMix(b.durationSec, b.grid, bEntry + BASS_HOLD_FADE_BARS * barB)) return skip('לשיר הנכנס לא נשאר מספיק אחרי הכניסה של הבס')
-  return { ...plan, swapSec, endSec, bassHold: true }
+  return { ...plan, joinSec, voiceSec: joinSec, swapSec, endSec, bassHold: true, onVoiceEnd: plan.onVoiceEnd && joinSec === plan.joinSec }
 }
 
 /** B's knobs from the moment it starts until the swap: everything but its bass — its voice, as near as an EQ gets without muffling it. */
