@@ -4620,7 +4620,17 @@ export function rateMixTransition(rating: 'bad' | 'needs-work' | 'excellent') {
       pendingMixRating.joinedFromSec,
       pendingMixRating.toTrackId,
     )
-      .then(() => useStore.setState((s) => ({ excellentPairsRev: s.excellentPairsRev + 1 })))
+      .then(({ dropped }) => {
+        useStore.setState((s) => ({ excellentPairsRev: s.excellentPairsRev + 1 }))
+        // the cap pushed the oldest remembered point of this pair out — said, not skipped
+        if (dropped) {
+          useStore.getState().setNotice({
+            text: 'This pair already held 12 saved mix-in points; the oldest one was removed to make room.',
+            tone: 'info',
+            source: 'mixRating',
+          })
+        }
+      })
       .catch((err) => {
         console.error('markExcellentPair failed', err)
       })
