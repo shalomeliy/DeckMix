@@ -213,10 +213,14 @@ describe("bass held until B's bass starts", () => {
   it("keeps the plain swap when B has no bands, or A sings more than 2 s before the bass is out, or A ends first", () => {
     expect(planVocalSwap(a, 30, side(300, [[32, 120]]), entry)!.bassHold).toBe(false)
     expect(planVocalSwap(side(200, [[20, 60], [80, 84]]), 30, b, entry)!.bassHold).toBe(false)
-    // A ends at 90: B's 28 s of voice before its bass would have to start at 58, before A's voice is over at 60.
+    // A is 90 s long and quiet from 60. Its bass ends at 90, so the swap is at 86 and 14 bars of B's voice-to-bass distance do not fit
+    // between 60 and 86 (13 bars): B comes in a bar later than its voice line, so the two basses still meet.
     const ends = planVocalSwap(side(90, [[20, 60]]), 30, b, entry)!
-    expect(ends.bassHold).toBe(false)
-    expect(ends.holdSkipped).toContain('אין מספיק מקום')
+    expect(ends).toMatchObject({ bassHold: true, joinSec: 60, swapSec: 86, entrySec: 34 })
+    // A is 90 s and playing at 84: nothing is left, not even the plain 3-bar mix.
+    expect(planVocalSwap(side(90, [[20, 60]]), 84, b, entry)).toBeNull()
+    // The owner's case: near A's end, where the plain mix does not fit, the hold still does: A 100 s at 84 s: the next phrase start is 92, the swap 96, B comes in 2 bars before its bass.
+    expect(planVocalSwap(side(100, [[20, 60]]), 84, b, entry)).toMatchObject({ bassHold: true, joinSec: 92, swapSec: 96, entrySec: 56 })
     expect(planVocalSwap(a, 30, side(300, [[32, 120]]), entry)!.holdSkipped).toContain('עוד לא נותח')
     // A sings again after the fade ends: the rule is for the end of A's song only, so no hold and nothing to say.
     const later = planVocalSwap(side(200, [[20, 60], [150, 160]]), 30, b, entry)!

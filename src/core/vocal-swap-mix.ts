@@ -191,34 +191,38 @@ export function planVocalSwap(a: HandoffSide, aPositionSec: number, b: HandoffSi
   const firstJoin = nextBarLineSec(aPositionSec + EPS, a.grid)
   for (const q of quietStretches(a, aPositionSec)) {
     const voiceEnd = barLineAtOrAfterSec(q.from, a.grid)
-    for (let s = voiceEnd; s + mixSec <= q.to + EPS; s += PHRASE_BARS * barA) {
-      if (s < firstJoin - EPS) continue
-      const base: VocalSwapPlan = {
-        joinSec: s,
-        entrySec: entry.voiceSec,
-        bVoiceSec: entry.voiceSec,
-        voiceSec: s,
-        swapSec: s + SWAP_BARS * barA,
-        // Clamped like the handoff's fade end: the engine's position stops at the song's end and would never pass a later second.
-        endSec: Math.min(q.to, s + mixSec),
-        onVoiceEnd: q.afterVoice && s === voiceEnd,
-        bassHold: false,
-        holdSkipped: null,
-      }
-      return withBassHold(base, a, b, entry)
+    let s = voiceEnd
+    while (s < firstJoin - EPS) s += PHRASE_BARS * barA
+    if (s >= q.to) continue
+    const base: VocalSwapPlan = {
+      joinSec: s,
+      entrySec: entry.voiceSec,
+      bVoiceSec: entry.voiceSec,
+      voiceSec: s,
+      swapSec: s + SWAP_BARS * barA,
+      // Clamped like the handoff's fade end: the engine's position stops at the song's end and would never pass a later second.
+      endSec: Math.min(q.to, s + mixSec),
+      onVoiceEnd: q.afterVoice && s === voiceEnd,
+      bassHold: false,
+      holdSkipped: null,
     }
+    // The bass hold may fit where the plain mix does not (A is near its end): it is planned from the earliest start, and B comes in later in its voice.
+    const held = withBassHold(base, a, b, entry)
+    if (held.bassHold || s + mixSec <= q.to + EPS) return held
   }
   return null
 }
 
 /** A voice this short in A's last stretch is not a "significant" one (the owner, 08/10: more than 2 seconds is). */
 const SIGNIFICANT_VOICE_SEC = 2
+/** The fewest bars B plays before its bass starts in a bass-hold mix: A's MID and HIGH need a bar each to go down. Chosen, not measured. */
+const MIN_HOLD_RUN_BARS = SWAP_VOICE_DOWN_BARS + SWAP_INSTRUMENTS_DOWN_BARS
 
 /**
  * The 08/10 rule, as the owner finished it the same night: when A has no significant voice from the mix to the end of the song, B comes in
  * so that its bass starts exactly when A's bass ends. Backwards from A's bass end (`bassEndSec`): A's bass goes down over the last
- * `BASS_HOLD_FADE_BARS` bars, B's bass (`bassEntrySec`) starts where that fade starts, and B's voice line, however far before its bass, is
- * where the mix starts — there is no limit on how long that wait is. A's MID and HIGH go down at the start, as in every swap. The plan
+ * `BASS_HOLD_FADE_BARS` bars, B's bass (`bassEntrySec`) starts where that fade starts, and B comes in on its voice line, however far before its
+ * bass, and when A has less room than that it comes in later, inside its voice, so that the two basses still meet. There is no limit on how long the wait is. A's MID and HIGH go down at the start, as in every swap. The plan
  * stays as it was (with the reason in `holdSkipped`, shown on the row) when this cannot be kept: B's bass is not known or never starts, the
  * start would be before the earliest the plain mix can start, or B would be left with too little song.
  */
@@ -235,10 +239,15 @@ function withBassHold(plan: VocalSwapPlan, a: HandoffSide, b: HandoffSide, entry
   const bassBars = Math.round((bEntry - entry.voiceSec) / barB)
   const endSec = bassEndSec(a)
   const swapSec = endSec - BASS_HOLD_FADE_BARS * barA
-  const joinSec = swapSec - bassBars * barA
-  if (joinSec < plan.joinSec - EPS) return skip('אין מספיק מקום בשיר היוצא עד שהבס שלו נגמר')
+  // Bars from the earliest start to the swap. When B's voice line is further from its bass than that, B comes in later, inside its voice,
+  // on the line that many bars before its bass (A is near its end: the owner's case); when closer, the mix starts later so the two meet.
+  const room = Math.floor((swapSec - plan.joinSec) / barA + EPS)
+  if (room < MIN_HOLD_RUN_BARS) return skip('אין מספיק מקום בשיר היוצא עד שהבס שלו נגמר')
+  const runBars = Math.min(room, bassBars)
+  const joinSec = swapSec - runBars * barA
+  const bEnter = bEntry - runBars * barB
   if (!enoughSongAfterMix(b.durationSec, b.grid, bEntry + BASS_HOLD_FADE_BARS * barB)) return skip('לשיר הנכנס לא נשאר מספיק אחרי הכניסה של הבס')
-  return { ...plan, joinSec, voiceSec: joinSec, swapSec, endSec, bassHold: true, onVoiceEnd: plan.onVoiceEnd && joinSec === plan.joinSec }
+  return { ...plan, joinSec, voiceSec: joinSec, entrySec: bEnter, bVoiceSec: bEnter, swapSec, endSec, bassHold: true, onVoiceEnd: plan.onVoiceEnd && joinSec === plan.joinSec }
 }
 
 /** B's knobs from the moment it starts until the swap: everything but its bass — its voice, as near as an EQ gets without muffling it. */
