@@ -1,3 +1,4 @@
+import { mixEntryVerdict } from '@/core/mix-entry-target'
 import { pcmFromAudioBuffer } from '@/platform/analyzer-js/analyze'
 import { isPremiumUnlocked } from '@/core/premium'
 import { PREDECODE_DWELL_MS } from '@/core/predecode'
@@ -4660,9 +4661,13 @@ export function rateMixTransition(rating: 'bad' | 'needs-work' | 'excellent') {
 function saveExcellentMixEntryPad(r: NonNullable<AppState['pendingMixRating']>) {
   const toDeckId: DeckId = r.fromDeckId === 'A' ? 'B' : 'A'
   const st = useStore.getState().decks[toDeckId]
-  if (!r.toContentHash || st.track?.contentHash !== r.toContentHash) {
+  const verdict = mixEntryVerdict(r, st.track)
+  if (verdict !== 'ok') {
     useStore.getState().setNotice({
-      text: `Mix-in pad not saved — deck ${toDeckId} no longer holds the track this mix went into.`,
+      text:
+        verdict === 'no-hash'
+          ? `Mix-in pad not saved — deck ${toDeckId}'s track has no fingerprint yet, so there is nothing to save the pad under.`
+          : `Mix-in pad not saved — deck ${toDeckId} no longer holds the track this mix went into.`,
       tone: 'info',
       source: 'mixRating',
     })
