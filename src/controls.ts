@@ -52,7 +52,7 @@ import {
   shiftGrid,
 } from '@/core/beatgrid'
 import { exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
-import { catchUpFactor, kickLockStep, KICK_LOCK_MAX_BARS, KICK_LOCK_KEEP_START_SEC, KICK_LOCK_NUDGE_SEC, KICK_LOCK_PLAIN_SHIFT_BARS } from '@/core/kick-lock'
+import { catchUpFactor, kickLockStep, KICK_LOCK_MAX_BARS, KICK_LOCK_SEC, KICK_LOCK_SETTLE_SEC, KICK_LOCK_KEEP_START_SEC, KICK_LOCK_NUDGE_SEC, KICK_LOCK_PLAIN_SHIFT_BARS } from '@/core/kick-lock'
 import { AUTO_MIX_CROSSFADER_CURVE, eqMixFrame, incomingUnderA, plainEqMixPlan, type BassSwapStyle, type EqBand, type EqBands, type EqMixPlan } from '@/core/eq-mix'
 import { HANDOFF_NEEDS_STRAIGHT_SYNC, MIN_BARS_AFTER_MIX, enoughSongAfterMix, firstVoiceInSec, handoffSide, nextPhraseStartSec, planHandoff, quietJoinSec, plainMixEndInB, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
 import { SWAP_CROSSFADER_CURVE, planVocalSwap, swapIncoming, vocalSwapFrame, type SwapEntry, type VocalSwapPlan } from '@/core/vocal-swap-mix'
@@ -4177,6 +4177,16 @@ export function startAutoTransition(
         if (said) {
           const cur = useStore.getState().notice
           useStore.getState().setNotice({ text: cur && cur !== noticeBefore ? `${cur.text} · ${said}` : said, tone: 'warn', source: 'sync' })
+        }
+      }
+      // v0.9.67d: a bass-hold swap runs for many bars before B's bass returns, with B's kick killed and never gated by the lock above (the plain
+      // swap is 3 bars). B's phase is checked every frame until the swap and a gap is nudged out while B's LOW is still down, so the bass that
+      // comes in sits on A's — the same lock the other mixes wait for, done here while B plays its voice.
+      if (vocalSwap?.bassHold && fromEngine.position < vocalSwap.swapSec && t - joinedAtTime >= KICK_LOCK_SETTLE_SEC && t - lastNudgeAt >= KICK_LOCK_NUDGE_SEC) {
+        const gap = syncPhaseDeltaSec(toDeckId, toEngine.position)
+        if (gap != null && Math.abs(gap) >= KICK_LOCK_SEC) {
+          toEngine.syncNudge(gap, KICK_LOCK_NUDGE_SEC)
+          lastNudgeAt = t
         }
       }
       const frame = vocalSwap
