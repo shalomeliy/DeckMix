@@ -92,6 +92,7 @@ const NAMED: Record<string, Named[]> = {
     { token: 'onKeyDown=', count: 1, exempt: 'Escape hides an open hint bubble' },
   ],
   'src/app/components/KeysScreen.tsx': [{ token: "addEventListener('keydown'", count: 1, exempt: ESC_CLOSES }],
+  'src/app/components/MisnamedDialog.tsx': [{ token: "addEventListener('keydown'", count: 1, exempt: ESC_CLOSES }],
   'src/app/components/SetHistory.tsx': [{ token: "addEventListener('keydown'", count: 1, exempt: ESC_CLOSES }],
   'src/app/components/Settings.tsx': [
     { token: "addEventListener('keydown'", count: 1, exempt: ESC_CLOSES },
