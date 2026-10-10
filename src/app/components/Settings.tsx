@@ -20,6 +20,8 @@ import { Button, HintIcon } from '@/app/components/controls'
 import { MIN_SONGS_FOR_GENRE_MODEL, genreCoverage, modelSongCounts } from '@/core/sound/genre-coverage'
 import genreModelsJson from '@/core/sound/vocal-genre-models.json'
 import { getAllVocalManual } from '@/platform/vocal-manual-idb/store'
+import { getAllPairRecords } from '@/platform/mix-pairs-idb/store'
+import { pairRows, pairTotals, type PairRow } from '@/core/pair-entries'
 import {
   COPYRIGHT_NOTICE,
   ossNoticeCount,
@@ -243,6 +245,11 @@ export function SettingsScreen({
                 {group === 'library' && (
                   <div id="setting-genreCoverage" className={flash === 'genreCoverage' ? FLASH : undefined}>
                     <GenreCoverage />
+                  </div>
+                )}
+                {group === 'library' && (
+                  <div id="setting-mixPairs" className={flash === 'mixPairs' ? FLASH : undefined}>
+                    <MixPairsPanel />
                   </div>
                 )}
                 {FIELDS.filter((f) => f.group === group).map((f) => (
@@ -641,6 +648,94 @@ function JogMeasure() {
             {ticks == null ? '' : `${ticks} ticks`}
           </span>
         </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * v0.9.68: the experiment's count, on screen. The pass rule is in `docs/handoff/v0.9.68.md` (10+ pairs, 3+ with two or more points).
+ * A song missing from the scanned library is shown by "not in this library", never dropped from the list.
+ */
+function MixPairsPanel() {
+  const tracks = useStore((st) => st.library.tracks)
+  const [rows, setRows] = useState<PairRow[] | null>(null)
+  const [unreadable, setUnreadable] = useState(0)
+  const [error, setError] = useState<string | null>(null)
+  const [rev, setRev] = useState(0)
+  useEffect(() => {
+    let live = true
+    getAllPairRecords()
+      .then((all) => {
+        if (!live) return
+        setRows(pairRows(all.records))
+        setUnreadable(all.unreadable)
+      })
+      .catch((e) => live && setError(e instanceof Error ? e.message : String(e)))
+    return () => {
+      live = false
+    }
+  }, [rev])
+  const names = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const t of tracks) if (t.contentHash && !m.has(t.contentHash)) m.set(t.contentHash, t.title ?? t.name)
+    return m
+  }, [tracks])
+  const totals = rows ? pairTotals(rows) : null
+  // A track's content hash is filled in lazily (types.ts), so an unmatched hash is only "not in this library" once every scanned track has one.
+  const unhashed = useMemo(() => tracks.filter((t) => !t.contentHash).length, [tracks])
+  const unknownName = unhashed > 0 ? 'name not known yet' : 'not in this library'
+  return (
+    <div className="rounded-[var(--radius-sm)] border border-hairline bg-surface-1 px-3 py-2.5" data-testid="mix-pairs">
+      <div className="mb-1 flex items-center gap-2">
+        <span className="text-xs font-semibold text-grid-text">Mix pairs: songs that worked after each other</span>
+        <button
+          onClick={() => setRev((n) => n + 1)}
+          className="rounded-[var(--radius-xs)] px-1.5 py-0.5 text-2xs text-grid-muted transition-colors hover:bg-surface-3 hover:text-grid-text"
+        >
+          Refresh
+        </button>
+      </div>
+      {error ? (
+        <p className="text-2xs text-warn">The saved pairs could not be read, so no count is shown: {error}</p>
+      ) : !rows || !totals ? (
+        <p className="text-2xs text-grid-dim">Reading saved pairs…</p>
+      ) : (
+        <>
+          <p className="mb-1.5 text-2xs text-grid-muted">
+            <b className="tnum text-grid-text">{totals.pairs}</b> pairs saved · <b className="tnum text-grid-text">{totals.withMultiple}</b> with 2 or more mix-in points ·{' '}
+            <b className="tnum text-grid-text">{totals.points}</b> points in all.{' '}
+            <span className="text-grid-dim">The test passes at 10+ pairs and 3+ with 2 or more points.</span>
+          </p>
+          {unhashed > 0 && (
+            <p className="mb-1.5 text-2xs text-grid-dim">
+              {unhashed} library songs are not identified yet (the background analysis fills this in), so some names below may show as not known yet.
+            </p>
+          )}
+          {unreadable > 0 && (
+            <p className="mb-1.5 text-2xs text-warn">{unreadable} saved records could not be read and are not counted.</p>
+          )}
+          <div className="max-h-48 overflow-y-auto">
+            <table className="w-full text-2xs">
+              <thead>
+                <tr className="text-left text-grid-dim">
+                  <th className="py-1 pr-2 font-normal">After</th>
+                  <th className="py-1 pr-2 font-normal">Then</th>
+                  <th className="py-1 font-normal">Points</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.fromHash + r.toHash} className="border-t border-hairline">
+                    <td className="py-1 pr-2 text-grid-text">{names.get(r.fromHash) ?? unknownName}</td>
+                    <td className="py-1 pr-2 text-grid-text">{names.get(r.toHash) ?? unknownName}</td>
+                    <td className={r.entries.length > 1 ? 'py-1 tabular-nums text-live' : 'py-1 tabular-nums text-grid-dim'}>{r.entries.length}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   )

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addPairEntry, entriesOf, MAX_ENTRIES_PER_PAIR, SAME_ENTRY_WINDOW_SEC } from '@/core/pair-entries'
+import { addPairEntry, entriesOf, MAX_ENTRIES_PER_PAIR, pairRows, pairTotals, SAME_ENTRY_WINDOW_SEC } from '@/core/pair-entries'
 
 describe('entriesOf', () => {
   it('reads a record written before v0.9.68 as a list of one', () => {
@@ -41,5 +41,20 @@ describe('addPairEntry', () => {
     const t0 = performance.now()
     for (let i = 0; i < 1000; i++) addPairEntry(entriesOf({ entrySec: i, entries: [{ entrySec: i, at: 1 }, { entrySec: i + 50, at: 2 }] }), { entrySec: i + 100, at: 3 })
     expect(performance.now() - t0).toBeLessThan(50)
+  })
+})
+
+describe('pairRows / pairTotals', () => {
+  const stored = [
+    { fromHash: 'a', followUps: [{ toHash: 'b', entrySec: 10, exitSec: 90 }, { toHash: 'c', entrySec: 5, entries: [{ entrySec: 5, at: 1 }, { entrySec: 60, at: 2 }] }] },
+    { fromHash: 'd', followUps: [{ toHash: 'a', entrySec: 7 }] },
+    { fromHash: 'e', followUps: [] },
+  ]
+  it('one row per pair, old records as one point, most points first', () => {
+    const rows = pairRows(stored)
+    expect(rows.map((r) => `${r.fromHash}>${r.toHash}:${r.entries.length}`)).toEqual(['a>c:2', 'a>b:1', 'd>a:1'])
+  })
+  it('totals match the console count the experiment was first read with', () => {
+    expect(pairTotals(pairRows(stored))).toEqual({ pairs: 3, withMultiple: 1, points: 4 })
   })
 })

@@ -13,7 +13,7 @@
  * outgoing deck actually is when replayed — the same "store raw, re-align
  * live" split `activeTransition.exitPointSec` already uses.
  */
-import { get, set } from 'idb-keyval'
+import { entries as idbEntries, get, set } from 'idb-keyval'
 import { addPairEntry, entriesOf, type PairEntry } from '@/core/pair-entries'
 
 const KEY_PREFIX = 'deckmix:mixpairs:'
@@ -75,4 +75,21 @@ export async function markExcellentPair(
   const { entries, dropped } = addPairEntry(before ? entriesOf(before) : [], { entrySec, exitSec, at: Date.now() })
   await set(KEY_PREFIX + fromHash, [...withoutThisPair, { toHash, entrySec, exitSec, toTrackId, entries }])
   return { dropped }
+}
+
+/**
+ * Every remembered pair, for the Settings > Library panel (v0.9.68). Unlike the per-track read above it
+ * throws on failure: that panel exists to answer "what is saved", and an empty list from a read that failed
+ * would read as "nothing saved".
+ */
+export async function getAllPairRecords(): Promise<{
+  records: { fromHash: string; followUps: ExcellentFollowUp[] }[]
+  /** stored values that are not a list of follow-ups: counted so the panel can say so, not dropped silently */
+  unreadable: number
+}> {
+  const all = (await idbEntries<string, ExcellentFollowUp[]>()).filter(([k]) => typeof k === 'string' && k.startsWith(KEY_PREFIX))
+  const records = all
+    .filter(([, v]) => Array.isArray(v))
+    .map(([k, v]) => ({ fromHash: (k as string).slice(KEY_PREFIX.length), followUps: v }))
+  return { records, unreadable: all.length - records.length }
 }

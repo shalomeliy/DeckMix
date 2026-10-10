@@ -49,3 +49,36 @@ export function addPairEntry(
   const oldest = all.reduce((o, e, k) => (e.at < all[o].at ? k : o), 0)
   return { entries: all.filter((_, k) => k !== oldest), dropped: true }
 }
+
+export interface PairRow {
+  fromHash: string
+  toHash: string
+  entries: PairEntry[]
+}
+
+export interface PairTotals {
+  /** every remembered pair, each (from, to) once */
+  pairs: number
+  /** how many of them hold two or more different points: the experiment's pass number */
+  withMultiple: number
+  /** every point of every pair */
+  points: number
+}
+
+/** The one number the v0.9.68 experiment is judged by, computed the same way the console line did. */
+export function pairTotals(rows: readonly PairRow[]): PairTotals {
+  return {
+    pairs: rows.length,
+    withMultiple: rows.filter((r) => r.entries.length > 1).length,
+    points: rows.reduce((n, r) => n + r.entries.length, 0),
+  }
+}
+
+/** Flattens stored records (`fromHash` -> follow-ups, old or new format) into one row per pair, most points first. */
+export function pairRows(
+  stored: readonly { fromHash: string; followUps: readonly { toHash: string; entrySec: number; exitSec?: number; entries?: PairEntry[] }[] }[],
+): PairRow[] {
+  return stored
+    .flatMap((rec) => rec.followUps.map((f) => ({ fromHash: rec.fromHash, toHash: f.toHash, entries: entriesOf(f) })))
+    .sort((a, b) => b.entries.length - a.entries.length)
+}

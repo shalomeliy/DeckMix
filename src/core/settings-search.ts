@@ -27,7 +27,7 @@ export const SETTINGS_SECTIONS: { id: SettingsSection; label: string; blurb: str
  * A named set, not an omission: the same rule as `COMPANION_EXT`.
  */
 export const PANEL_ENTRIES: {
-  id: 'jogMeasure' | 'samplerBank' | 'genreCoverage' | 'system' | 'legal'
+  id: 'jogMeasure' | 'samplerBank' | 'genreCoverage' | 'mixPairs' | 'system' | 'legal'
   section: SettingsSection
   label: string
   help: string
@@ -53,6 +53,13 @@ export const PANEL_ENTRIES: {
     label: 'Vocal strip: which genres learned from your marks',
     help: 'Per genre: songs you finished marking, and whether the vocal strip has a model learned from them.',
     keywords: ['vocal', 'strip', 'marks', 'genre', 'model', 'coverage', 'hip hop', 'שירה', 'סימונים', "ז'אנר", 'זאנר', 'מודל', 'כיסוי'],
+  },
+  {
+    id: 'mixPairs',
+    section: 'library',
+    label: 'Mix pairs: songs that worked after each other',
+    help: 'Every pair you rated Excellent, with how many mix-in points each one remembers.',
+    keywords: ['mix', 'pairs', 'excellent', 'cue', 'entry', 'points', 'transition', 'מיקס', 'זוגות', 'מצוין', 'נקודות', 'כניסה', 'מעבר'],
   },
   {
     id: 'system',

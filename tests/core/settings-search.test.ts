@@ -69,7 +69,7 @@ describe('settings search (v0.9.55)', () => {
     expect(ids('ייצוא סאמפלים')).toContain('samplerBank')
     expect(ids('אוזניות')).toContain('system')
     expect(ids('פרטיות')).toContain('legal')
-    expect(PANEL_ENTRIES.map((p) => p.id)).toEqual(['jogMeasure', 'samplerBank', 'genreCoverage', 'system', 'legal'])
+    expect(PANEL_ENTRIES.map((p) => p.id)).toEqual(['jogMeasure', 'samplerBank', 'genreCoverage', 'mixPairs', 'system', 'legal'])
   })
 
   it('groups results by tab, in screen order', () => {
