@@ -1,3 +1,4 @@
+import { mixEntryVerdict } from '@/core/mix-entry-target'
 import { pcmFromAudioBuffer } from '@/platform/analyzer-js/analyze'
 import { isPremiumUnlocked } from '@/core/premium'
 import { PREDECODE_DWELL_MS } from '@/core/predecode'
@@ -52,7 +53,7 @@ import {
   shiftGrid,
 } from '@/core/beatgrid'
 import { exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
-import { catchUpFactor, kickLockStep, KICK_LOCK_MAX_BARS, KICK_LOCK_KEEP_START_SEC, KICK_LOCK_NUDGE_SEC, KICK_LOCK_PLAIN_SHIFT_BARS } from '@/core/kick-lock'
+import { catchUpFactor, kickLockStep, KICK_LOCK_MAX_BARS, KICK_LOCK_SEC, KICK_LOCK_SETTLE_SEC, KICK_LOCK_KEEP_START_SEC, KICK_LOCK_NUDGE_SEC, KICK_LOCK_PLAIN_SHIFT_BARS } from '@/core/kick-lock'
 import { AUTO_MIX_CROSSFADER_CURVE, eqMixFrame, incomingUnderA, plainEqMixPlan, type BassSwapStyle, type EqBand, type EqBands, type EqMixPlan } from '@/core/eq-mix'
 import { HANDOFF_NEEDS_STRAIGHT_SYNC, MIN_BARS_AFTER_MIX, enoughSongAfterMix, firstVoiceInSec, handoffSide, nextPhraseStartSec, planHandoff, quietJoinSec, plainMixEndInB, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
 import { SWAP_CROSSFADER_CURVE, planVocalSwap, swapIncoming, vocalSwapFrame, type SwapEntry, type VocalSwapPlan } from '@/core/vocal-swap-mix'
@@ -4179,6 +4180,16 @@ export function startAutoTransition(
           useStore.getState().setNotice({ text: cur && cur !== noticeBefore ? `${cur.text} · ${said}` : said, tone: 'warn', source: 'sync' })
         }
       }
+      // v0.9.67d: a bass-hold swap runs for many bars before B's bass returns, with B's kick killed and never gated by the lock above (the plain
+      // swap is 3 bars). B's phase is checked every frame until the swap and a gap is nudged out while B's LOW is still down, so the bass that
+      // comes in sits on A's — the same lock the other mixes wait for, done here while B plays its voice.
+      if (vocalSwap?.bassHold && fromEngine.position < vocalSwap.swapSec && t - joinedAtTime >= KICK_LOCK_SETTLE_SEC && t - lastNudgeAt >= KICK_LOCK_NUDGE_SEC) {
+        const gap = syncPhaseDeltaSec(toDeckId, toEngine.position)
+        if (gap != null && Math.abs(gap) >= KICK_LOCK_SEC) {
+          toEngine.syncNudge(gap, KICK_LOCK_NUDGE_SEC)
+          lastNudgeAt = t
+        }
+      }
       const frame = vocalSwap
         ? vocalSwapFrame(vocalSwap, fromEngine.position, barSecFrom, { a: tr.eq.own.from, b: tr.eq.own.to }, cfg.eqDb)
         : eqMixFrame(
@@ -4610,7 +4621,17 @@ export function rateMixTransition(rating: 'bad' | 'needs-work' | 'excellent') {
       pendingMixRating.joinedFromSec,
       pendingMixRating.toTrackId,
     )
-      .then(() => useStore.setState((s) => ({ excellentPairsRev: s.excellentPairsRev + 1 })))
+      .then(({ dropped }) => {
+        useStore.setState((s) => ({ excellentPairsRev: s.excellentPairsRev + 1 }))
+        // the cap pushed the oldest remembered point of this pair out — said, not skipped
+        if (dropped) {
+          useStore.getState().setNotice({
+            text: 'This pair already held 12 saved mix-in points; the oldest one was removed to make room.',
+            tone: 'info',
+            source: 'mixRating',
+          })
+        }
+      })
       .catch((err) => {
         console.error('markExcellentPair failed', err)
       })
@@ -4640,9 +4661,13 @@ export function rateMixTransition(rating: 'bad' | 'needs-work' | 'excellent') {
 function saveExcellentMixEntryPad(r: NonNullable<AppState['pendingMixRating']>) {
   const toDeckId: DeckId = r.fromDeckId === 'A' ? 'B' : 'A'
   const st = useStore.getState().decks[toDeckId]
-  if (!r.toContentHash || st.track?.contentHash !== r.toContentHash) {
+  const verdict = mixEntryVerdict(r, st.track)
+  if (verdict !== 'ok') {
     useStore.getState().setNotice({
-      text: `Mix-in pad not saved — deck ${toDeckId} no longer holds the track this mix went into.`,
+      text:
+        verdict === 'no-hash'
+          ? `Mix-in pad not saved — deck ${toDeckId}'s track has no fingerprint yet, so there is nothing to save the pad under.`
+          : `Mix-in pad not saved — deck ${toDeckId} no longer holds the track this mix went into.`,
       tone: 'info',
       source: 'mixRating',
     })

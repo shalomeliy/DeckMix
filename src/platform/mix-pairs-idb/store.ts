@@ -14,6 +14,7 @@
  * live" split `activeTransition.exitPointSec` already uses.
  */
 import { get, set } from 'idb-keyval'
+import { addPairEntry, entriesOf, type PairEntry } from '@/core/pair-entries'
 
 const KEY_PREFIX = 'deckmix:mixpairs:'
 
@@ -35,6 +36,12 @@ export interface ExcellentFollowUp {
    * after the load, so a different file at the same path is caught.
    */
   toTrackId?: string
+  /**
+   * v0.9.68: every excellent entry point of this pair. `entrySec`/`exitSec` above stay as the
+   * latest one, so readers that know only one point keep working; absent on older records
+   * (`entriesOf` reads those as a list of one).
+   */
+  entries?: PairEntry[]
 }
 
 /**
@@ -53,7 +60,7 @@ export async function getExcellentFollowUps(fromHash: string): Promise<Excellent
  * Throws on failure, same choice `mix-ratings-idb`/`cues-idb` make — the one
  * call site (`controls.ts`'s rating handler) can surface it rather than an
  * "excellent" confirmation that silently didn't save. A later rating of the
- * same pair replaces its `entrySec` rather than accumulating duplicates.
+ * same pair adds an entry (v0.9.68), unless it is within a few seconds of one already there, which it replaces.
  */
 export async function markExcellentPair(
   fromHash: string,
@@ -61,8 +68,11 @@ export async function markExcellentPair(
   entrySec: number,
   exitSec: number,
   toTrackId: string | undefined,
-): Promise<void> {
+): Promise<{ dropped: boolean }> {
   const existing = await getExcellentFollowUps(fromHash)
+  const before = existing.find((p) => p.toHash === toHash)
   const withoutThisPair = existing.filter((p) => p.toHash !== toHash)
-  await set(KEY_PREFIX + fromHash, [...withoutThisPair, { toHash, entrySec, exitSec, toTrackId }])
+  const { entries, dropped } = addPairEntry(before ? entriesOf(before) : [], { entrySec, exitSec, at: Date.now() })
+  await set(KEY_PREFIX + fromHash, [...withoutThisPair, { toHash, entrySec, exitSec, toTrackId, entries }])
+  return { dropped }
 }
