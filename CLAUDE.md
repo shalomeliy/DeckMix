@@ -164,6 +164,12 @@ SoundGrid's hard invariant, and it outranks convenience:
   opened, never to a path the app already knows about or a file that existed before the
   recording started. If a feature ever needs to touch an *existing* user file, that is
   the rule this bullet still blocks.
+  **One named exception (v0.9.59, Shalom's explicit request, 2026-10-09): renaming the
+  extension of a file whose content is a different format** (an M4A saved as `.mp3`).
+  Only in `platform/source-fsaccess/misnamed.ts`, only after the owner clicked that one
+  file's own button in the dialog (no "fix all"), only the ending of the name, to one of a
+  fixed table, never content, never creating or deleting, never over an existing name.
+  `tests/repo/rename-only-misnamed.test.ts` pins the single place.
 - One deliberate outstanding warning: `transport-webmidi/manager.ts` writes to the store
   and calls `controls.ts` directly instead of emitting `ControlAction`s through the port.
   It is a `warn` so it stays visible — don't copy the pattern, and don't silence the rule.

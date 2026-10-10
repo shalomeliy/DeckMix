@@ -13,6 +13,7 @@ import { getCrates } from '@/platform/crates-idb/store'
 import { useRenderLoop } from '@/app/hooks/useRenderLoop'
 import { useStore } from '@/app/state/store'
 import type { DeckId } from '@/core/types'
+import { MisnamedDialog } from '@/app/components/MisnamedDialog'
 
 // v0.9.61: the four full-screen panels load only when opened. They were part of the first download although most
 // sessions never open them. `fallback={null}` is safe: they are local files, so the wait is a few milliseconds, and each
@@ -29,14 +30,15 @@ export default function App() {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [keysOpen, setKeysOpen] = useState(false)
   const [taggingOpen, setTaggingOpen] = useState(false)
+  const misnamedOpen = useStore((s) => s.library.misnamedOpen)
   // The Keys screen covers the decks: a key tried from its table must not
   // play, cue or load a deck the owner can't see (v0.8.24 review).
   const keysOpenRef = useRef(false)
   useEffect(() => {
     // The tagging screen covers the decks too, and its clip plays through
     // master — a stray key must not start a deck under it.
-    keysOpenRef.current = keysOpen || taggingOpen
-  }, [keysOpen, taggingOpen])
+    keysOpenRef.current = keysOpen || taggingOpen || misnamedOpen
+  }, [keysOpen, taggingOpen, misnamedOpen])
   const notice = useStore((s) => s.notice)
   const setNotice = useStore((s) => s.setNotice)
   const storageNotice = useStore((s) => s.storageNotice)
@@ -281,6 +283,7 @@ export default function App() {
           {historyOpen && <SetHistoryScreen onClose={() => setHistoryOpen(false)} />}
           {keysOpen && <KeysScreen onClose={() => setKeysOpen(false)} />}
           {taggingOpen && <TaggingScreen onClose={() => setTaggingOpen(false)} />}
+          {misnamedOpen && <MisnamedDialog />}
         </Suspense>
       </PanelLoadBoundary>
     </div>

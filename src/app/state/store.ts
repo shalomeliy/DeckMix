@@ -1,4 +1,5 @@
 import type { LibraryBoot } from '@/core/library-boot'
+import type { MisnamedFile } from '@/core/audio-format'
 import type { VocalManualTag } from '@/core/sound/vocal-manual'
 import { create } from 'zustand'
 import type {
@@ -298,6 +299,15 @@ export interface AppState {
     skipped: Record<string, number>
     /** tracks whose parent folder matched no known genre, by folder name (v0.3.2) */
     unrecognizedGenre: Record<string, number>
+    /** v0.9.59: files whose content is not what their extension says — the owner decides, one by one, in the "wrong extension" dialog */
+    misnamed: MisnamedFile[]
+    /** v0.9.59: content the check could not name, and files it could not open — counted, so "none misnamed" is never a guess */
+    misnamedUnverified: number
+    misnamedUnreadable: number
+    /** v0.9.59: the check has run for this scan (before it, an empty list means "not looked yet") */
+    misnamedChecked: boolean
+    /** v0.9.59: the "wrong extension" dialog is open (the decks' keyboard is blocked while it is, like the other panels) */
+    misnamedOpen: boolean
     supported: boolean
     /**
      * Which of the startup situations we are in (v0.2.6). An empty track list
@@ -505,6 +515,11 @@ export const useStore = create<AppState>((set) => ({
     selectedId: null,
     skipped: {},
     unrecognizedGenre: {},
+    misnamed: [],
+    misnamedUnverified: 0,
+    misnamedUnreadable: 0,
+    misnamedChecked: false,
+    misnamedOpen: false,
     supported: true,
     boot: 'checking',
     bootDetail: null,

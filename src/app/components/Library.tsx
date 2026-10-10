@@ -49,6 +49,7 @@ import { canLookUp, NO_LOOKUP_GENRE } from '@/core/online-artist'
 import { normalizeName } from '@/core/duplicates'
 import { useSettings } from '@/app/hooks/useSettings'
 import { useStore } from '@/app/state/store'
+import { findMisnamedFiles, rememberScanRoot } from '@/platform/source-fsaccess/misnamed'
 import type { KeyMode } from '@/core/settings'
 import type { Track } from '@/core/types'
 import { camelotOrder, type SortDir, type SortKey } from '@/core/library-sort'
@@ -236,6 +237,7 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
   }, [library.tracks])
   // lets a new scan abandon the tag pass of the one it replaced
   const tagScan = useRef({ cancelled: false })
+  const sniffScan = useRef({ cancelled: false })
   // v0.9.52: every background pass finished on this page (the sound cushion can go on the next load)
   const [analysisSettledHere, setAnalysisSettledHere] = useState<'no' | 'saved' | 'unsaved'>('no')
   const recordingOpen = useStore(
@@ -465,13 +467,15 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
 
   async function runScan(handle: FileSystemDirectoryHandle, name: string) {
     tagScan.current.cancelled = true // a previous tag pass must not write into this list
+    sniffScan.current.cancelled = true
     const scan = { cancelled: false }
     tagScan.current = scan
 
     // tagsRead/hashesRead down now, not when applyTags starts: the fresh, untagged
     // list below would otherwise sit under the previous scan's "true" and read as
     // a library with no artists at all (change-reviewer, 06/10).
-    setLibrary({ scanning: true, folderName: name, scanMsg: 'Scanning…', bootDetail: null, tagsRead: false, hashesRead: false })
+    setLibrary({ scanning: true, folderName: name, scanMsg: 'Scanning…', bootDetail: null, tagsRead: false, hashesRead: false, misnamed: [], misnamedUnverified: 0, misnamedUnreadable: 0, misnamedChecked: false, misnamedOpen: false })
+    rememberScanRoot(handle)
 
     let tracks: Track[]
     let skipped: Record<string, number>
@@ -506,6 +510,23 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
       scanning: false,
       scanMsg: `${tracks.length} tracks · reading tags…`,
       selectedId: tracks[0]?.id ?? null,
+    })
+
+    // v0.9.59: a few bytes per file, after the list is already on screen. A file whose content is not what its name says is
+    // reported by name in a dialog and an amber badge — never passed over (the owner had two M4A files named ".mp3").
+    // its own token: `addFiles` cancels the tag pass (`scan`) and must not silently drop this report
+    sniffScan.current.cancelled = true
+    const sniff = { cancelled: false }
+    sniffScan.current = sniff
+    void findMisnamedFiles(tracks, () => sniff.cancelled).then((report) => {
+      if (sniff.cancelled) return
+      useStore.getState().setLibrary({
+        misnamed: report.misnamed,
+        misnamedUnverified: report.unverified,
+        misnamedUnreadable: report.unreadable,
+        misnamedChecked: true,
+        misnamedOpen: report.misnamed.length > 0,
+      })
     })
 
     // Only from a full folder scan, never `addFiles`'s small ad-hoc batch —
@@ -1345,6 +1366,25 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
             >
               {skippedTotal} skipped
             </span>
+          )}
+          {!library.scanning && library.tracks.length > 0 && !library.misnamedChecked && (
+            <span className="text-2xs text-grid-dim">checking file formats…</span>
+          )}
+          {!library.scanning && library.misnamedChecked && (library.misnamed.length > 0 || library.misnamedUnverified > 0 || library.misnamedUnreadable > 0) && (
+            <button
+              type="button"
+              className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-warn hover:bg-surface-3"
+              title={`File-format check: ${library.misnamed.length} with the wrong extension, ${library.misnamedUnverified} whose content could not be identified, ${library.misnamedUnreadable} that could not be opened. Click for the list.`}
+              onClick={() => setLibrary({ misnamedOpen: true })}
+            >
+              {[
+                library.misnamed.length > 0 ? `${library.misnamed.length} wrong extension` : '',
+                library.misnamedUnverified > 0 ? `${library.misnamedUnverified} unverified` : '',
+                library.misnamedUnreadable > 0 ? `${library.misnamedUnreadable} unreadable` : '',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </button>
           )}
           {!library.scanning && library.tracks.length > 1 && (
             dupReport.groups.length > 0 ? (
