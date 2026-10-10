@@ -698,3 +698,24 @@ describe('tempo direction (v0.8.37)', () => {
   })
 })
 
+
+describe('Mix Only order, whole pipeline (10/10 regression report)', () => {
+  // Shalom: "the songs with the filled dot always sat at the top while a song played". The pieces had unit tests; this pins the
+  // chain the table actually runs — recommendations, then order — on messy data (missing BPM/key/sound, played tracks, a
+  // pinned-style playing deck), so a filled dot can never sit below a ring, nor a played song above an unplayed one.
+  it('never puts a looser or already-played suggestion above a stronger, unplayed one', () => {
+    let seed = 7
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+    for (let round = 0; round < 200; round++) {
+      const tracks: Track[] = Array.from({ length: 50 }, (_, i) => ({
+        ...track(`t${i}`, rnd() < 0.1 ? undefined : 118 + Math.round(rnd() * 16), rnd() < 0.2 ? undefined : `${1 + Math.floor(rnd() * 12)}${rnd() < 0.5 ? 'A' : 'B'}`),
+        contentHash: `h${i}`,
+        embedding: rnd() < 0.7 ? Float32Array.from({ length: 8 }, () => rnd() - 0.5) : undefined,
+      }))
+      const played = new Set(tracks.filter(() => rnd() < 0.3).map((t) => t.contentHash!))
+      const recs = mixRecommendations([deck('B', { bpm: 126, trackId: 't0', camelot: '8A', contentHash: 'h0' })], tracks, undefined, { playedHashes: played })
+      const tiers = orderMixList(tracks, recs.matches, { hidePlayed: false, keepOrder: false }).map((t) => matchTier(recs.matches.get(t.id)!))
+      expect(tiers).toEqual([...tiers].sort((a, b) => a - b))
+    }
+  })
+})
