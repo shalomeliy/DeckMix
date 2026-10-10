@@ -110,6 +110,21 @@ describe('suggestArtists — the other sources', () => {
     })
   })
 
+  it('a hyphen-separated download name with a leading "82-bpm-" still starts with the known artist (10/10)', () => {
+    const others = [t('x.mp3', { artist: 'Future ft Drake' })]
+    expect(first('82-bpm-Future-Ft.-Drake-Life-Is-Good-Intro-DIRTY.mp3', others)).toMatchObject({ source: 'known-prefix' })
+  })
+
+  it('"&amp_" in a file name is "&", not part of the artist (10/10, Static & Ben El)', () => {
+    expect(first('Static &amp_ Ben El Ft. Pitbull - Further Up (Tzealon &amp_ Dor Gal Extended Edit).mp3')?.artist).toBe('Static & Ben El Ft. Pitbull')
+  })
+
+  it('the "&amp" and "bpm" repairs leave real words alone', () => {
+    expect(first('Tom &Ampersand - Song.mp3')?.artist).toBe('Tom &Ampersand')
+    expect(first('120 bpmster - Song.mp3')?.artist).toBe('120 bpmster')
+    expect(first('Static_&amp_Ben El - Song.mp3')?.artist).toBe('Static & Ben El')
+  })
+
   it('Pixabay download names: the uploader, underscores as spaces; a number is not a name', () => {
     expect(first('buzzpsy-rudra-166320.mp3')).toMatchObject({ artist: 'buzzpsy', source: 'pixabay' })
     expect(first('lone_wolf_productions-chantra-psytrance-549570.mp3')?.artist).toBe('lone wolf productions')

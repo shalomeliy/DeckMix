@@ -80,7 +80,9 @@ const BIDI_MARKS = /[\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff\ufffd]/g
 /** Windows' second copy of a file: "עותק של …", "Copy of …" — never part of the artist. */
 const COPY_OF = /^(?:עותק של|copy of)\s+/i
 /** Download-site and pack labels the owner's names carry: "[VIP Djs]", "[www.slider.kz]", "- 128 BPM". */
-const LABELS = /\[[^\]]*\]|\s+-\s+\d{2,3}\s*bpm\s*$|\b\d{2,3}\s*bpm\b/gi
+const LABELS = /\[[^\]]*\]|\s+-\s+\d{2,3}\s*bpm\s*$|\b\d{2,3}[\s-]*bpm\b/gi
+/** A file name that was HTML-escaped on its way to disk: "Static &amp_ Ben El" ("&amp;" lost its ";" to Windows). Measured 10/10: the suggestion offered "Static &amp Ben El". */
+const HTML_AMP = /&amp(?:;|(?![a-z]))/gi
 const PIXABAY = /^([a-z][a-z0-9_]*)-[a-z0-9-]+-(\d{5,7})$/
 const HEBREW = /[֐-׿]/
 
@@ -89,7 +91,10 @@ export function baseName(name: string): string {
   return name
     .replace(BIDI_MARKS, '')
     .replace(EXTENSION, '')
+    // "82-bpm-Future-…": the track-number rule below would eat "82-" and leave a stray "bpm".
+    .replace(/^\s*\d{2,3}[\s-]*bpm\b[\s-]*/i, '')
     .replace(TRACK_NUMBER, '')
+    .replace(HTML_AMP, '&')
     .replace(/_/g, ' ')
     .trim()
     .replace(COPY_OF, '')
