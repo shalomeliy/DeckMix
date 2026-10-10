@@ -48,3 +48,22 @@ for g, rs in by.items():
     print(g, len(rs), 'quiet>=2:', sum(r['q'] >= 2 for r in rs), 'sung>=1:', sum(r['v'] >= 1 for r in rs))
 print('PASS' if q2 / n >= .8 and v1 / n >= .8 else 'FAIL')
 print('zero-candidate songs:', [r['name'] for r in rows if r['q'] == 0 and r['v'] == 0][:10])
+
+# ---- experiment 1b (design-around, 10/10): repeat evidence between WHOLE neighbouring windows,
+# never begin-beat vs end-beat. A window counts as "repeats" when the next window of the same
+# length has the identical singing pattern (cell by cell, 95% or more). Pre-registered: >=80% of songs
+# have at least one 4-bar window that repeats.
+def repeats(s, bars=4):
+    beat = 60.0 / s['bpm']; L = bars * 4 * beat; c = cells(s); hit = 0
+    t = max(s['offsetSec'] % (4 * beat), 0)
+    while t + 2 * L <= s['durationSec'] - 10:
+        if t >= 10:
+            a, m, b = int(t / CELL), int((t + L) / CELL), int((t + 2 * L) / CELL)
+            w1, w2 = c[a:m], c[m:b]
+            k = min(len(w1), len(w2))
+            if k and sum(x == y for x, y in zip(w1, w2)) / k >= 0.95: hit += 1
+        t += 4 * beat
+    return hit
+rep = [repeats(s) for s in songs if s.get('bpm') and s['regions']]
+r1 = sum(h >= 1 for h in rep)
+print('1b: songs with a repeating 4-bar window', r1, 'of', len(rep), round(100 * r1 / len(rep), 1), '%', 'PASS' if r1 / len(rep) >= .8 else 'FAIL')
