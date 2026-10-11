@@ -18,6 +18,11 @@ export interface SampleRegion {
   fromSec: number
   toSec: number
   kind: SampleKind
+  /**
+   * `suggestion`: saved with the "save" button on one of the computer's candidates, not marked by his own ears. Kept apart on purpose: counting
+   * these as his marks would make the candidates look right because he accepted them. The comparison reads only the regions without it.
+   */
+  source?: 'suggestion'
 }
 
 /** What the app showed him for this song when he finished it, so a later comparison needs no audio. */
@@ -80,6 +85,17 @@ export function addSampleRegion(
   to = Math.min(durationSec, to)
   if (to - from < MIN_HIT_SEC) return { ok: false, reason: 'too-short' }
   return { ok: true, regions: [...regions, { fromSec: from, toSec: to, kind }] }
+}
+
+/** Saves a candidate as a loop, exactly as the computer proposed it. A candidate that is already saved is refused, never doubled. */
+export function addSuggestionRegion(regions: readonly SampleRegion[], c: { fromSec: number; toSec: number }): { ok: true; regions: SampleRegion[] } | { ok: false; reason: 'already' } {
+  if (regions.some((r) => r.source === 'suggestion' && Math.abs(r.fromSec - c.fromSec) < 1e-3 && Math.abs(r.toSec - c.toSec) < 1e-3)) return { ok: false, reason: 'already' }
+  return { ok: true, regions: [...regions, { fromSec: c.fromSec, toSec: c.toSec, kind: 'loop', source: 'suggestion' }] }
+}
+
+/** Only what he marked himself, for the comparison against the computer's candidates. */
+export function ownMarks(regions: readonly SampleRegion[]): SampleRegion[] {
+  return regions.filter((r) => r.source !== 'suggestion')
 }
 
 export function removeLastSample(regions: readonly SampleRegion[]): SampleRegion[] {

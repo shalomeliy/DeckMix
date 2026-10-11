@@ -64,6 +64,7 @@ import { deleteVocalManual, getAllVocalManual, getVocalManual, putVocalManual } 
 import { deleteVocalStrip } from '@/platform/vocal-strip-idb/store'
 import {
   addSampleRegion,
+  addSuggestionRegion,
   createBandFrames,
   fillBandFrames,
   rankCandidates,
@@ -5357,6 +5358,26 @@ export async function clearSampleMarks(deckId: DeckId): Promise<void> {
   } catch (err) {
     sampleNotice(`הסימונים הוסרו רק עד סגירת האפליקציה: ${err instanceof Error ? err.message : String(err)}`)
   }
+}
+
+/** The "save" button on one of the computer's candidates: stores it as a loop marked as coming from the computer, so the owner's own marks stay a clean test of it. */
+export async function saveSampleCandidate(deckId: DeckId, cand: SampleCandidate): Promise<void> {
+  const tag = sampleTagFor(deckId)
+  if (!tag) {
+    sampleNotice('אי אפשר לשמור קטע: אין שיר טעון בדק הזה (או שעוד לא זוהה הקובץ שלו).')
+    return
+  }
+  if (sampleReadFailed.has(tag.contentHash)) {
+    sampleNotice('אי אפשר לשמור: הסימונים השמורים של השיר לא נקראו, ושמירה הייתה דורסת אותם. טען את השיר שוב.')
+    return
+  }
+  const added = addSuggestionRegion(tag.regions, cand)
+  if (!added.ok) {
+    sampleNotice('ההצעה הזאת כבר שמורה.', 'info')
+    return
+  }
+  const grid = drawnBarGrid(useStore.getState().decks[deckId])
+  await saveSampleMarks({ ...tag, regions: added.regions, gridBpm: grid?.bpm, gridOffsetSec: grid?.offsetSec, updatedAt: Date.now() })
 }
 
 /** Jumps to the computer's next candidate after the playhead (wrapping to the first), so he can listen to what it picked. */

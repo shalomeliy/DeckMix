@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   addSampleRegion,
+  addSuggestionRegion,
+  ownMarks,
   contourCorrelation,
   createBandFrames,
   fillBandFrames,
@@ -95,5 +97,17 @@ describe('overlapsMark and the file', () => {
   })
   it('writes the kind, so a later reader can tell the file apart', () => {
     expect(JSON.parse(sampleMarksExportText([], 1)).kind).toBe('sample-marks')
+  })
+})
+
+describe('saving a candidate', () => {
+  it('stores it as a loop marked as coming from the computer, once, and keeps it out of his own marks', () => {
+    const c = { fromSec: 8, toSec: 16 }
+    const a = addSuggestionRegion([], c)
+    expect(a.ok && a.regions[0]).toEqual({ fromSec: 8, toSec: 16, kind: 'loop', source: 'suggestion' })
+    const regions = a.ok ? a.regions : []
+    expect(addSuggestionRegion(regions, c)).toEqual({ ok: false, reason: 'already' })
+    const own = addSampleRegion(regions, 'loop', 20, 30, 60, GRID)
+    expect(ownMarks(own.ok ? own.regions : [])).toHaveLength(1)
   })
 })

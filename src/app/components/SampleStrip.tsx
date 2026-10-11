@@ -4,7 +4,7 @@ import { useSettings } from '@/app/hooks/useSettings'
 import { useStore } from '@/app/state/store'
 import { useShallow } from 'zustand/react/shallow'
 import * as ctl from '@/controls'
-import { overlapsMark } from '@/core/sound/sample-marks'
+import { overlapsMark, ownMarks } from '@/core/sound/sample-marks'
 import { drawnBarGrid } from '@/core/sound/vocal-manual'
 
 interface Props {
@@ -17,6 +17,7 @@ interface Props {
 const LOOP = '#22d3ee'
 const HIT = '#f472b6'
 const GUESS = '#fbbf24'
+const mmss = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`
 const BARS_CHOICES = [2, 4, 8] as const
 
 /**
@@ -47,7 +48,8 @@ export function SampleStrip({ durationSec, positionSec, deckId, contentHash }: P
   const draft = open ? { fromSec: Math.min(open.startSec, positionSec), toSec: Math.max(open.startSec, positionSec) } : null
   const regions = tag?.regions ?? []
   const guessNote = failedFor === contentHash ? 'חישוב ההצעות נכשל (אפשר לסמן ביד)' : !ready ? 'ההצעות של המחשב מתחשבות… (או שהשיר נטען לפני שהמתג הודלק — טען אותו שוב)' : !grid ? 'אין רשת פעימות לשיר הזה, אז אין הצעות' : `${cands?.length ?? 0} הצעות של ${bars} תיבות`
-  const hits = cands ? cands.filter((c) => overlapsMark(c, regions)).length : 0
+  const own = ownMarks(regions)
+  const hits = cands ? cands.filter((c) => overlapsMark(c, own)).length : 0
   const none = !!contentHash && noneFor === contentHash
   const btn = 'rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted disabled:opacity-40'
   return (
@@ -66,7 +68,7 @@ export function SampleStrip({ durationSec, positionSec, deckId, contentHash }: P
           </div>
           <div className="relative h-2 overflow-hidden rounded-[2px] bg-black" data-sample-marks>
             {[...regions, ...(draft && open ? [{ ...draft, kind: open.kind }] : [])].map((r, i) => (
-              <div key={i} data-sample-kind={r.kind} className="absolute inset-y-0" style={{ left: left(r.fromSec), width: wide(r.fromSec, r.toSec), background: r.kind === 'loop' ? LOOP : HIT }} />
+              <div key={i} data-sample-kind={r.kind} className="absolute inset-y-0" style={{ left: left(r.fromSec), width: wide(r.fromSec, r.toSec), background: r.kind === 'loop' ? LOOP : HIT, opacity: r.source === 'suggestion' ? 0.5 : 1 }} />
             ))}
             <div className="pointer-events-none absolute inset-y-0 left-0 bg-black/50" style={{ width: `${pct}%` }} />
           </div>
@@ -132,9 +134,26 @@ export function SampleStrip({ durationSec, positionSec, deckId, contentHash }: P
         </button>
         <span className="text-grid-muted" data-sample-note>
           קטעים: {regions.length} · {guessNote}
-          {cands && regions.length > 0 ? ` · ${hits} מההצעות נוגעות בסימון שלך` : ''}
+          {cands && own.length > 0 ? ` · ${hits} מההצעות נוגעות בסימון שלך` : ''}
         </span>
       </div>
+      {cands && cands.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1 text-xs" data-sample-suggestions={deckId}>
+          {cands.map((c) => {
+            const saved = regions.some((r) => r.source === 'suggestion' && Math.abs(r.fromSec - c.fromSec) < 1e-3 && Math.abs(r.toSec - c.toSec) < 1e-3)
+            return (
+              <span key={c.fromSec} className="flex items-center overflow-hidden rounded-[var(--radius-sm)] bg-surface-2">
+                <button type="button" onClick={() => ctl.seekDeck(deckId, c.fromSec)} className="px-2 py-1 tabular-nums text-grid-muted" title={`קופץ להתחלת ההצעה · דמיון ${c.score.toFixed(2)}`}>
+                  {mmss(c.fromSec)}–{mmss(c.toSec)}
+                </button>
+                <button type="button" disabled={saved} onClick={() => void ctl.saveSampleCandidate(deckId, c)} className="px-2 py-1 font-semibold disabled:opacity-50" style={{ color: GUESS }} title="שומר את ההצעה כמו שהמחשב הציע אותה, בלי שתסמן. היא נשמרת כ'אושרה מהצעה' ולא נספרת בבדיקה של ההצעות.">
+                  {saved ? '✓ נשמר' : 'שמור'}
+                </button>
+              </span>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
