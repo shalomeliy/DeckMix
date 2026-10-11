@@ -558,6 +558,22 @@ function SamplerPads({ deckId, shiftHeld }: { deckId: DeckId; shiftHeld: boolean
                 {SAMPLER_MODE_BADGE[slot.mode]}
               </span>
             )}
+            {!isRecording && occupied && (
+              <span
+                role="button"
+                aria-label={`Rename sampler slot ${index + 1}`}
+                title="שינוי שם (אפשר גם Alt + לחיצה)"
+                // A span inside the pad's own button: it must not fire the sample, so the press stops here.
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setRenaming({ index, text: slot.trackName ?? '' })
+                }}
+                className="absolute right-1 top-1 cursor-pointer text-[11px] leading-none opacity-60 hover:opacity-100"
+              >
+                ✎
+              </span>
+            )}
             <span className="block truncate px-0.5">{occupied ? slot.trackName : index + 1}</span>
           </button>
         )
