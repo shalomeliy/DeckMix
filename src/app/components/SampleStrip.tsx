@@ -36,6 +36,7 @@ export function SampleStrip({ durationSec, positionSec, deckId, contentHash }: P
   const grid = useStore(useShallow((s) => drawnBarGrid(s.decks[deckId])))
   const [bars, setBars] = useState<number>(4)
   const [confirmClear, setConfirmClear] = useState(false)
+  const [hiddenFor, setHiddenFor] = useState<string | null>(null)
   const [noneFor, setNoneFor] = useState<string | null>(null)
   const ready = !!contentHash && framesFor === contentHash
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the candidates are read from the controls' cache; what changes them is exactly these inputs
@@ -51,13 +52,14 @@ export function SampleStrip({ durationSec, positionSec, deckId, contentHash }: P
   const own = ownMarks(regions)
   const hits = cands ? cands.filter((c) => overlapsMark(c, own)).length : 0
   const none = !!contentHash && noneFor === contentHash
+  const hideRest = !!contentHash && hiddenFor === contentHash
   const btn = 'rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted disabled:opacity-40'
   return (
     <div className="flex shrink-0 flex-col gap-0.5" data-sample-strip={deckId}>
       <div className="flex items-center gap-1">
         <div className="relative flex flex-1 flex-col gap-px" role="img" aria-label="פס קטעים: למעלה הצעות המחשב, למטה הסימונים שלך">
           <div className="relative h-1.5 overflow-hidden rounded-[2px] bg-black" data-sample-guesses>
-            {cands?.map((c) => (
+            {(hideRest ? null : cands)?.map((c) => (
               <div
                 key={`${c.fromSec}`}
                 title={`${c.bars} תיבות · דמיון לבלוק הבא ${c.score.toFixed(2)}`}
@@ -148,6 +150,9 @@ export function SampleStrip({ durationSec, positionSec, deckId, contentHash }: P
               <span className="tabular-nums text-grid-muted">
                 {mmss(r.fromSec)}–{mmss(r.toSec)} · {(r.toSec - r.fromSec).toFixed(1)} שנ׳{r.source === 'suggestion' ? ' · נשמר מהצעה' : ' · סימנת'}
               </span>
+              <button type="button" onClick={() => void ctl.sendSampleToPad(deckId, i)} className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 font-semibold text-white" title="מעתיק את הקטע לפד הפנוי הראשון בסמפלר (SMPL), כך שיישאר שם גם בשיר אחר.">
+                שלח לפד
+              </button>
               <button type="button" onClick={() => void ctl.removeSampleRegion(deckId, i)} className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-warn" title="מוחק את הקטע הזה בלבד.">
                 מחק
               </button>
@@ -157,7 +162,10 @@ export function SampleStrip({ durationSec, positionSec, deckId, contentHash }: P
       )}
       {cands && cands.length > 0 && (
         <div className="flex flex-wrap items-center gap-1 text-xs" data-sample-suggestions={deckId}>
-          {cands.map((c) => {
+          <button type="button" onClick={() => setHiddenFor(hideRest ? null : (contentHash ?? null))} className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-grid-muted" title="מסתיר את ההצעות שלא שמרת. הקטעים השמורים נשארים. ההצעות לא נמחקות מהקובץ של השיר.">
+            {hideRest ? 'הצג את כל ההצעות' : 'הסתר את שאר ההצעות'}
+          </button>
+          {(hideRest ? [] : cands).map((c) => {
             const saved = regions.some((r) => r.source === 'suggestion' && Math.abs(r.fromSec - c.fromSec) < 1e-3 && Math.abs(r.toSec - c.toSec) < 1e-3)
             return (
               <span key={c.fromSec} className="flex items-center overflow-hidden rounded-[var(--radius-sm)] bg-surface-2">

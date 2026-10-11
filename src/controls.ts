@@ -5409,6 +5409,82 @@ export function playSampleRegion(deckId: DeckId, index: number): void {
   play(deckId)
 }
 
+/**
+ * Puts a saved clip on the first empty sampler pad, as its own recording: the clip's samples are cut from the song (decoded again from the file,
+ * the deck's own buffer is not kept) and stored the way a live recording is, so the pad keeps working after a reload and never depends on the
+ * song staying in the library. A loop goes in as a looping pad, a hit as a one-shot. Never overwrites an occupied pad; with all 16 full it says so.
+ */
+let sendingToPad = false
+
+export async function sendSampleToPad(deckId: DeckId, index: number): Promise<void> {
+  const s = useStore.getState()
+  const track = s.decks[deckId].track
+  const r = sampleTagFor(deckId)?.regions[index]
+  if (!track || !r) {
+    sampleNotice('אי אפשר לשלוח לפד: אין שיר טעון או שהקטע כבר לא קיים.')
+    return
+  }
+  // One at a time: two presses would pick the same empty pad while the first still decodes.
+  if (sendingToPad) {
+    sampleNotice('קטע אחר עדיין עובר לפד. המתן רגע ונסה שוב.', 'info')
+    return
+  }
+  sendingToPad = true
+  useStore.getState().clearNotice('sampler')
+  let recordingId: string | null = null
+  try {
+    await initAudio()
+    const buffer = await engine.decode(await readTrackData(track))
+    const sr = buffer.sampleRate
+    const from = Math.max(0, Math.floor(r.fromSec * sr))
+    const to = Math.min(buffer.length, Math.ceil(r.toSec * sr))
+    if (to - from < 1) throw new Error('הקטע ריק')
+    const channels = Array.from({ length: buffer.numberOfChannels }, (_, ch) => buffer.getChannelData(ch).slice(from, to))
+    const clip = engine.sampler.buildBuffer(channels, sr)
+    // The pad is chosen only now, after the slow decode, and taken in the same step: nothing awaits between the check and the patch.
+    const slotIndex = useStore.getState().sampler.slots.findIndex((sl) => !isSamplerSlotOccupied(sl))
+    if (slotIndex < 0) {
+      sampleNotice('כל 16 הפדים של הסמפלר תפוסים. רוקן פד ונסה שוב.')
+      return
+    }
+    engine.sampler.loadSlot(slotIndex, clip)
+    engine.sampler.setGain(slotIndex, useStore.getState().sampler.slots[slotIndex].gain)
+    recordingId = crypto.randomUUID()
+    const m = Math.floor(r.fromSec / 60)
+    // Set even if the save below fails, as a live recording does: the pad stays visibly occupied and playable for this session.
+    useStore.getState().patchSamplerSlot(slotIndex, {
+      trackId: null,
+      contentHash: undefined,
+      recordingId,
+      trackName: `${track.title ?? track.name} ${m}:${String(Math.floor(r.fromSec % 60)).padStart(2, '0')}`,
+      bpm: track.bpm ?? undefined,
+      syncEnabled: false,
+      playing: false,
+    })
+    setSamplerSlotMode(slotIndex, r.kind === 'loop' ? 'loop' : 'oneShot')
+    let saved = true
+    try {
+      await saveRecordingBlob(recordingId, new Blob([encodeWav(channels, sr) as unknown as BlobPart], { type: 'audio/wav' }))
+    } catch (err) {
+      saved = false
+      console.error('sample to pad: recording save failed', err)
+      useStore.getState().setNotice({
+        text: `הקטע בפד ${slotIndex + 1} ינוגן עד סגירת האפליקציה בלבד, הוא לא נשמר (${err instanceof Error ? err.message : String(err)}).`,
+        tone: 'warn',
+        source: 'sampler',
+      })
+    }
+    await persistSamplerBank()
+    if (saved) sampleNotice(`הקטע נשמר בפד ${slotIndex + 1} של הסמפלר (SMPL).`, 'info')
+  } catch (err) {
+    console.error('sample to pad failed', err)
+    if (recordingId) void deleteRecordingBlob(recordingId)
+    sampleNotice(`הקטע לא הועבר לפד: ${err instanceof Error ? err.message : String(err)}`)
+  } finally {
+    sendingToPad = false
+  }
+}
+
 /** Deletes one saved clip (the owner's button on its row). */
 export async function removeSampleRegion(deckId: DeckId, index: number): Promise<void> {
   const tag = sampleTagFor(deckId)
