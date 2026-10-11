@@ -62,6 +62,19 @@ import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
 import { MIN_REGION_SEC, barLineAtOrBeforeSec, closeOpenMark, drawnBarGrid, moveRegionEdge, undoLastEnd, type VocalManualTag } from '@/core/sound/vocal-manual'
 import { deleteVocalManual, getAllVocalManual, getVocalManual, putVocalManual } from '@/platform/vocal-manual-idb/store'
 import { deleteVocalStrip } from '@/platform/vocal-strip-idb/store'
+import {
+  addSampleRegion,
+  createBandFrames,
+  fillBandFrames,
+  rankCandidates,
+  removeLastSample,
+  sampleMarksExportText,
+  type BandFrames,
+  type SampleCandidate,
+  type SampleKind,
+  type SampleMarkTag,
+} from '@/core/sound/sample-marks'
+import { deleteSampleMarks, getAllSampleMarks, getSampleMarks, putSampleMarks } from '@/platform/sample-marks-idb/store'
 import { parseVocalMarksFile, vocalMarksExportText } from '@/core/sound/vocal-manual-file'
 import { pickJsonFileText } from '@/platform/vocal-marks-file-fsaccess/reader'
 import {
@@ -556,6 +569,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     })
   }
   void onTrackLoadedForVocalMarks(deckId, contentHash)
+  void onTrackLoadedForSampleMarks(deckId, contentHash, buffer)
   // A (re)load can change this deck's bpm/tempo as much as touching the
   // tempo fader does — found by change-reviewer (v0.8.6): loading a track
   // straight onto the deck that's already master silently left FX beat-sync
@@ -5165,6 +5179,209 @@ async function onTrackLoadedForVocalMarks(deckId: DeckId, contentHash: string | 
     if (tag) useStore.getState().setVocalManual(contentHash, tag)
   } catch (err) {
     vocalNotice(`סימוני השירה של השיר לא נקראו: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+// ───────── v0.9.30 stage 1 experiment: sample marks ─────────
+// The owner marks loops and hits by hand; next to them the app shows its own candidates (core/sound/sample-marks.ts) so the two can be
+// compared on the same songs. The band frames are computed once per loaded song, only while the setting is on, in short chunks so the
+// screen keeps moving; the decoded buffer is not kept.
+const sampleFrames: Record<DeckId, { contentHash: string; frames: BandFrames } | null> = { A: null, B: null }
+const sampleToken: Record<DeckId, number> = { A: 0, B: 0 }
+/** Songs whose saved marks could not be read: marking them is refused, because the first save would replace the unread record. */
+const sampleReadFailed = new Set<string>()
+
+function sampleNotice(text: string, tone: 'warn' | 'info' = 'warn') {
+  useStore.getState().setNotice({ text, tone, source: 'library' })
+}
+
+async function onTrackLoadedForSampleMarks(deckId: DeckId, contentHash: string | undefined, buffer: AudioBuffer) {
+  const token = ++sampleToken[deckId]
+  sampleFrames[deckId] = null
+  const s = useStore.getState()
+  s.setSampleFramesFor(deckId, null)
+  s.setSampleFramesFailed(deckId, null)
+  const open = s.sampleMarkOpen[deckId]
+  if (open) {
+    s.setSampleMarkOpen(deckId, null)
+    sampleNotice('סימון קטע שהיה פתוח בדק לא נשמר: נטען שיר אחר.')
+  }
+  if (!contentHash) return
+  // Always read the saved record, even with the setting off: a mark made later builds on it, and building on an empty one would overwrite his work.
+  if (!useStore.getState().sampleMarks[contentHash]) {
+    try {
+      const tag = await getSampleMarks(contentHash)
+      if (tag && !useStore.getState().sampleMarks[contentHash]) useStore.getState().setSampleMarks(contentHash, tag)
+      sampleReadFailed.delete(contentHash)
+    } catch (err) {
+      sampleReadFailed.add(contentHash)
+      sampleNotice(`סימוני הקטעים של השיר לא נקראו, אז סימון חדש בשיר הזה חסום כדי לא לדרוס אותם: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+  if (!cfg.sampleMarking) return
+  try {
+    const mono = new Float32Array(buffer.length)
+    for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+      const d = buffer.getChannelData(ch)
+      for (let i = 0; i < mono.length; i++) mono[i] += d[i] / buffer.numberOfChannels
+    }
+    const frames = createBandFrames(mono.length, buffer.sampleRate)
+    for (let f = 0; f < frames.frames; f += 150) {
+      if (token !== sampleToken[deckId]) return
+      fillBandFrames(mono, frames, f, f + 150)
+      await new Promise((r) => setTimeout(r, 0))
+    }
+    if (token !== sampleToken[deckId] || useStore.getState().decks[deckId].track?.contentHash !== contentHash) return
+    sampleFrames[deckId] = { contentHash, frames }
+    useStore.getState().setSampleFramesFor(deckId, contentHash)
+  } catch (err) {
+    useStore.getState().setSampleFramesFailed(deckId, contentHash)
+    sampleNotice(`ההצעות של המחשב לקטעים לא חושבו (${err instanceof Error ? err.message : String(err)}). אפשר לסמן ביד בלעדיהן.`)
+  }
+}
+
+/** The computer's candidates for the song on this deck, or `null` while they cannot be had (no frames yet, or the song has no grid). */
+export function sampleCandidatesFor(deckId: DeckId, bars: number): SampleCandidate[] | null {
+  const deck = useStore.getState().decks[deckId]
+  const f = sampleFrames[deckId]
+  const grid = drawnBarGrid(deck)
+  if (!f || !grid || f.contentHash !== deck.track?.contentHash) return null
+  return rankCandidates(f.frames, grid, deck.durationSec, bars)
+}
+
+async function saveSampleMarks(tag: SampleMarkTag): Promise<void> {
+  useStore.getState().setSampleMarks(tag.contentHash, tag)
+  try {
+    await putSampleMarks(tag)
+  } catch (err) {
+    sampleNotice(`סימוני הקטעים נשמרו רק עד סגירת האפליקציה: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+function sampleTagFor(deckId: DeckId): SampleMarkTag | null {
+  const s = useStore.getState()
+  const track = s.decks[deckId].track
+  if (!track?.contentHash) return null
+  return (
+    s.sampleMarks[track.contentHash] ?? {
+      schema: 1,
+      contentHash: track.contentHash,
+      trackId: track.id,
+      name: track.name,
+      genre: track.genre,
+      regions: [],
+      finished: false,
+      updatedAt: Date.now(),
+    }
+  )
+}
+
+/** First press opens a mark at the play position, the second closes it. Loops snap to the yellow lines, hits keep the presses. */
+export async function toggleSampleMark(deckId: DeckId, kind: SampleKind): Promise<void> {
+  const s = useStore.getState()
+  const deck = s.decks[deckId]
+  const tag = sampleTagFor(deckId)
+  if (!deck.track || !tag) {
+    sampleNotice('אי אפשר לסמן קטע: אין שיר טעון בדק הזה (או שעוד לא זוהה הקובץ שלו).')
+    return
+  }
+  if (sampleReadFailed.has(tag.contentHash)) {
+    sampleNotice('אי אפשר לסמן קטעים בשיר הזה: הסימונים השמורים שלו לא נקראו, וסימון חדש היה דורס אותם. טען את השיר שוב.')
+    return
+  }
+  const open = s.sampleMarkOpen[deckId]
+  if (!open) {
+    s.setSampleMarkOpen(deckId, { contentHash: tag.contentHash, startSec: deck.positionSec, kind })
+    return
+  }
+  s.setSampleMarkOpen(deckId, null)
+  if (open.contentHash !== tag.contentHash) {
+    sampleNotice('סימון הקטע שהיה פתוח היה של שיר אחר ולא נשמר.')
+    return
+  }
+  const added = addSampleRegion(tag.regions, open.kind, open.startSec, deck.positionSec, deck.durationSec, drawnBarGrid(deck))
+  if (!added.ok) {
+    sampleNotice(added.reason === 'too-short' ? 'הסימון קצר מדי ולא נשמר.' : 'הסימון לא נשמר: זמן לא תקין.')
+    return
+  }
+  const grid = drawnBarGrid(deck)
+  await saveSampleMarks({ ...tag, regions: added.regions, gridBpm: grid?.bpm, gridOffsetSec: grid?.offsetSec, updatedAt: Date.now() })
+}
+
+export async function undoSampleMark(deckId: DeckId): Promise<void> {
+  const s = useStore.getState()
+  if (s.sampleMarkOpen[deckId]) {
+    s.setSampleMarkOpen(deckId, null)
+    return
+  }
+  const tag = sampleTagFor(deckId)
+  if (!tag || tag.regions.length === 0) {
+    sampleNotice('אין סימון קטע לבטל בשיר הזה.', 'info')
+    return
+  }
+  await saveSampleMarks({ ...tag, regions: removeLastSample(tag.regions), updatedAt: Date.now() })
+}
+
+/**
+ * "I listened to the whole song": from now on what he did not mark counts as "not worth keeping". What the app showed him (its top guesses for
+ * 2, 4 and 8 bars) is written into the song's record at this moment, so the comparison afterwards needs no audio. If the guesses are not there
+ * (no grid, frames not ready) the record says so by having none, and the notice says it too.
+ */
+export async function finishSampleMarks(deckId: DeckId): Promise<void> {
+  const s = useStore.getState()
+  if (s.sampleMarkOpen[deckId]) s.setSampleMarkOpen(deckId, null)
+  const tag = sampleTagFor(deckId)
+  if (!tag) return
+  if (sampleReadFailed.has(tag.contentHash)) {
+    sampleNotice('אי אפשר לסיים את השיר: הסימונים השמורים שלו לא נקראו. טען את השיר שוב.')
+    return
+  }
+  const shown = [2, 4, 8].flatMap((bars) => sampleCandidatesFor(deckId, bars) ?? [])
+  const grid = drawnBarGrid(s.decks[deckId])
+  await saveSampleMarks({ ...tag, finished: true, shown, gridBpm: grid?.bpm, gridOffsetSec: grid?.offsetSec, updatedAt: Date.now() })
+  if (shown.length === 0) sampleNotice('השיר סומן כגמור, אבל למחשב לא היו הצעות לשיר הזה (אין רשת או שהחישוב לא הסתיים). הסימונים שלך נשמרו.')
+}
+
+export async function reopenSampleMarks(deckId: DeckId): Promise<void> {
+  const tag = sampleTagFor(deckId)
+  if (tag) await saveSampleMarks({ ...tag, finished: false, updatedAt: Date.now() })
+}
+
+export async function clearSampleMarks(deckId: DeckId): Promise<void> {
+  const tag = sampleTagFor(deckId)
+  if (!tag) return
+  useStore.getState().setSampleMarks(tag.contentHash, null)
+  useStore.getState().setSampleMarkOpen(deckId, null)
+  try {
+    await deleteSampleMarks(tag.contentHash)
+  } catch (err) {
+    sampleNotice(`הסימונים הוסרו רק עד סגירת האפליקציה: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+/** Jumps to the computer's next candidate after the playhead (wrapping to the first), so he can listen to what it picked. */
+export function seekNextSampleCandidate(deckId: DeckId, bars: number): void {
+  const c = sampleCandidatesFor(deckId, bars)
+  if (!c || c.length === 0) {
+    sampleNotice('אין הצעות של המחשב לשיר הזה (חסרה רשת פעימות, או שהחישוב עוד לא הסתיים).', 'info')
+    return
+  }
+  const pos = useStore.getState().decks[deckId].positionSec
+  seekDeck(deckId, (c.find((x) => x.fromSec > pos + 0.2) ?? c[0]).fromSec)
+}
+
+export async function exportSampleMarks(): Promise<void> {
+  const day = new Date().toISOString().slice(0, 10)
+  try {
+    const all = await getAllSampleMarks()
+    if (all.length === 0) {
+      sampleNotice('אין עדיין סימוני קטעים לייצא.', 'info')
+      return
+    }
+    const r = await saveTagsJson(sampleMarksExportText(all, Date.now()), `deckmix-sample-marks-${day}.json`)
+    if (r === 'ok') sampleNotice(`יוצאו סימוני קטעים של ${all.length} שירים (${all.filter((t) => t.finished).length} מהם גמורים).`, 'info')
+  } catch (err) {
+    sampleNotice(`סימוני הקטעים לא יוצאו: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
 

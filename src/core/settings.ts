@@ -117,6 +117,8 @@ export interface Settings {
   taggingMode: boolean
   /** v0.9.10b: the "vocal started / ended" buttons under each deck's vocal strip. Off by default: a live set has no use for them. */
   vocalMarking: boolean
+  /** v0.9.30 stage 1 experiment: sample marking under each deck's vocal strip (loops and hits by hand, next to the computer's candidates). */
+  sampleMarking: boolean
   /**
    * v0.9.41b: the library's "N no artist" button and its suggestions (`core/artist-suggest.ts`). On by default, it is
    * Shalom's own request; he asked (06/10) to be able to turn it off. Artists he already accepted stay either way.
@@ -162,6 +164,7 @@ export const DEFAULTS: Settings = {
   sourceCheck: false,
   taggingMode: false,
   vocalMarking: false,
+  sampleMarking: false,
   artistSuggestions: true,
   bassSwap: 'instant',
   mixAssistKeySync: 2,
@@ -550,6 +553,14 @@ export const FIELDS: Field[] = [
     help: 'Adds buttons under each deck\'s vocal strip: press "vocal started" and "vocal ended" while the song plays, as many times as the song needs. Your marks are kept for that song for good and override the computer\'s guess. When you press "finished marking", everything you did not mark becomes empty.',
     group: 'library',
     keywords: ["vocal", "singing", "mark", "voice", "שירה", "ווקאל", "סימון", "קול", "זמר"],
+  },
+  {
+    kind: 'toggle',
+    key: 'sampleMarking',
+    label: 'Mark samples by hand (experiment)',
+    help: 'Adds a lane under each deck\'s vocal strip for marking stretches you would keep as a sample: a loop (a groove that repeats cleanly) or a hit (one sound). Next to your marks the app shows its own guesses, so the two can be compared on the same songs. Nothing is written to your files. Needs a song to be loaded after you turn it on.',
+    group: 'library',
+    keywords: ["sample", "loop", "hit", "mark", "sampler", "סמפל", "לופ", "סימון", "קטע", "ניסוי"],
   },
   {
     kind: 'toggle',

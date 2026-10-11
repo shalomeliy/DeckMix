@@ -1,5 +1,6 @@
 import type { LibraryBoot } from '@/core/library-boot'
 import type { MisnamedFile } from '@/core/audio-format'
+import type { SampleKind, SampleMarkTag } from '@/core/sound/sample-marks'
 import type { VocalManualTag } from '@/core/sound/vocal-manual'
 import { create } from 'zustand'
 import type {
@@ -434,6 +435,12 @@ export interface AppState {
   /** v0.9.10b: the owner's hand-made vocal marks by content hash (loaded when a track reaches a deck), and the mark each deck has open — pressed "started", not yet "ended". */
   vocalManual: Record<string, VocalManualTag>
   vocalMarkOpen: Record<DeckId, { contentHash: string; startSec: number; kind?: 'voice' | 'none'; afterVoice?: boolean } | null>
+  /** v0.9.30 stage 1 experiment: the owner's sample marks by content hash, the mark each deck has open, and the song each deck has band frames ready for (candidates need them). */
+  sampleMarks: Record<string, SampleMarkTag>
+  sampleMarkOpen: Record<DeckId, { contentHash: string; startSec: number; kind: SampleKind } | null>
+  sampleFramesFor: Record<DeckId, string | null>
+  /** The song (hash) whose candidates failed to compute, so the lane says so instead of "computing" forever. */
+  sampleFramesFailed: Record<DeckId, string | null>
   /**
    * v0.8.20: the result of moving data saved before the rename to `deckmix:` keys.
    * It gets its own slot instead of `notice`, because `notice` holds one
@@ -472,6 +479,10 @@ export interface AppState {
   setNotice: (notice: AppState['notice']) => void
   setVocalManual: (contentHash: string, tag: VocalManualTag | null) => void
   setVocalMarkOpen: (deckId: DeckId, open: AppState['vocalMarkOpen'][DeckId]) => void
+  setSampleMarks: (contentHash: string, tag: SampleMarkTag | null) => void
+  setSampleMarkOpen: (deckId: DeckId, open: AppState['sampleMarkOpen'][DeckId]) => void
+  setSampleFramesFor: (deckId: DeckId, contentHash: string | null) => void
+  setSampleFramesFailed: (deckId: DeckId, contentHash: string | null) => void
   /**
    * Clear the notice only if it came from `source`.
    *
@@ -546,6 +557,10 @@ export const useStore = create<AppState>((set) => ({
   notice: null,
   vocalManual: {},
   vocalMarkOpen: { A: null, B: null },
+  sampleMarks: {},
+  sampleMarkOpen: { A: null, B: null },
+  sampleFramesFor: { A: null, B: null },
+  sampleFramesFailed: { A: null, B: null },
   storageNotice: null,
   libraryExpanded: false,
   ai: {
@@ -610,5 +625,15 @@ export const useStore = create<AppState>((set) => ({
       return { vocalManual: next }
     }),
   setVocalMarkOpen: (deckId, open) => set((s) => ({ vocalMarkOpen: { ...s.vocalMarkOpen, [deckId]: open } })),
+  setSampleMarks: (contentHash, tag) =>
+    set((s) => {
+      const next = { ...s.sampleMarks }
+      if (tag) next[contentHash] = tag
+      else delete next[contentHash]
+      return { sampleMarks: next }
+    }),
+  setSampleMarkOpen: (deckId, open) => set((s) => ({ sampleMarkOpen: { ...s.sampleMarkOpen, [deckId]: open } })),
+  setSampleFramesFor: (deckId, contentHash) => set((s) => ({ sampleFramesFor: { ...s.sampleFramesFor, [deckId]: contentHash } })),
+  setSampleFramesFailed: (deckId, contentHash) => set((s) => ({ sampleFramesFailed: { ...s.sampleFramesFailed, [deckId]: contentHash } })),
   clearNotice: (source) => set((s) => (s.notice?.source === source ? { notice: null } : {})),
 }))

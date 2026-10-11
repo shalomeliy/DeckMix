@@ -13,6 +13,7 @@ import { Platter } from '@/app/components/Platter'
 import { TransitionPointsPanel } from '@/app/components/TransitionPointsPanel'
 import { Waveform } from '@/app/components/Waveform'
 import { WaveformOverview } from '@/app/components/WaveformOverview'
+import { SampleStrip } from '@/app/components/SampleStrip'
 import { VocalStrip } from '@/app/components/VocalStrip'
 
 const DECK_COLOR: Record<DeckId, string> = { A: 'var(--color-deck-a)', B: 'var(--color-deck-b)' }
@@ -489,6 +490,7 @@ export function Deck({ deckId }: { deckId: DeckId }) {
         color={color}
       />
       {loaded && <VocalStrip vocal={trackVocal} durationSec={deck.durationSec} positionSec={deck.positionSec} deckId={deckId} contentHash={deck.track?.contentHash} />}
+      {loaded && <SampleStrip durationSec={deck.durationSec} positionSec={deck.positionSec} deckId={deckId} contentHash={deck.track?.contentHash} />}
 
       <Waveform
         deckId={deckId}
