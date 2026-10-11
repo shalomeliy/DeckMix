@@ -137,6 +137,24 @@ export function SampleStrip({ durationSec, positionSec, deckId, contentHash }: P
           {cands && own.length > 0 ? ` · ${hits} מההצעות נוגעות בסימון שלך` : ''}
         </span>
       </div>
+      {regions.length > 0 && (
+        <div className="flex flex-col gap-0.5 text-xs" data-sample-saved={deckId}>
+          <span className="text-grid-muted">שמורים בשיר הזה ({regions.length}):</span>
+          {regions.map((r, i) => (
+            <div key={i} className="flex items-center gap-1">
+              <button type="button" onClick={() => ctl.playSampleRegion(deckId, i)} className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 font-semibold" style={{ color: r.kind === 'loop' ? LOOP : HIT }} title={r.kind === 'loop' ? 'מנגן את הקטע בלופ על הדק הזה. לחיצה נוספת עוצרת את הלופ.' : 'קופץ לצליל ומנגן אותו.'}>
+                ▶ {r.kind === 'loop' ? 'לופ' : 'הקשה'}
+              </button>
+              <span className="tabular-nums text-grid-muted">
+                {mmss(r.fromSec)}–{mmss(r.toSec)} · {(r.toSec - r.fromSec).toFixed(1)} שנ׳{r.source === 'suggestion' ? ' · נשמר מהצעה' : ' · סימנת'}
+              </span>
+              <button type="button" onClick={() => void ctl.removeSampleRegion(deckId, i)} className="rounded-[var(--radius-sm)] bg-surface-2 px-2 py-1 text-warn" title="מוחק את הקטע הזה בלבד.">
+                מחק
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {cands && cands.length > 0 && (
         <div className="flex flex-wrap items-center gap-1 text-xs" data-sample-suggestions={deckId}>
           {cands.map((c) => {

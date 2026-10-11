@@ -5380,6 +5380,46 @@ export async function saveSampleCandidate(deckId: DeckId, cand: SampleCandidate)
   await saveSampleMarks({ ...tag, regions: added.regions, gridBpm: grid?.bpm, gridOffsetSec: grid?.offsetSec, updatedAt: Date.now() })
 }
 
+/**
+ * Plays a saved clip on its own deck so he can hear what was stored: a loop repeats between its two edges (the deck's own loop, drawn on the
+ * waveform like any other), a hit plays from its start with no loop. Pressing the same loop again stops it.
+ */
+export function playSampleRegion(deckId: DeckId, index: number): void {
+  const s = useStore.getState()
+  const tag = sampleTagFor(deckId)
+  const r = tag?.regions[index]
+  if (!r) return
+  const st = s.decks[deckId]
+  if (r.kind === 'loop') {
+    if (st.loopActive && st.loopRange && Math.abs(st.loopRange.startSec - r.fromSec) < 1e-3 && Math.abs(st.loopRange.endSec - r.toSec) < 1e-3) {
+      stopLoop(deckId)
+      s.patchDeck(deckId, { loopActive: false })
+      return
+    }
+    seekDeck(deckId, r.fromSec)
+    startLoop(deckId, r.fromSec, r.toSec)
+    s.patchDeck(deckId, { loopActive: true })
+  } else {
+    if (st.loopActive) {
+      stopLoop(deckId)
+      s.patchDeck(deckId, { loopActive: false })
+    }
+    seekDeck(deckId, r.fromSec)
+  }
+  play(deckId)
+}
+
+/** Deletes one saved clip (the owner's button on its row). */
+export async function removeSampleRegion(deckId: DeckId, index: number): Promise<void> {
+  const tag = sampleTagFor(deckId)
+  if (!tag || !tag.regions[index]) return
+  if (sampleReadFailed.has(tag.contentHash)) {
+    sampleNotice('אי אפשר למחוק: הסימונים השמורים של השיר לא נקראו. טען את השיר שוב.')
+    return
+  }
+  await saveSampleMarks({ ...tag, regions: tag.regions.filter((_, i) => i !== index), updatedAt: Date.now() })
+}
+
 /** Jumps to the computer's next candidate after the playhead (wrapping to the first), so he can listen to what it picked. */
 export function seekNextSampleCandidate(deckId: DeckId, bars: number): void {
   const c = sampleCandidatesFor(deckId, bars)
