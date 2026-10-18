@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as ctl from '@/controls'
 import { LONG_PRESS_MS, PLATTER_SIZE } from '@/core/constants'
+import { songEndSec } from '@/core/audible-end'
 import { useSettings } from '@/app/hooks/useSettings'
 import { useFlash } from '@/app/state/flash'
 import { useStore } from '@/app/state/store'
@@ -166,7 +167,10 @@ export function Deck({ deckId }: { deckId: DeckId }) {
   const ownKey = deck.track?.camelot ?? null
   const heardSemis = Math.round(heardSemitones(deck.baseRate * (1 + deck.tempo * tempoRange), deck.keyLock, deck.keySyncShift ?? 0))
   const heardKey = ownKey ? shiftCamelot(ownKey, heardSemis) : null
-  const remain = deck.durationSec - deck.positionSec
+  // v0.9.70: to where the sound ends, not the file's end; a long silent tail is said in the tooltip, never dropped without a word.
+  const songEnd = songEndSec(deck.audibleEndSec, deck.durationSec)
+  const silentTailSec = deck.durationSec - songEnd
+  const remain = songEnd - deck.positionSec
   // "Save tempo" (v0.9.46) is offered only when there is something to save: a hand moved the fader off the middle — not SYNC, a mix or a
   // glide back (`tempoByHand`), whose number belongs to the pairing (the 20/09 bug). "Forget tempo": a saved speed, fader in the middle.
   const centred = Math.abs(deck.tempo) < 1e-4
@@ -293,7 +297,10 @@ export function Deck({ deckId }: { deckId: DeckId }) {
                 <span aria-hidden>·</span>
                 <span>{fmt(deck.positionSec)}</span>
                 <span className="text-grid-dim">/ {fmt(deck.durationSec)}</span>
-                <span className={remain <= 30 && remain > 0 ? 'text-warn' : 'text-grid-dim'}>
+                <span
+                  className={remain <= 30 && remain > 0 ? 'text-warn' : 'text-grid-dim'}
+                  title={silentTailSec > 0 ? `Counts to where the sound ends. The last ${fmt(silentTailSec)} of the file is silence.` : undefined}
+                >
                   −{fmt(remain)}
                 </span>
                 {/* v0.8.17: disabled, not hidden, while playing — the button
@@ -334,6 +341,7 @@ export function Deck({ deckId }: { deckId: DeckId }) {
             <TransitionPointsPanel
               bands={deck.bands}
               durationSec={deck.durationSec}
+              endSec={songEnd}
               beatGrid={deck.beatGrid}
               analysisFailed={deck.track?.analysisState === 'failed'}
               otherDeckId={otherDeckId}

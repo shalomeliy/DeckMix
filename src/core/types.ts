@@ -177,6 +177,11 @@ export interface DeckState {
   /** playhead position in seconds */
   positionSec: number
   durationSec: number
+  /**
+   * v0.9.70: where the sound ends when the file ends in 2 s or more of silence (`core/audible-end.ts`); 0 = not measured, or the file's own
+   * length is the end. Read it through `songEndSec`, never directly — the countdown and Mix Assist reason with the song, not the file.
+   */
+  audibleEndSec: number
   /** detected / edited bpm of the loaded track */
   bpm: number | null
   /**

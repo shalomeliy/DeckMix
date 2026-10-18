@@ -64,7 +64,10 @@ function fmtSec(sec: number): string {
 
 interface Props {
   bands: Float32Array | null
+  /** The file's length — what `bands` is spread over, so the only length that turns a bucket into a second. */
   durationSec: number
+  /** v0.9.70: where the sound ends (`songEndSec`). A silent tail is no room for a mix; the energy points offered are judged against this. */
+  endSec: number
   beatGrid: BeatGrid | null
   /** This deck's own load-time analysis failed — distinct from "still running". */
   analysisFailed: boolean
@@ -158,6 +161,7 @@ const hasVoice = (side: HandoffSide) => side.timeline.cells.some((c) => c !== 0)
 export function TransitionPointsPanel({
   bands,
   durationSec,
+  endSec,
   beatGrid,
   analysisFailed,
   otherDeckId,
@@ -181,9 +185,9 @@ export function TransitionPointsPanel({
   // Where the mix ends is `plainMixEndInB`'s, the same one a saved pad and an excellent pair are refused by (`refuseTooLateEntry`, v0.9.26).
   const { candidates, lateCandidates } = useMemo(() => {
     const all = bands ? findTransitionCandidates(bands, durationSec, beatGrid) : []
-    const ok = all.filter((c) => enoughSongAfterMix(durationSec, beatGrid, plainMixEndInB(c.sec, beatGrid, TRANSITION_CROSSFADE_SEC)))
+    const ok = all.filter((c) => enoughSongAfterMix(endSec, beatGrid, plainMixEndInB(c.sec, beatGrid, TRANSITION_CROSSFADE_SEC)))
     return { candidates: ok, lateCandidates: all.length > ok.length }
-  }, [bands, durationSec, beatGrid])
+  }, [bands, durationSec, endSec, beatGrid])
 
   const incomingProfile = useMemo(
     () => (bands ? analyzeEnergyProfile(bands, durationSec) : null),

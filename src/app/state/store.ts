@@ -91,6 +91,7 @@ function emptyDeck(id: DeckId): DeckState {
     playing: false,
     positionSec: 0,
     durationSec: 0,
+    audibleEndSec: 0,
     bpm: null,
     beatGrid: null,
     beatGridConfirmed: true,

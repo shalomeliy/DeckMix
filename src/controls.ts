@@ -1,3 +1,4 @@
+import { audibleEndSec, songEndSec } from '@/core/audible-end'
 import { mixEntryVerdict } from '@/core/mix-entry-target'
 import { pcmFromAudioBuffer } from '@/platform/analyzer-js/analyze'
 import { isPremiumUnlocked } from '@/core/premium'
@@ -531,6 +532,7 @@ export async function loadTrackToDeck(deckId: DeckId, track: Track) {
     playing: false,
     positionSec: startSec,
     durationSec,
+    audibleEndSec: audibleEndSec(pcmFromAudioBuffer(buffer).channels, buffer.sampleRate, durationSec),
     bpm: track.bpm ?? null,
     beatGrid: null,
     beatGridConfirmed: false,
@@ -787,6 +789,7 @@ export function ejectDeck(deckId: DeckId) {
     keySyncShift: null,
     positionSec: 0,
     durationSec: 0,
+    audibleEndSec: 0,
     bpm: null,
     beatGrid: null,
     beatGridConfirmed: true,
@@ -864,6 +867,7 @@ export async function startExcellentPairTransition(
   // v0.9.26: checked before the load too, so a pair that can only be refused does not leave its track on the other deck. Leniently: the
   // library's BPM is the tag's (or the owner's), which can be half the grid's — read as is, it would double the bars and refuse a pair the
   // deck accepts. So double it (and 240 with none): this one refuses only what no reading saves. The real rule is the check after the load.
+  // (The file's length, not the song's end: the end is measured at load. The check after the load below uses it and is the real one.)
   if (refuseTooLateEntry(target, entrySec, toTrack.durationSec ?? 0, { bpm: toTrack.bpm ? toTrack.bpm * 2 : 240 }, 'mixRating')) return
   // v0.8.17 (Shalom): a loaded but idle track on the other deck is replaced —
   // it's a less-fitting pick, and the strip exists to swap in the better one.
@@ -910,7 +914,7 @@ export async function startExcellentPairTransition(
     return
   }
   const loaded = useStore.getState().decks[target]
-  if (refuseTooLateEntry(target, entrySec, loaded.durationSec, loaded.beatGrid, 'mixRating')) return
+  if (refuseTooLateEntry(target, entrySec, songEndSec(loaded.audibleEndSec, loaded.durationSec), loaded.beatGrid, 'mixRating')) return
   // A pair rated before v0.8.16 never saved where the outgoing deck was —
   // mixing on the next bar is the old behaviour, named rather than silent.
   const oldPairNote =
@@ -1932,7 +1936,7 @@ export function pressHotCue(deckId: DeckId, index: number) {
   const cue = decks[deckId].hotCues.find((c) => c.index === index)
   const otherDeckId: DeckId = deckId === 'A' ? 'B' : 'A'
   if (shouldTriggerMixEntry(cue, decks[deckId].playing, decks[otherDeckId].playing)) {
-    if (refuseTooLateEntry(deckId, cue!.positionSec, decks[deckId].durationSec, decks[deckId].beatGrid, 'sync')) return
+    if (refuseTooLateEntry(deckId, cue!.positionSec, songEndSec(decks[deckId].audibleEndSec, decks[deckId].durationSec), decks[deckId].beatGrid, 'sync')) return
     // The same start as the panel's click (v0.9.17: on A's next phrase start, not its next bar).
     startAutoTransitionOnPhrase(otherDeckId, deckId, cue!.positionSec)
     return
@@ -4069,7 +4073,9 @@ export function startAutoTransition(
   // suggested exit (`resolveExitPointSec`, `core/structure.ts` — its own doc
   // comment has the 23/09 fix: this used to be able to fall back to `null`,
   // which silently skipped the rating prompt too).
-  const exitCandidates = from.bands ? findTransitionCandidates(from.bands, from.durationSec, from.beatGrid) : []
+  // The file's length maps bands to seconds; the song's end (v0.9.70) only drops exits that sit in a silent tail.
+  const fromEnd = songEndSec(from.audibleEndSec, from.durationSec)
+  const exitCandidates = from.bands ? findTransitionCandidates(from.bands, from.durationSec, from.beatGrid).filter((c) => c.sec < fromEnd) : []
   const exitPointSec = resolveExitPointSec(exitCandidates, fromEngine.position)
 
   const join = (fromGrid: BeatGrid, toGrid: BeatGrid) => {
@@ -4382,7 +4388,8 @@ export function deckHandoffSide(deckId: DeckId): HandoffSide | { missing: string
   if (!deck.track) return { missing: 'אין שיר בדק' }
   const vocal = s.library.tracks.find((t) => t.id === deck.track?.id)?.vocal
   const tag = deck.track.contentHash ? s.vocalManual[deck.track.contentHash] : undefined
-  const side = handoffSide(vocal, tag, deck.beatGrid, deck.durationSec)
+  // The song's own end, not the file's: a long silent tail is not room for a mix (v0.9.70).
+  const side = handoffSide(vocal, tag, deck.beatGrid, songEndSec(deck.audibleEndSec, deck.durationSec))
   return 'missing' in side ? side : { ...side, bands: deck.bands }
 }
 
@@ -4439,7 +4446,7 @@ export function deckPhraseJoin(deckId: DeckId, positionSec: number): { sec: numb
     const quiet = quietJoinSec(side, positionSec, plainMixNeedSec(deckId, deck.beatGrid))
     if (quiet) return { sec: quiet.sec, why: quiet.onVoiceEnd ? 'כשהשירה שלו נגמרת' : 'תחילת קטע בלי שירה', aVoiceSec: null }
   }
-  const phrase = nextPhraseStartSec(deck.beatGrid, 'missing' in side ? null : side.timeline, deck.durationSec, positionSec)
+  const phrase = nextPhraseStartSec(deck.beatGrid, 'missing' in side ? null : side.timeline, songEndSec(deck.audibleEndSec, deck.durationSec), positionSec)
   const aVoiceSec = 'missing' in side ? null : firstVoiceInSec(side, phrase.sec, phrase.sec + plainMixNeedSec(deckId, deck.beatGrid))
   if (aVoiceSec != null) return { sec: phrase.sec, why: 'הוא שר עד סוף השיר בלי רגע שקט שמחזיק מעבר שלם, אז על השירה שלו', aVoiceSec }
   const why =
