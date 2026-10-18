@@ -27,7 +27,7 @@ export const SETTINGS_SECTIONS: { id: SettingsSection; label: string; blurb: str
  * A named set, not an omission: the same rule as `COMPANION_EXT`.
  */
 export const PANEL_ENTRIES: {
-  id: 'jogMeasure' | 'samplerBank' | 'genreCoverage' | 'mixPairs' | 'system' | 'legal'
+  id: 'jogMeasure' | 'samplerBank' | 'genreCoverage' | 'mixPairs' | 'gridCheck' | 'system' | 'legal'
   section: SettingsSection
   label: string
   help: string
@@ -60,6 +60,13 @@ export const PANEL_ENTRIES: {
     label: 'Mix pairs: songs that worked after each other',
     help: 'Every pair you rated Excellent, with how many mix-in points each one remembers.',
     keywords: ['mix', 'pairs', 'excellent', 'cue', 'entry', 'points', 'transition', 'מיקס', 'זוגות', 'מצוין', 'נקודות', 'כניסה', 'מעבר'],
+  },
+  {
+    id: 'gridCheck',
+    section: 'library',
+    label: 'Beat grid check: your fixes against the computer',
+    help: 'For every grid you fixed by hand: how far the computer was off. Decides whether bass-start marking is worth building.',
+    keywords: ['grid', 'beat', 'bass', 'downbeat', 'drift', 'phase', 'רשת', 'קצב', 'בסים', 'תחילת בסים', 'סטייה', 'תיקון'],
   },
   {
     id: 'system',

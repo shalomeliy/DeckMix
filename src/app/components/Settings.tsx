@@ -22,6 +22,7 @@ import genreModelsJson from '@/core/sound/vocal-genre-models.json'
 import { getAllVocalManual } from '@/platform/vocal-manual-idb/store'
 import { getAllPairRecords } from '@/platform/mix-pairs-idb/store'
 import { pairRows, pairTotals, type PairRow } from '@/core/pair-entries'
+import { summarizeDrift } from '@/core/grid-drift'
 import {
   COPYRIGHT_NOTICE,
   ossNoticeCount,
@@ -250,6 +251,11 @@ export function SettingsScreen({
                 {group === 'library' && (
                   <div id="setting-mixPairs" className={flash === 'mixPairs' ? FLASH : undefined}>
                     <MixPairsPanel />
+                  </div>
+                )}
+                {group === 'library' && (
+                  <div id="setting-gridCheck" className={flash === 'gridCheck' ? FLASH : undefined}>
+                    <GridCheckPanel />
                   </div>
                 )}
                 {FIELDS.filter((f) => f.group === group).map((f) => (
@@ -648,6 +654,92 @@ function JogMeasure() {
             {ticks == null ? '' : `${ticks} ticks`}
           </span>
         </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * v0.9.69: the beat-grid experiment's result on screen. The rule is in `docs/handoff/v0.9.69.md`: over 15% of the songs he corrected
+ * off by more than 25 ms (or at another tempo) means a bass-start marking flow is worth building.
+ */
+function GridCheckPanel() {
+  const trackCount = useStore((st) => st.library.tracks.length)
+  const [data, setData] = useState<Awaited<ReturnType<typeof ctl.loadGridCheckRows>> | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [rev, setRev] = useState(0)
+  useEffect(() => {
+    let live = true
+    ctl
+      .loadGridCheckRows()
+      .then((d) => live && setData(d))
+      .catch((e) => live && setError(e instanceof Error ? e.message : String(e)))
+    return () => {
+      live = false
+    }
+  }, [rev])
+  const s = data ? summarizeDrift(data.rows) : null
+  const pct = (x: number | null) => (x == null ? '–' : `${Math.round(x * 100)}%`)
+  const off = data ? data.rows.filter((r) => r.verdict === 'drift' || r.verdict === 'octave' || r.verdict === 'differs') : []
+  return (
+    <div className="rounded-[var(--radius-sm)] border border-hairline bg-surface-1 px-3 py-2.5" data-testid="grid-check">
+      <div className="mb-1 flex items-center gap-2">
+        <span className="text-xs font-semibold text-grid-text">Beat grid check: your fixes against the computer</span>
+        <button
+          onClick={() => {
+            setError(null)
+            setRev((n) => n + 1)
+          }}
+          className="rounded-[var(--radius-xs)] px-1.5 py-0.5 text-2xs text-grid-muted transition-colors hover:bg-surface-3 hover:text-grid-text"
+        >
+          Refresh
+        </button>
+        <button
+          onClick={() => void ctl.exportGridCheck()}
+          className="rounded-[var(--radius-xs)] px-1.5 py-0.5 text-2xs text-grid-muted transition-colors hover:bg-surface-3 hover:text-grid-text"
+        >
+          Export
+        </button>
+      </div>
+      {error ? (
+        <p className="text-2xs text-warn">The saved grids could not be read, so no count is shown: {error}</p>
+      ) : !data || !s ? (
+        <p className="text-2xs text-grid-dim">Reading saved grids…</p>
+      ) : (
+        <>
+          <p className="mb-1.5 text-2xs text-grid-muted">
+            <b className="tnum text-grid-text">{s.corrected}</b> songs with a saved grid, including ones you only confirmed or set the bar line on (library: {trackCount}). Of the <b className="tnum text-grid-text">{s.comparable}</b> that
+            have a current computer detection and a known length: <b className="tnum text-grid-text">{s.ok}</b> within 25 ms, <b className="tnum text-live">{s.drift}</b> drifting,{' '}
+            <b className="tnum text-live">{s.octave}</b> half/double tempo, <b className="tnum text-live">{s.differs}</b> another tempo. Off: <b className="tnum text-grid-text">{pct(s.offShare)}</b>.{' '}
+            <span className="text-grid-dim">
+              {s.verdict === 'not-enough-data'
+                ? 'Not enough songs yet (10 needed).'
+                : s.verdict === 'build-marking'
+                  ? 'Over 15%: a bass-start marking flow is worth building.'
+                  : '15% or less: improve the automatic detection instead.'}{' '}
+              This counts only songs you opened and saved, so it is not the rate for the whole library. The computer's grid may have been refined around the file's BPM tag. It judges beat position and tempo only, not which beat is the bar line.
+            </span>
+          </p>
+          {s.noDetection > 0 && (
+            <p className="mb-1.5 text-2xs text-grid-dim">{s.noDetection} fixed songs have no current computer detection saved (load them once or let the background analysis reach them) and are not in the percentage.</p>
+          )}
+          {data.detectorRecords > 0 && <p className="mb-1.5 text-2xs text-grid-dim">{data.detectorRecords} saved grids came from the computer itself, not from you, and are not compared.</p>}
+          {data.refused > 0 && <p className="mb-1.5 text-2xs text-warn">{data.refused} saved grids could not be read and are not counted ({data.firstRefusal}).</p>}
+          {off.length > 0 && (
+            <div className="max-h-40 overflow-y-auto">
+              <table className="w-full text-2xs">
+                <tbody>
+                  {off.map((r) => (
+                    <tr key={r.contentHash} className="border-t border-hairline">
+                      <td className="py-1 pr-2 text-grid-text">{r.name ?? 'not in this library'}</td>
+                      <td className="py-1 tabular-nums text-live">{r.verdict === 'drift' ? `${Math.round(r.worstMs ?? 0)} ms` : r.verdict === 'octave' ? 'half/double' : 'other tempo'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

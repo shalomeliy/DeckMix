@@ -12,7 +12,7 @@
  * `core/analysis-cache.ts` so it's unit-tested without a real IndexedDB —
  * this file is just the IO wrapper around it.
  */
-import { get, set } from 'idb-keyval'
+import { entries as idbEntries, get, set } from 'idb-keyval'
 import { resolveCacheEntry, type StoredAnalysisEntry } from '@/core/analysis-cache'
 import type { AnalysisCache, TrackAnalysis } from '@/core/ports/analyzer'
 import { ANALYZER_VERSION } from '@/platform/analyze-cache-idb/version'
@@ -52,3 +52,21 @@ class IdbAnalysisCache implements AnalysisCache {
 }
 
 export const analysisCache: AnalysisCache = new IdbAnalysisCache()
+
+/**
+ * The detected beat grid of every song with a CURRENT-version cached analysis, by content hash (a key may carry a "@tag bpm" hint; the
+ * newest entry of a hash wins). Entries from an older analyzer are left out and counted by the caller as "no detection", not guessed from.
+ * Throws on a blocked IndexedDB.
+ */
+export async function getAllDetectedGrids(): Promise<Map<string, { grid: NonNullable<TrackAnalysis['beatGrid']>; durationSec: number; cachedAt: number }>> {
+  const out = new Map<string, { grid: NonNullable<TrackAnalysis['beatGrid']>; durationSec: number; cachedAt: number }>()
+  for (const [k, v] of await idbEntries<string, StoredAnalysisEntry>()) {
+    if (typeof k !== 'string' || !k.startsWith(KEY_PREFIX)) continue
+    const analysis = resolveCacheEntry(v, ANALYZER_VERSION)
+    if (!analysis?.beatGrid) continue
+    const hash = k.slice(KEY_PREFIX.length).split('@')[0]
+    const prev = out.get(hash)
+    if (!prev || v.cachedAt > prev.cachedAt) out.set(hash, { grid: analysis.beatGrid, durationSec: analysis.durationSec, cachedAt: v.cachedAt })
+  }
+  return out
+}

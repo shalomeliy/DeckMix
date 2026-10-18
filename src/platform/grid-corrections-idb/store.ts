@@ -4,7 +4,7 @@
  * rather than inside `analyze-cache-idb`, which is emptied on every analyzer
  * version bump (`core/grid-corrections.ts` says why that matters).
  */
-import { get, set } from 'idb-keyval'
+import { entries as idbEntries, get, set } from 'idb-keyval'
 import type { GridCorrection } from '@/core/grid-corrections'
 
 const KEY_PREFIX = 'deckmix:gridCorrection:'
@@ -22,4 +22,14 @@ export async function getGridCorrection(contentHash: string): Promise<unknown> {
 /** Throws on failure, like `putCues` — the caller surfaces it. */
 export async function putGridCorrection(contentHash: string, value: GridCorrection): Promise<void> {
   await set(KEY_PREFIX + contentHash, value)
+}
+
+/**
+ * Every stored correction with its content hash, raw like `getGridCorrection` (the caller validates). Throws on a blocked IndexedDB:
+ * an empty list there would read as "he never corrected a grid".
+ */
+export async function getAllGridCorrections(): Promise<{ contentHash: string; value: unknown }[]> {
+  return (await idbEntries<string, unknown>())
+    .filter(([k]) => typeof k === 'string' && k.startsWith(KEY_PREFIX))
+    .map(([k, value]) => ({ contentHash: (k as string).slice(KEY_PREFIX.length), value }))
 }

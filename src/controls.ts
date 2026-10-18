@@ -9,7 +9,7 @@ import { detectVocalTimeline } from '@/core/sound/vocal-presence'
 import { kickEnvelope } from '@/platform/analyzer-js/beat'
 import { deckTrackNeeds } from '@/core/analysis-order'
 import { barOneApplies, chooseBarGrid, detectBarOne } from '@/core/downbeat'
-import { analysisCache } from '@/platform/analyze-cache-idb/store'
+import { analysisCache, getAllDetectedGrids } from '@/platform/analyze-cache-idb/store'
 import { analyzerWorker } from '@/platform/analyzer-worker'
 import { engine } from '@/platform/audio-webaudio/engine'
 import type { RecorderTap } from '@/platform/audio-webaudio/recorder-tap'
@@ -98,7 +98,8 @@ import { matchesSearch, type SearchColumn } from '@/core/library-search'
 import { sortTracks } from '@/core/library-sort'
 import { getCues, putCues } from '@/platform/cues-idb/store'
 import { clearTempo, getTempo } from '@/platform/tempo-idb/store'
-import { getGridCorrection, putGridCorrection } from '@/platform/grid-corrections-idb/store'
+import { getAllGridCorrections, getGridCorrection, putGridCorrection } from '@/platform/grid-corrections-idb/store'
+import { compareGrid, gridCheckExportText, type DriftRow } from '@/core/grid-drift'
 import { ownerCorrection, reconcileSavedGrid, resolveGridCorrection } from '@/core/grid-corrections'
 import { getExcellentPoints, markExcellent } from '@/platform/mix-ratings-idb/store'
 import { markExcellentPair } from '@/platform/mix-pairs-idb/store'
@@ -5547,6 +5548,61 @@ export async function exportSampleMarks(): Promise<void> {
     if (r === 'ok') sampleNotice(`יוצאו סימוני קטעים של ${all.length} שירים (${all.filter((t) => t.finished).length} מהם גמורים).`, 'info')
   } catch (err) {
     sampleNotice(`סימוני הקטעים לא יוצאו: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+/**
+ * v0.9.69 experiment: every grid he fixed by hand against what the analyzer detected for the same file. Songs whose record cannot be
+ * used are counted in `refused` (with the first reason), never dropped; a corrected song with no current-version detection stays in
+ * the rows as `no-detection`.
+ */
+export async function loadGridCheckRows(): Promise<{ rows: DriftRow[]; refused: number; firstRefusal: string | null; detectorRecords: number }> {
+  const [stored, detected] = await Promise.all([getAllGridCorrections(), getAllDetectedGrids()])
+  const names = new Map<string, string>()
+  for (const t of useStore.getState().library.tracks) if (t.contentHash && !names.has(t.contentHash)) names.set(t.contentHash, t.title ?? t.name)
+  const rows: DriftRow[] = []
+  let refused = 0
+  let firstRefusal: string | null = null
+  let detectorRecords = 0
+  for (const { contentHash, value } of stored) {
+    const source = (value as { source?: string } | null)?.source
+    if (source === 'detector') {
+      detectorRecords++
+      continue
+    }
+    // Anything that is not a readable owner record is counted as refused (a damaged one that lost `source` included), never skipped.
+    const r = resolveGridCorrection(value)
+    if (!r || 'refused' in r) {
+      refused++
+      firstRefusal ??= r ? r.refused : 'empty record'
+      continue
+    }
+    const d = detected.get(contentHash)
+    rows.push(
+      compareGrid({
+        contentHash,
+        name: names.get(contentHash) ?? null,
+        hand: { ...r.grid, tempoByHand: r.tempoByHand },
+        detected: d?.grid ?? null,
+        durationSec: d?.durationSec ?? null,
+      }),
+    )
+  }
+  return { rows, refused, firstRefusal, detectorRecords }
+}
+
+export async function exportGridCheck(): Promise<void> {
+  const day = new Date().toISOString().slice(0, 10)
+  try {
+    const { rows } = await loadGridCheckRows()
+    if (rows.length === 0) {
+      sampleNotice('אין עדיין רשתות שתיקנת ביד לייצא.', 'info')
+      return
+    }
+    const r = await saveTagsJson(gridCheckExportText(rows, Date.now()), `deckmix-grid-check-${day}.json`)
+    if (r === 'ok') sampleNotice(`יוצאה השוואת רשת הקצב של ${rows.length} שירים.`, 'info')
+  } catch (err) {
+    sampleNotice(`השוואת הרשת לא יוצאה: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
 
