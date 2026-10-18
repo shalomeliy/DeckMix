@@ -134,6 +134,9 @@ export function SampleStrip({ durationSec, positionSec, deckId, contentHash }: P
         <button type="button" onClick={() => void ctl.exportSampleMarks()} className={btn} title="שומר את סימוני הקטעים של כל השירים לקובץ חדש.">
           ייצא סימוני קטעים
         </button>
+        <button type="button" onClick={() => void ctl.importSampleMarks()} className={btn} title="מחזיר סימוני קטעים מקובץ גיבוי. שיר שכבר יש לו סימון כאן לא נדרס.">
+          ייבא סימוני קטעים
+        </button>
         <span className="text-grid-muted" data-sample-note>
           קטעים: {regions.length} · {guessNote}
           {cands && own.length > 0 ? ` · ${hits} מההצעות נוגעות בסימון שלך` : ''}

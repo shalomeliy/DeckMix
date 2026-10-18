@@ -67,6 +67,7 @@ import {
   addSuggestionRegion,
   createBandFrames,
   fillBandFrames,
+  parseSampleMarksFile,
   rankCandidates,
   removeLastSample,
   sampleMarksExportText,
@@ -5505,6 +5506,33 @@ export function seekNextSampleCandidate(deckId: DeckId, bars: number): void {
   }
   const pos = useStore.getState().decks[deckId].positionSec
   seekDeck(deckId, (c.find((x) => x.fromSec > pos + 0.2) ?? c[0]).fromSec)
+}
+
+/** Brings a backup back. A song that already has marks here is KEPT as it is and counted as skipped; every mark the file refuses is counted too, with the first reason. */
+export async function importSampleMarks(): Promise<void> {
+  try {
+    const text = await pickJsonFileText()
+    if (text == null) return
+    const { tags, rejected } = parseSampleMarksFile(text)
+    const haveHashes = new Set((await getAllSampleMarks()).map((t) => t.contentHash))
+    let added = 0
+    let skipped = 0
+    for (const t of tags) {
+      if (haveHashes.has(t.contentHash)) {
+        skipped++
+        continue
+      }
+      await putSampleMarks(t)
+      useStore.getState().setSampleMarks(t.contentHash, t)
+      added++
+    }
+    const parts = [`נוספו ${added} שירים`]
+    if (skipped) parts.push(`${skipped} דולגו כי כבר יש להם סימון כאן`)
+    if (rejected.length) parts.push(`${rejected.length} נדחו (${rejected[0].name}: ${rejected[0].reason})`)
+    sampleNotice(parts.join(' · '), rejected.length ? 'warn' : 'info')
+  } catch (err) {
+    sampleNotice(`סימוני הקטעים לא יובאו: ${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 export async function exportSampleMarks(): Promise<void> {

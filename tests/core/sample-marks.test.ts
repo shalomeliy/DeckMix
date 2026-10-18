@@ -7,6 +7,7 @@ import {
   createBandFrames,
   fillBandFrames,
   overlapsMark,
+  parseSampleMarksFile,
   rankCandidates,
   removeLastSample,
   sampleMarksExportText,
@@ -109,5 +110,23 @@ describe('saving a candidate', () => {
     expect(addSuggestionRegion(regions, c)).toEqual({ ok: false, reason: 'already' })
     const own = addSampleRegion(regions, 'loop', 20, 30, 60, GRID)
     expect(ownMarks(own.ok ? own.regions : [])).toHaveLength(1)
+  })
+})
+
+describe('the sample-marks file round trip', () => {
+  const tag = (over: object = {}) => ({ schema: 1, contentHash: 'a'.repeat(64), trackId: 't', name: 'Song', regions: [{ fromSec: 8, toSec: 16, kind: 'loop' }, { fromSec: 20, toSec: 24, kind: 'loop', source: 'suggestion' }], finished: true, shown: [{ bars: 4, fromSec: 8, toSec: 16, score: 0.9 }], updatedAt: 5, ...over })
+  it('reads back what the export wrote, suggestions included', () => {
+    const text = sampleMarksExportText([tag() as never], 1)
+    const r = parseSampleMarksFile(text)
+    expect(r.rejected).toEqual([])
+    expect(r.tags[0].regions[1].source).toBe('suggestion')
+    expect(r.tags[0].shown).toHaveLength(1)
+  })
+  it('names a bad mark instead of dropping it, and refuses a file of another kind', () => {
+    const text = sampleMarksExportText([tag(), tag({ contentHash: 'zz', name: 'Bad' })] as never, 1)
+    const r = parseSampleMarksFile(text)
+    expect(r.tags).toHaveLength(1)
+    expect(r.rejected[0].name).toBe('Bad')
+    expect(() => parseSampleMarksFile(JSON.stringify({ app: 'DeckMix', kind: 'vocal-marks', schema: 1, marks: [] }))).toThrow(/sample-marks/)
   })
 })

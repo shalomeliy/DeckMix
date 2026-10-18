@@ -268,3 +268,62 @@ export const SAMPLE_MARKS_KIND = 'sample-marks'
 export function sampleMarksExportText(tags: readonly SampleMarkTag[], exportedAt: number): string {
   return JSON.stringify({ app: 'DeckMix', kind: SAMPLE_MARKS_KIND, schema: 1, exportedAt, marks: tags }, null, 2)
 }
+
+export interface ParsedSampleMarks {
+  tags: SampleMarkTag[]
+  rejected: { name: string; reason: string }[]
+}
+
+const HASH = /^[0-9a-f]{64}$/
+
+function oneSampleMark(x: unknown): { tag: SampleMarkTag } | { name: string; reason: string } {
+  const m = x as Partial<SampleMarkTag> | null
+  const name = typeof m?.name === 'string' ? m.name : '(no name)'
+  if (!m || typeof m !== 'object') return { name, reason: 'not an object' }
+  if (m.schema !== 1) return { name, reason: `schema ${String(m.schema)} is not 1` }
+  if (typeof m.contentHash !== 'string' || !HASH.test(m.contentHash)) return { name, reason: 'content hash is not a SHA-256' }
+  if (typeof m.finished !== 'boolean') return { name, reason: 'finished is not true/false' }
+  if (!Array.isArray(m.regions)) return { name, reason: 'regions is not a list' }
+  for (const r of m.regions) {
+    const ok = r && (r.kind === 'loop' || r.kind === 'hit') && (r.source === undefined || r.source === 'suggestion') && Number.isFinite(r.fromSec) && Number.isFinite(r.toSec) && r.fromSec >= 0 && r.toSec > r.fromSec
+    if (!ok) return { name, reason: 'a region has bad times, an unknown kind or an unknown source' }
+  }
+  const shown = Array.isArray(m.shown) ? m.shown.filter((c) => c && [c.bars, c.fromSec, c.toSec, c.score].every((n) => Number.isFinite(n))) : undefined
+  return {
+    tag: {
+      schema: 1,
+      contentHash: m.contentHash,
+      trackId: typeof m.trackId === 'string' ? m.trackId : '',
+      name,
+      genre: typeof m.genre === 'string' ? m.genre : undefined,
+      regions: m.regions.map((r) => ({ fromSec: r.fromSec, toSec: r.toSec, kind: r.kind, ...(r.source ? { source: 'suggestion' as const } : {}) })),
+      finished: m.finished,
+      gridBpm: Number.isFinite(m.gridBpm) ? m.gridBpm : undefined,
+      gridOffsetSec: Number.isFinite(m.gridOffsetSec) ? m.gridOffsetSec : undefined,
+      shown,
+      updatedAt: Number.isFinite(m.updatedAt) ? (m.updatedAt as number) : 0,
+    },
+  }
+}
+
+/** Throws (with the reason) when the file is not a sample-marks file at all; otherwise separates the good marks from the named bad ones. */
+export function parseSampleMarksFile(text: string): ParsedSampleMarks {
+  let j: unknown
+  try {
+    j = JSON.parse(text)
+  } catch {
+    throw new Error('the file is not JSON')
+  }
+  const f = j as { app?: unknown; kind?: unknown; schema?: unknown; marks?: unknown } | null
+  if (!f || f.app !== 'DeckMix' || f.kind !== SAMPLE_MARKS_KIND) throw new Error('this is not a DeckMix sample-marks file')
+  if (f.schema !== 1) throw new Error(`sample-marks file schema ${String(f.schema)} is not 1`)
+  if (!Array.isArray(f.marks)) throw new Error('the file has no list of marks')
+  const tags: SampleMarkTag[] = []
+  const rejected: ParsedSampleMarks['rejected'] = []
+  for (const x of f.marks) {
+    const r = oneSampleMark(x)
+    if ('tag' in r) tags.push(r.tag)
+    else rejected.push(r)
+  }
+  return { tags, rejected }
+}
