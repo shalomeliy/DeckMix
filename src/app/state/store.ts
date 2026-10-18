@@ -135,6 +135,16 @@ function emptyFx(): FxState {
   return { effect: 0, wetDry: 0.5, time: FX_TIME_STEPS[0], on: false, route: 'channel' }
 }
 
+/** What the "check the 1" bar needs to draw: which deck, which song, how many are left, and whether the song is ready to be answered. */
+export interface BarOneQueueState {
+  deckId: DeckId
+  name: string
+  phase: 'loading' | 'ready'
+  remaining: number
+  checked: number
+  skipped: number
+}
+
 export interface AppState {
   decks: Record<DeckId, DeckState>
   mixer: MixerState
@@ -440,6 +450,8 @@ export interface AppState {
   sampleMarks: Record<string, SampleMarkTag>
   sampleMarkOpen: Record<DeckId, { contentHash: string; startSec: number; kind: SampleKind } | null>
   sampleFramesFor: Record<DeckId, string | null>
+  /** v0.9.70: the "check the 1" queue, null when it is not running. Only what the screen needs; the song list lives in controls.ts. */
+  barOneQueue: BarOneQueueState | null
   /** The song (hash) whose candidates failed to compute, so the lane says so instead of "computing" forever. */
   sampleFramesFailed: Record<DeckId, string | null>
   /**
@@ -482,6 +494,7 @@ export interface AppState {
   setVocalMarkOpen: (deckId: DeckId, open: AppState['vocalMarkOpen'][DeckId]) => void
   setSampleMarks: (contentHash: string, tag: SampleMarkTag | null) => void
   setSampleMarkOpen: (deckId: DeckId, open: AppState['sampleMarkOpen'][DeckId]) => void
+  setBarOneQueue: (q: BarOneQueueState | null) => void
   setSampleFramesFor: (deckId: DeckId, contentHash: string | null) => void
   setSampleFramesFailed: (deckId: DeckId, contentHash: string | null) => void
   /**
@@ -560,6 +573,7 @@ export const useStore = create<AppState>((set) => ({
   vocalMarkOpen: { A: null, B: null },
   sampleMarks: {},
   sampleMarkOpen: { A: null, B: null },
+  barOneQueue: null,
   sampleFramesFor: { A: null, B: null },
   sampleFramesFailed: { A: null, B: null },
   storageNotice: null,
@@ -633,6 +647,7 @@ export const useStore = create<AppState>((set) => ({
       else delete next[contentHash]
       return { sampleMarks: next }
     }),
+  setBarOneQueue: (q) => set({ barOneQueue: q }),
   setSampleMarkOpen: (deckId, open) => set((s) => ({ sampleMarkOpen: { ...s.sampleMarkOpen, [deckId]: open } })),
   setSampleFramesFor: (deckId, contentHash) => set((s) => ({ sampleFramesFor: { ...s.sampleFramesFor, [deckId]: contentHash } })),
   setSampleFramesFailed: (deckId, contentHash) => set((s) => ({ sampleFramesFailed: { ...s.sampleFramesFailed, [deckId]: contentHash } })),

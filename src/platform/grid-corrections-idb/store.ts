@@ -4,7 +4,7 @@
  * rather than inside `analyze-cache-idb`, which is emptied on every analyzer
  * version bump (`core/grid-corrections.ts` says why that matters).
  */
-import { entries as idbEntries, get, set } from 'idb-keyval'
+import { get, getMany, keys, set } from 'idb-keyval'
 import type { GridCorrection } from '@/core/grid-corrections'
 
 const KEY_PREFIX = 'deckmix:gridCorrection:'
@@ -29,7 +29,7 @@ export async function putGridCorrection(contentHash: string, value: GridCorrecti
  * an empty list there would read as "he never corrected a grid".
  */
 export async function getAllGridCorrections(): Promise<{ contentHash: string; value: unknown }[]> {
-  return (await idbEntries<string, unknown>())
-    .filter(([k]) => typeof k === 'string' && k.startsWith(KEY_PREFIX))
-    .map(([k, value]) => ({ contentHash: (k as string).slice(KEY_PREFIX.length), value }))
+  const ks = (await keys()).filter((k): k is string => typeof k === 'string' && k.startsWith(KEY_PREFIX))
+  const values = await getMany<unknown>(ks)
+  return ks.map((k, i) => ({ contentHash: k.slice(KEY_PREFIX.length), value: values[i] }))
 }

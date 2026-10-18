@@ -101,6 +101,7 @@ import { getCues, putCues } from '@/platform/cues-idb/store'
 import { clearTempo, getTempo } from '@/platform/tempo-idb/store'
 import { getAllGridCorrections, getGridCorrection, putGridCorrection } from '@/platform/grid-corrections-idb/store'
 import { compareGrid, gridCheckExportText, type DriftRow } from '@/core/grid-drift'
+import { checkStartSec, nextInQueue, queueOrder, queueRemaining } from '@/core/bar-one-queue'
 import { ownerCorrection, reconcileSavedGrid, resolveGridCorrection } from '@/core/grid-corrections'
 import { getExcellentPoints, markExcellent } from '@/platform/mix-ratings-idb/store'
 import { markExcellentPair } from '@/platform/mix-pairs-idb/store'
@@ -1170,11 +1171,11 @@ function gridEditAllowed(deckId: DeckId): boolean {
 }
 
 /** Every hand edit to a grid goes through here, so none of them is lost at the next load (v0.8.23). */
-function persistGridCorrection(deckId: DeckId) {
+function persistGridCorrection(deckId: DeckId): Promise<boolean> {
   const { decks, setNotice } = useStore.getState()
   const st = decks[deckId]
   const hash = st.track?.contentHash
-  if (!st.beatGrid) return
+  if (!st.beatGrid) return Promise.resolve(false)
   // Any edit or check is the owner looking at the grid — the "1" is no longer a guess shown as one.
   if (st.barOneUnsure) useStore.getState().patchDeck(deckId, { barOneUnsure: false })
   // From here the deck's BPM is the grid he just saved; the other sources keep what they said.
@@ -1185,15 +1186,19 @@ function persistGridCorrection(deckId: DeckId) {
       tone: 'warn',
       source: 'grid',
     })
-    return
+    return Promise.resolve(false)
   }
-  void putGridCorrection(hash, ownerCorrection(st.beatGrid, Date.now(), tempoByHandOnDeck[deckId])).catch((err) => {
-    setNotice({
-      text: `Beat grid changed on screen but not saved: ${err instanceof Error ? err.message : String(err)}`,
-      tone: 'warn',
-      source: 'grid',
-    })
-  })
+  return putGridCorrection(hash, ownerCorrection(st.beatGrid, Date.now(), tempoByHandOnDeck[deckId])).then(
+    () => true,
+    (err) => {
+      setNotice({
+        text: `Beat grid changed on screen but not saved: ${err instanceof Error ? err.message : String(err)}`,
+        tone: 'warn',
+        source: 'grid',
+      })
+      return false
+    },
+  )
 }
 
 /** Hold CUE to preview from the cue point. Call release() when the button lifts. */
@@ -3398,16 +3403,16 @@ export function doubleBeatGrid(deckId: DeckId) {
  * (or the plain tag/detected bpm if there was no grid yet at all — this is
  * also how a track with no detectable periodicity gets a first grid).
  */
-export function setDownbeatHere(deckId: DeckId) {
+export function setDownbeatHere(deckId: DeckId): Promise<boolean> {
   const deck = engine.decks[deckId]
-  if (!deck.hasTrack) return
-  if (!gridEditAllowed(deckId)) return
+  if (!deck.hasTrack) return Promise.resolve(false)
+  if (!gridEditAllowed(deckId)) return Promise.resolve(false)
   const { patchDeck, decks } = useStore.getState()
   const bpm = decks[deckId].beatGrid?.bpm ?? decks[deckId].bpm
-  if (!bpm) return
+  if (!bpm) return Promise.resolve(false)
   const next = setDownbeatAt(bpm, deck.position)
   patchDeck(deckId, { beatGrid: next, bpm: next.bpm, beatGridConfirmed: true })
-  persistGridCorrection(deckId)
+  return persistGridCorrection(deckId)
 }
 
 /** Per-deck tap timestamps for tapTempo, seconds since the page loaded. */
@@ -5556,6 +5561,199 @@ export async function exportSampleMarks(): Promise<void> {
   } catch (err) {
     sampleNotice(`סימוני הקטעים לא יוצאו: ${err instanceof Error ? err.message : String(err)}`)
   }
+}
+
+/**
+ * v0.9.71: the "check the 1" queue. Songs whose "1" he has not checked (no owner grid record yet) are loaded one after another onto a
+ * stopped deck and played from a bar line; one press says the yellow line is right, moves it to the playhead, or skips. Every answer
+ * but a skip is written the way a hand edit is (`persistGridCorrection`), so it is what the next load of that song uses.
+ * A skip is counted on screen and the song stays unchecked for the next run.
+ */
+const barOneQ = {
+  order: [] as Track[],
+  visited: new Set<string>(),
+  checked: new Set<string>(),
+  /** The run whose advance is in flight (0 = none): a stopped run's late loop must not block the next run. */
+  busyRun: 0,
+  run: 0,
+  deckId: 'A' as DeckId,
+  current: null as Track | null,
+  doneCount: 0,
+  skipped: 0,
+  /** Songs found already checked only once loaded (identified late, or under another file name): counted, never silently dropped. */
+  alreadyChecked: 0,
+  /** A start or an answer is in flight: a second click while it runs must not repeat it. */
+  working: false,
+}
+
+function barOneNotice(text: string, tone: 'warn' | 'info' = 'warn') {
+  useStore.getState().setNotice({ text, tone, source: 'grid' })
+}
+
+function barOneSet(patch: Partial<NonNullable<ReturnType<typeof useStore.getState>['barOneQueue']>>) {
+  const q = useStore.getState().barOneQueue
+  if (q) useStore.getState().setBarOneQueue({ ...q, ...patch })
+}
+
+/** The content hashes that already carry a readable owner grid. Throws on a blocked IndexedDB: an empty set would queue every song again. */
+async function ownerCheckedHashes(): Promise<Set<string>> {
+  const out = new Set<string>()
+  for (const { contentHash, value } of await getAllGridCorrections()) {
+    if ((value as { source?: string } | null)?.source !== 'owner') continue
+    const r = resolveGridCorrection(value)
+    if (r && 'grid' in r) out.add(contentHash)
+  }
+  return out
+}
+
+export async function startBarOneQueue(): Promise<void> {
+  if (useStore.getState().barOneQueue || barOneQ.working) return
+  if (barOneQ.busyRun !== 0) {
+    barOneNotice('The previous run is still finishing its last load. Try again in a moment.')
+    return
+  }
+  const { decks } = useStore.getState()
+  if (engine.decks.A.playing || engine.decks.B.playing) {
+    barOneNotice('A deck is playing. Stop both decks first: checking plays each song through the speakers.')
+    return
+  }
+  barOneQ.working = true
+  try {
+    barOneQ.checked = await ownerCheckedHashes()
+  } catch (err) {
+    barOneQ.working = false
+    barOneNotice(`The saved grids could not be read, so the queue was not started: ${err instanceof Error ? err.message : String(err)}`)
+    return
+  }
+  barOneQ.working = false
+  barOneQ.order = queueOrder(useStore.getState().library.tracks, barOneQ.checked)
+  barOneQ.visited = new Set()
+  barOneQ.doneCount = 0
+  barOneQ.skipped = 0
+  barOneQ.alreadyChecked = 0
+  barOneQ.run++
+  barOneQ.deckId = decks.A.track == null ? 'A' : decks.B.track == null ? 'B' : 'A'
+  if (barOneQ.order.length === 0) {
+    barOneNotice('Every song in the list already has a "1" you checked.', 'info')
+    return
+  }
+  useStore.getState().setBarOneQueue({ deckId: barOneQ.deckId, name: '', phase: 'loading', remaining: barOneQ.order.length, checked: 0, skipped: 0 })
+  await advanceBarOne()
+}
+
+async function advanceBarOne(): Promise<void> {
+  const run = barOneQ.run
+  if (barOneQ.busyRun === run || !useStore.getState().barOneQueue) return
+  barOneQ.busyRun = run
+  const aborted = () => run !== barOneQ.run || !useStore.getState().barOneQueue
+  try {
+    for (;;) {
+      const track = nextInQueue(barOneQ.order, barOneQ.visited)
+      if (!track) {
+        if (engine.decks[barOneQ.deckId].playing) togglePlay(barOneQ.deckId)
+        barOneNotice(`${barOneSummary()} No more songs in the queue.`, 'info')
+        useStore.getState().setBarOneQueue(null)
+        return
+      }
+      barOneQ.visited.add(track.id)
+      barOneQ.current = track
+      const deckId = barOneQ.deckId
+      if (engine.decks[deckId].playing) togglePlay(deckId)
+      barOneSet({ name: track.title ?? track.name, phase: 'loading', remaining: queueRemaining(barOneQ.order, barOneQ.visited, barOneQ.checked), checked: barOneQ.doneCount, skipped: barOneQ.skipped })
+      await loadTrackToDeck(deckId, track)
+      if (aborted()) return
+      // Loading finishes before the analysis does; the "1" can only be answered once the grid is there.
+      // The grid can lag the load by a moment, so a missing grid gets a short grace; a running analysis gets up to 90 s. A song whose
+      // analysis ended with no grid goes straight to the skip below instead of keeping the owner waiting.
+      const graceEnd = Date.now() + 5_000
+      const deadline = Date.now() + 90_000
+      while (!aborted() && Date.now() < deadline) {
+        if (useStore.getState().decks[deckId].track?.id !== track.id) break
+        const noGridYet = useStore.getState().decks[deckId].beatGrid == null
+        if (deckAnalysisPending[deckId] == null && !(noGridYet && Date.now() < graceEnd)) break
+        await new Promise((r) => setTimeout(r, 200))
+      }
+      if (aborted()) return
+      const d = useStore.getState().decks[deckId]
+      if (d.track?.id !== track.id || !d.beatGrid) {
+        barOneQ.skipped++
+        barOneNotice(`"${track.title ?? track.name}" has no beat grid to check (it did not load or the analysis found none). It stays unchecked.`)
+        continue
+      }
+      const hash = d.track?.contentHash
+      if (hash && barOneQ.checked.has(hash)) {
+        barOneQ.alreadyChecked++ // identified only now, and already checked: counted in the summary
+        continue
+      }
+      seekDeck(deckId, checkStartSec(d.durationSec, d.beatGrid))
+      togglePlay(deckId)
+      barOneSet({ phase: 'ready', remaining: queueRemaining(barOneQ.order, barOneQ.visited, barOneQ.checked) })
+      return
+    }
+  } finally {
+    if (barOneQ.busyRun === run) barOneQ.busyRun = 0
+  }
+}
+
+/** 'yes' = the yellow line is on the 1; 'here' = the 1 is where the playhead is now; 'skip' = leave it unchecked. */
+export async function answerBarOne(answer: 'yes' | 'here' | 'skip'): Promise<void> {
+  const q = useStore.getState().barOneQueue
+  if (!q || q.phase !== 'ready' || barOneQ.working || barOneQ.busyRun === barOneQ.run) return
+  const run = barOneQ.run
+  const deckId = q.deckId
+  const st = useStore.getState().decks[deckId]
+  // The bar names one song; the answer belongs to that song only. If something else was loaded on this deck meanwhile (library, MIDI),
+  // an answer would be saved to the wrong file, so the run ends instead.
+  if (st.track?.id !== barOneQ.current?.id) {
+    barOneNotice('Another song was loaded on this deck, so the run was stopped and nothing was saved for it.')
+    stopBarOneQueue()
+    return
+  }
+  const hash = st.track?.contentHash
+  barOneQ.working = true
+  barOneSet({ phase: 'loading' }) // synchronous: a second click finds the buttons off and the latch on
+  try {
+    if (answer === 'skip') {
+      barOneQ.skipped++
+    } else {
+      if (answer === 'yes' && !st.beatGrid) {
+        barOneNotice('This song has no beat grid to confirm. Use "The 1 is here" or skip.')
+        barOneSet({ phase: 'ready' })
+        return
+      }
+      if (answer === 'yes' && !gridEditAllowed(deckId)) {
+        barOneSet({ phase: 'ready' })
+        return
+      }
+      // Confirming always writes a record, even over a grid detection already trusted: that record is what makes the song "checked".
+      const saved = answer === 'yes' ? await persistGridCorrection(deckId) : await setDownbeatHere(deckId)
+      if (run !== barOneQ.run) return // Stop was pressed while it saved; the queue is gone and must not move on
+      if (!saved) {
+        barOneNotice('The answer was not saved (see the message above). Try again or skip.')
+        barOneSet({ phase: 'ready' })
+        return
+      }
+      if (answer === 'yes') useStore.getState().patchDeck(deckId, { beatGridConfirmed: true })
+      if (hash) barOneQ.checked.add(hash)
+      barOneQ.doneCount++
+    }
+  } finally {
+    barOneQ.working = false
+  }
+  await advanceBarOne()
+}
+
+function barOneSummary(): string {
+  return `Checked ${barOneQ.doneCount}, skipped ${barOneQ.skipped}${barOneQ.alreadyChecked > 0 ? `, ${barOneQ.alreadyChecked} already checked under another name` : ''}.`
+}
+
+export function stopBarOneQueue(): void {
+  const q = useStore.getState().barOneQueue
+  if (!q) return
+  barOneQ.run++
+  if (engine.decks[q.deckId].playing) togglePlay(q.deckId)
+  barOneNotice(`Stopped. ${barOneSummary()}`, 'info')
+  useStore.getState().setBarOneQueue(null)
 }
 
 /**

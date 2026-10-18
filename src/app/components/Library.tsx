@@ -169,11 +169,12 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
   const [dupOnly, setDupOnly] = useState(false)
   /** v0.9.41: only the tracks with no artist, each with its suggestion — like Duplicates only, the suggestions live in this view and not in the plain list. */
   const [artistOnly, setArtistOnly] = useState(false)
+  const barOneQueueOn = useStore((st) => st.barOneQueue != null)
   // v0.8.38: the track whose BPM/key the owner is checking against Beatport — see SourceCheckPanel.
   const [checking, setChecking] = useState<string | null>(null)
   // Which key notation to show. DJs are split between musical and Camelot and
   // nobody wants to relearn theirs, so it's a preference that sticks.
-  const { keyMode, libraryTextScale, libraryTitleWidth, sourceCheck, artistSuggestions } = useSettings()
+  const { keyMode, libraryTextScale, libraryTitleWidth, sourceCheck, artistSuggestions, barOneQueue } = useSettings()
   /** v0.9.43: the Title width while the header edge is being dragged; saved on release. */
   const [titleDrag, setTitleDrag] = useState<number | null>(null)
   const titlePct = Math.min(TITLE_MAX_PCT, Math.max(TITLE_MIN_PCT, titleDrag ?? libraryTitleWidth))
@@ -1409,6 +1410,17 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
                 {dupReport.unchecked > 0 && ` yet · ${dupReport.unchecked} not checkable yet`}
               </span>
             )
+          )}
+          {barOneQueue && !library.scanning && library.tracks.length > 0 && (
+            <Button
+              variant="toggle"
+              size="sm"
+              active={barOneQueueOn}
+              onClick={() => (barOneQueueOn ? ctl.stopBarOneQueue() : void ctl.startBarOneQueue())}
+              title='Loads songs whose "1" you have not checked, one after another, onto a stopped deck and plays each from a bar line. You answer with one press; Hip Hop and Mizrahi come first. Nothing is written to your files.'
+            >
+              {barOneQueueOn ? 'Stop checking the 1' : 'Check the 1'}
+            </Button>
           )}
           {!library.scanning && artistReport && artistReport.missing > 0 && (
             <Button

@@ -124,6 +124,7 @@ export interface Settings {
    * Shalom's own request; he asked (06/10) to be able to turn it off. Artists he already accepted stay either way.
    */
   artistSuggestions: boolean
+  barOneQueue: boolean
   /** v0.9.18: how Mix Assist swaps the two basses (`core/eq-mix.ts`). Instant by default (Shalom, 05/10), gradual or together (v0.9.33, 07/10) by choice here. */
   bassSwap: BassSwapStyle
   /**
@@ -166,6 +167,7 @@ export const DEFAULTS: Settings = {
   vocalMarking: false,
   sampleMarking: false,
   artistSuggestions: true,
+  barOneQueue: true,
   bassSwap: 'instant',
   mixAssistKeySync: 2,
 }
@@ -561,6 +563,14 @@ export const FIELDS: Field[] = [
     help: 'Adds a lane under each deck\'s vocal strip for marking stretches you would keep as a sample: a loop (a groove that repeats cleanly) or a hit (one sound). Next to your marks the app shows its own guesses, so the two can be compared on the same songs. Nothing is written to your files. Needs a song to be loaded after you turn it on.',
     group: 'library',
     keywords: ["sample", "loop", "hit", "mark", "sampler", "סמפל", "לופ", "סימון", "קטע", "ניסוי"],
+  },
+  {
+    kind: 'toggle',
+    key: 'barOneQueue',
+    label: 'Check the "1" song after song',
+    help: 'Adds a "Check the 1" button above the list. It loads a song you have not checked yet onto a stopped deck and plays it from a bar line: press "This is the 1" if the yellow line is on it, "The 1 is here" at the moment it should be, or "Skip". Songs the computer is least sure of (Hip Hop, Mizrahi) come first. Your answer is saved for that song. Nothing is written to your files.',
+    group: 'library',
+    keywords: ["bar", "one", "downbeat", "grid", "check", "queue", "bass", "תחילת בסים", "הראשון", "סימון", "רשת", "בדיקה", "תור"],
   },
   {
     kind: 'toggle',
