@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as ctl from '@/controls'
+import { countUnchecked } from '@/core/bar-one-queue'
 import { REVEAL_SELECTION_EVENT, scrollTopToReveal } from '@/core/reveal-row'
 import { GENRES } from '@/core/genres'
 import { rowBpm, speedPercent } from '@/core/constants'
@@ -170,6 +171,7 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
   /** v0.9.41: only the tracks with no artist, each with its suggestion — like Duplicates only, the suggestions live in this view and not in the plain list. */
   const [artistOnly, setArtistOnly] = useState(false)
   const barOneQueueOn = useStore((st) => st.barOneQueue != null)
+  const ownerChecked = useStore((st) => st.ownerCheckedHashes)
   // v0.8.38: the track whose BPM/key the owner is checking against Beatport — see SourceCheckPanel.
   const [checking, setChecking] = useState<string | null>(null)
   // Which key notation to show. DJs are split between musical and Camelot and
@@ -893,6 +895,30 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
   )
   const similarToTrack = similarTo ? (library.tracks.find((t) => t.id === similarTo) ?? null) : null
 
+  // v0.9.73: songs whose "1" he has not checked. A song still waiting for its content hash is counted apart, never folded into either side.
+  const barOneOpen = useMemo(() => {
+    if (!ownerChecked) return null
+    return countUnchecked(library.tracks, ownerChecked)
+  }, [library.tracks, ownerChecked])
+  useEffect(() => {
+    if (barOneQueue && !library.scanning) void ctl.refreshOwnerChecked()
+  }, [barOneQueue, library.scanning, library.tracks.length])
+  // A scan that brought in songs nobody has checked says so once, instead of the count changing quietly. Only fully identified counts are
+  // compared: while hashes are still arriving the count climbs by itself, and that must not read as "new songs".
+  // A different library folder starts a new baseline: its larger count is not "new songs".
+  const lastUnchecked = useRef<{ folder: string | null; n: number } | null>(null)
+  useEffect(() => {
+    if (!barOneQueue || !barOneOpen || library.scanning || barOneOpen.unidentified > 0) return
+    const prev = lastUnchecked.current?.folder === library.folderName ? lastUnchecked.current.n : null
+    lastUnchecked.current = { folder: library.folderName, n: barOneOpen.unchecked }
+    if (prev != null && barOneOpen.unchecked > prev) {
+      useStore.getState().setNotice({
+        text: `${barOneOpen.unchecked - prev} new ${barOneOpen.unchecked - prev === 1 ? 'song has' : 'songs have'} no checked "1" yet. Use "Check the 1".`,
+        tone: 'info',
+        source: 'grid',
+      })
+    }
+  }, [barOneQueue, barOneOpen, library.scanning, library.folderName])
   // Kept separate from `list` so the empty state below can tell "mixOnly
   // filtered everything out" apart from "the folder genuinely has nothing" —
   // the two used to render the identical "no audio files" message.
@@ -1417,9 +1443,11 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
               size="sm"
               active={barOneQueueOn}
               onClick={() => (barOneQueueOn ? ctl.stopBarOneQueue() : void ctl.startBarOneQueue())}
-              title='Loads songs whose "1" you have not checked, one after another, onto a stopped deck and plays each from a bar line. You answer with one press; Hip Hop and Mizrahi come first. Nothing is written to your files.'
+              title={`Loads songs whose "1" you have not checked, one after another, onto a stopped deck and plays each from a bar line. You answer with one press; Hip Hop and Mizrahi come first. Nothing is written to your files.${barOneOpen ? ` ${barOneOpen.unchecked} not checked yet${barOneOpen.unidentified > 0 ? `, and ${barOneOpen.unidentified} still being identified, so not counted` : ''}.` : ''}`}
             >
               {barOneQueueOn ? 'Stop checking the 1' : 'Check the 1'}
+              {!barOneQueueOn && barOneOpen && barOneOpen.unchecked > 0 && ` · ${barOneOpen.unchecked} new`}
+              {!barOneQueueOn && barOneOpen && barOneOpen.unidentified > 0 && ` · ${barOneOpen.unidentified} identifying`}
             </Button>
           )}
           {!library.scanning && artistReport && artistReport.missing > 0 && (
@@ -1848,6 +1876,7 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
                   removableFromCrateId={removableFromCrateId}
                   loadedOnA={aHash != null && aHash === t.contentHash}
                   loadedOnB={bHash != null && bHash === t.contentHash}
+                  oneUnchecked={barOneQueue && ownerChecked != null && t.contentHash != null && !ownerChecked.has(t.contentHash)}
                   // v0.9.32: the badge and its "3:38 · WAV" note belong to the
                   // Duplicates-only view. The owner (06/10) read it in the plain
                   // list as clutter beside every title; the header button still
@@ -2309,6 +2338,7 @@ function Row({
   removableFromCrateId,
   loadedOnA,
   loadedOnB,
+  oneUnchecked,
   duplicate,
   duplicateNote,
   artistOptions,
@@ -2329,6 +2359,8 @@ function Row({
   /** v0.8.2: this row's track is currently loaded on deck A/B (loaded, not necessarily playing — paused counts). */
   loadedOnA: boolean
   loadedOnB: boolean
+  /** v0.9.73: his "1" on this song is not checked yet. Text, not a dot: the Mix Assist dot and the deck letters already own those shapes. */
+  oneUnchecked?: boolean
   /** v0.8.45: the group this track belongs to when the library holds it more than once. */
   duplicate?: DuplicateGroup
   /** v0.9.24: what sets this file apart from its twins — shown on the chip, not only in a tooltip. */
@@ -2511,6 +2543,11 @@ function Row({
             </span>
           )}
           <span className="truncate">{track.title ?? track.name}</span>
+          {oneUnchecked && (
+            <span className="shrink-0 text-2xs font-normal text-grid-dim" title='The "1" (bar start) of this song is not checked yet. Use "Check the 1" above the list.'>
+              1?
+            </span>
+          )}
           {selected && reasons ? (
             // v0.8.11: the why, on the selected row only, on the same line — the
             // table is windowed on a fixed ROW_HEIGHT, so a second line here

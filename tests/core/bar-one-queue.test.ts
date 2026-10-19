@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { barLineAtNearestBeat, checkStartSec, nextInQueue, queueOrder, queueRemaining } from '@/core/bar-one-queue'
+import { barLineAtNearestBeat, checkStartSec, countUnchecked, nextInQueue, queueOrder, queueRemaining } from '@/core/bar-one-queue'
 
 const t = (id: string, genre?: string, contentHash?: string) => ({ id, genre, contentHash })
 
@@ -54,5 +54,16 @@ describe('barLineAtNearestBeat', () => {
     const g = barLineAtNearestBeat(grid, 33.3)
     const beatPhase = (((g.offsetSec - grid.offsetSec) / 0.5) % 1 + 1) % 1
     expect(Math.min(beatPhase, 1 - beatPhase)).toBeLessThan(1e-6)
+  })
+})
+
+describe('countUnchecked', () => {
+  it('counts songs with a hash and no saved grid, and keeps unidentified songs apart', () => {
+    const tracks = [t('1', 'x', 'a'), t('2', 'x', 'b'), t('3', 'x', 'c'), t('4', 'x')]
+    expect(countUnchecked(tracks, new Set(['a']))).toEqual({ unchecked: 2, unidentified: 1 })
+  })
+  it('an empty library, or every song checked, is zero', () => {
+    expect(countUnchecked([], new Set())).toEqual({ unchecked: 0, unidentified: 0 })
+    expect(countUnchecked([t('1', 'x', 'a')], new Set(['a']))).toEqual({ unchecked: 0, unidentified: 0 })
   })
 })

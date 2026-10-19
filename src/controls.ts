@@ -1189,7 +1189,10 @@ function persistGridCorrection(deckId: DeckId): Promise<boolean> {
     return Promise.resolve(false)
   }
   return putGridCorrection(hash, ownerCorrection(st.beatGrid, Date.now(), tempoByHandOnDeck[deckId])).then(
-    () => true,
+    () => {
+      markOwnerChecked(hash)
+      return true
+    },
     (err) => {
       setNotice({
         text: `Beat grid changed on screen but not saved: ${err instanceof Error ? err.message : String(err)}`,
@@ -5606,6 +5609,29 @@ async function ownerCheckedHashes(): Promise<Set<string>> {
   return out
 }
 
+/** v0.9.73: the library's "1 not checked" count reads this set; a save adds to it at once so the number never lags behind a press. */
+function markOwnerChecked(hash: string): void {
+  const cur = useStore.getState().ownerCheckedHashes
+  if (cur && !cur.has(hash)) useStore.getState().setOwnerCheckedHashes(new Set(cur).add(hash))
+}
+
+/** Re-reads which songs carry an owner grid. A failed read says so and leaves the count off: an empty set would claim every song is unchecked. */
+export async function refreshOwnerChecked(): Promise<void> {
+  try {
+    // Merged with what a press saved while this read was in flight: the read may hold an older snapshot.
+    const read = await ownerCheckedHashes()
+    const now = useStore.getState().ownerCheckedHashes
+    useStore.getState().setOwnerCheckedHashes(now ? new Set([...read, ...now]) : read)
+  } catch (err) {
+    useStore.getState().setOwnerCheckedHashes(null)
+    useStore.getState().setNotice({
+      text: `The saved grids could not be read, so "songs not checked yet" is not shown: ${err instanceof Error ? err.message : String(err)}`,
+      tone: 'warn',
+      source: 'grid',
+    })
+  }
+}
+
 export async function startBarOneQueue(): Promise<void> {
   if (useStore.getState().barOneQueue || barOneQ.working) return
   if (barOneQ.busyRun !== 0) {
@@ -6780,6 +6806,7 @@ export async function tagSaveMark(shownHash: string, input: MarkInput): Promise<
       const prev = resolveGridCorrection(await getGridCorrection(c.contentHash).catch(() => null))
       const byHand = prev != null && 'grid' in prev && prev.tempoByHand && Math.abs(prev.grid.bpm - next.bpm) < 1e-6
       await putGridCorrection(c.contentHash, ownerCorrection(next, tag.taggedAt, byHand))
+      markOwnerChecked(c.contentHash)
       const { decks, patchDeck } = useStore.getState()
       for (const id of ['A', 'B'] as DeckId[]) {
         if (decks[id].track?.contentHash !== c.contentHash) continue

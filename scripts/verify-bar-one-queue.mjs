@@ -185,6 +185,20 @@ const playing = () =>
     return [engine.decks.A.playing, engine.decks.B.playing]
   })
 
+// v0.9.73: the library knows how many songs are unchecked without the queue having run.
+const ownerSet = () =>
+  page.evaluate(async () => {
+    const h = (await window.__import('/src/app/state/store.ts')).useStore.getState().ownerCheckedHashes
+    return h ? [...h] : null
+  })
+let setBefore = null
+for (let i = 0; i < 50 && setBefore === null; i++) {
+  setBefore = await ownerSet()
+  if (setBefore === null) await page.waitForTimeout(200)
+}
+ok('the checked-songs set is read without starting the queue', Array.isArray(setBefore) && setBefore.length === 0, JSON.stringify(setBefore))
+ok('the Check button is on screen', (await page.getByRole('button', { name: /Check the 1/ }).count()) === 1)
+
 await ctl('startBarOneQueue')
 const r1 = await ready()
 ok('the queue loads a first song and waits for an answer', r1.q?.phase === 'ready' && !!r1.track, JSON.stringify(r1.q))
@@ -197,6 +211,7 @@ await ctl('answerBarOne', 'yes')
 const r2 = await ready()
 const s2 = await saved()
 ok('"This is the 1" saves an owner grid for that song, even though nothing was edited', s2.length === 1 && s2[0][0] === r1.hash && s2[0][1].source === 'owner', JSON.stringify(s2.map((x) => x[0].slice(0, 8))))
+ok('the answered song joins the checked set at once, with no re-read', (await ownerSet())?.includes(r1.hash) === true, String((await ownerSet())?.length))
 ok('and loads the next song', r2.track && r2.track !== r1.track && r2.q?.checked === 1, JSON.stringify(r2.q))
 
 await page.evaluate(async () => (await window.__import('/src/controls.ts')).seekDeck((await window.__import('/src/app/state/store.ts')).useStore.getState().barOneQueue.deckId, 33.3))
@@ -215,6 +230,11 @@ ok('Skip saves nothing and is counted on screen', (await saved()).length === 2 &
 await ctl('stopBarOneQueue')
 const r5 = await q()
 ok('Stop ends the run and the deck stops', r5.q === null && !(await playing()).some(Boolean))
+
+await page.getByRole('button', { name: /^check the 1/i }).first().waitFor({ timeout: 5000 }).catch(() => {})
+const labelNow = await page.getByRole('button', { name: /(stop checking|check) the 1/i }).first().innerText()
+ok('after Stop the button counts the unchecked songs it knows', /check the 1 · \d+ new/i.test(labelNow), labelNow)
+ok('and a row carries the "1?" marker', (await page.getByText('1?', { exact: true }).count()) > 0)
 
 await ctl('startBarOneQueue')
 const r6 = await ready()

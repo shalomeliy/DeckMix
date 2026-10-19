@@ -23,6 +23,20 @@ export function queueOrder<T extends QueueTrack>(tracks: readonly T[], checkedHa
   return [...weak, ...rest]
 }
 
+/**
+ * v0.9.73: how many songs still wait for his "1". A song without a content hash yet cannot be matched to a saved grid, so it is counted
+ * apart (`unidentified`) instead of being folded into either side: the hash pass takes minutes after a scan, and the count must not jump.
+ */
+export function countUnchecked(tracks: readonly QueueTrack[], checkedHashes: ReadonlySet<string>): { unchecked: number; unidentified: number } {
+  let unchecked = 0
+  let unidentified = 0
+  for (const t of tracks) {
+    if (!t.contentHash) unidentified++
+    else if (!checkedHashes.has(t.contentHash)) unchecked++
+  }
+  return { unchecked, unidentified }
+}
+
 /** The first song in the order not yet visited this run (visited = checked, moved or skipped). */
 export function nextInQueue<T extends QueueTrack>(order: readonly T[], visitedIds: ReadonlySet<string>): T | null {
   return order.find((t) => !visitedIds.has(t.id)) ?? null
