@@ -498,6 +498,22 @@ export class Deck {
     }
   }
 
+  /**
+   * v0.9.75, the kick-gap meter (`core/kick-gap.ts`): a read-only tap on what this deck sounds like before its EQ and fader — after the
+   * key lock's stretch, so the delay the stretch adds is in it, as in the room. Connected to nothing else; `removeTap` takes it off.
+   */
+  createTap(): AnalyserNode {
+    const a = this.ctx.createAnalyser()
+    a.fftSize = 32768
+    a.smoothingTimeConstant = 0
+    this.trim.connect(a)
+    return a
+  }
+
+  removeTap(a: AnalyserNode) {
+    this.trim.disconnect(a)
+  }
+
   /** Rate in playback multiples: 1 = normal forward, negative = backwards. */
   scratchRate(rate: number) {
     if (!this._scratching) return

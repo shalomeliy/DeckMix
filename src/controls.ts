@@ -13,6 +13,8 @@ import { barOneApplies, chooseBarGrid, detectBarOne } from '@/core/downbeat'
 import { analysisCache, getAllDetectedGrids } from '@/platform/analyze-cache-idb/store'
 import { analyzerWorker } from '@/platform/analyzer-worker'
 import { engine } from '@/platform/audio-webaudio/engine'
+import { KickMeter } from '@/platform/audio-webaudio/kick-meter'
+import { KICK_GAP_WARN_MS } from '@/core/kick-gap'
 import type { RecorderTap } from '@/platform/audio-webaudio/recorder-tap'
 import {
   buildCueSheet,
@@ -3848,6 +3850,12 @@ interface ActiveTransition {
    * is his, never moved or put back by the transition. `style` is read once at the join, so a change in Settings mid-mix cannot flip it.
    */
   eq?: { own: { from: EqBands; to: EqBands }; byHand: { from: Set<EqBand>; to: Set<EqBand> }; style: BassSwapStyle }
+  /**
+   * v0.9.75: the kick-gap meter (`core/kick-gap.ts`) — reads both decks' sound for the whole mix and says at the end how far apart their
+   * kicks were. `fromTime` (audio clock) is where the windows start to count: after the lock, so a gap the lock was still closing is not
+   * reported as the mix's.
+   */
+  kick?: { meter: KickMeter; fromTime: number }
 }
 
 const EQ_KEY = { low: 'eqLow', mid: 'eqMid', high: 'eqHigh' } as const
@@ -3866,6 +3874,41 @@ function applyMixEq(t: ActiveTransition, side: 'from' | 'to', knobs: EqBands) {
   if (!e) return
   const deckId = side === 'from' ? t.fromDeckId : t.toDeckId
   for (const band of EQ_BANDS) if (!e.byHand[side].has(band)) setMixEq(deckId, band, knobs[band])
+}
+
+/**
+ * A tap window holds the last 0.74 s, so the first window that counts starts this long after the lock: what the lock was still closing
+ * is in the windows before it.
+ */
+const KICK_METER_SETTLE_SEC = 0.8
+
+/**
+ * v0.9.75 (the owner, 19/10): said when a mix ends, next to whatever the transition already said — how far apart the two decks' kicks were,
+ * measured on the sound and not on the beat grids. A mix whose kicks could not be measured says so; it is never reported as a zero.
+ */
+function reportKickGap(t: ActiveTransition) {
+  const k = t.kick
+  if (!k) return
+  const { summary, windows } = k.meter.stop(k.fromTime)
+  const to = t.toDeckId
+  let text: string
+  let tone: 'info' | 'warn' = 'info'
+  if (!summary) {
+    text = `לא הצלחתי למדוד את פער הקיקים במיקס הזה (${windows.length} בדיקות, לא נמצאו מספיק קיקים ברורים בשני הדקים יחד) — לא ידוע אם הבסים ישבו.`
+  } else {
+    const med = Math.round(summary.medianMs)
+    const p90 = Math.round(summary.p90Ms)
+    const side = med === 0 ? '' : med > 0 ? ` — דק ${to} מאחר` : ` — דק ${to} מקדים`
+    if (Math.abs(summary.medianMs) > KICK_GAP_WARN_MS) tone = 'warn'
+    text = `פער קיקים במיקס: ${Math.abs(med)} אלפיות שנייה${side} (9 מתוך 10 קיקים בתוך ${p90}, נמדד על ${summary.pairs} קיקים).${tone === 'warn' ? ' הבסים לא ישבו.' : ''}`
+  }
+  console.info('[kick-gap]', text, summary)
+  // Next to whatever the transition already said, but a notice nobody dismissed must not carry the previous mix's reading along: that
+  // part is dropped, and a warning already showing stays a warning.
+  const cur = useStore.getState().notice
+  const rest = (cur?.text ?? '').split(' · ').filter((part) => part && !part.startsWith('פער קיקים במיקס') && !part.startsWith('לא הצלחתי למדוד את פער הקיקים'))
+  const keepWarn = rest.length > 0 && cur?.tone === 'warn'
+  useStore.getState().setNotice({ text: [...rest, text].join(' · '), tone: keepWarn ? 'warn' : tone, source: 'sync' })
 }
 
 /** Puts the knobs a transition turned back where the owner had them, except one he turned himself since. */
@@ -4138,6 +4181,11 @@ export function startAutoTransition(
     // A handoff runs on A's own seconds, from the join to the plan's fade end, the bass swap on the handoff. A plain transition runs on the
     // wall clock (as before v0.9.18: `TRANSITION_CROSSFADE_SEC`), so its bar is A's bar at A's current tempo.
     const barWallFrom = barSecFrom / deckRate(useStore.getState().decks[fromDeckId].baseRate, useStore.getState().decks[fromDeckId].tempo, cfg.tempoRange)
+    if (activeTransition) {
+      const meter = new KickMeter(fromEngine, toEngine, engine.ctx, (barWallFrom / BEATS_PER_BAR) * 1000)
+      meter.start()
+      activeTransition.kick = { meter, fromTime: joinedAtTime + KICK_METER_SETTLE_SEC }
+    }
     const mixPlan: EqMixPlan = handoff
       ? { joinSec: joinedFromSec, swapSec: handoff.handoffSec, fadeEndSec: handoff.fadeEndSec }
       : plainEqMixPlan(TRANSITION_CROSSFADE_SEC, barWallFrom)
@@ -4194,6 +4242,7 @@ export function startAutoTransition(
         if (step.kind === 'locked' && plainShifted && t < startedAtSec) return
         rising = true
         lockedAt = t
+        if (tr.kick) tr.kick.fromTime = t + KICK_METER_SETTLE_SEC
         const endAt = startedAtSec + TRANSITION_CROSSFADE_SEC
         useStore.setState((s) => ({
           activeTransition: s.activeTransition ? { ...s.activeTransition, aligning: false, endAtClock: handoff ? null : endAt } : null,
@@ -4561,6 +4610,7 @@ function finishTransition() {
   setMasterDeck(t.toDeckId)
   pause(t.fromDeckId)
   if (cfg.autoSyncGlide) startTempoGlide(t.toDeckId)
+  reportKickGap(t)
 
   const fromTrack = useStore.getState().decks[t.fromDeckId].track
   if (fromTrack) {
@@ -4597,6 +4647,7 @@ export function cancelTransition() {
   if (!t) return
   activeTransition = null
   t.unsubscribe()
+  t.kick?.meter.stop()
   restoreMixEq(t)
   useStore.setState({ activeTransition: null })
 
