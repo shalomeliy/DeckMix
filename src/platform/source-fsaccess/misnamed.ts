@@ -4,6 +4,7 @@ import {
   extensionMismatch,
   id3TagLength,
   renamedWithExtension,
+  hasMpegFramesWithin,
   startsWithMpegFrame,
   type AudioFormat,
   type MisnamedFile,
@@ -13,6 +14,14 @@ import type { Track } from '@/core/types'
 /** Reads `n` bytes at `at` — never the whole file. */
 async function slice(file: File, at: number, n: number): Promise<Uint8Array> {
   return new Uint8Array(await file.slice(at, at + n).arrayBuffer())
+}
+
+/** An untagged mp3 starts with a frame; a tagged one may have audio a little past a too-short ID3 size (seen on tags with a UTF-16 frame at the end). */
+async function looksLikeMp3(file: File): Promise<boolean> {
+  const skip = id3TagLength(await slice(file, 0, 10))
+  if (skip === 0) return startsWithMpegFrame(await slice(file, 0, 4))
+  if (skip > MAX_ID3_SKIP) return false
+  return hasMpegFramesWithin(await slice(file, skip, 1024 + 2 * 1441), 1024)
 }
 
 /** Real format of a file from at most two small reads (the ID3 header, then the bytes after the tag); `null` = could not tell. */
@@ -47,7 +56,7 @@ export async function findMisnamedFiles(
       const ext = extOf(file.name)
       if (!actual) {
         // an untagged ".mp3" that really starts with an MPEG frame agrees with its name: nothing to report, nothing to fix
-        if (ext === 'mp3' && startsWithMpegFrame(await slice(file, 0, 4))) continue
+        if (ext === 'mp3' && (await looksLikeMp3(file))) continue
         report.unverified.push(track.id)
         continue
       }

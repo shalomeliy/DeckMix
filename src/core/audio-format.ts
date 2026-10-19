@@ -82,6 +82,44 @@ export function startsWithMpegFrame(b: Uint8Array): boolean {
   return b.length >= 4 && b[0] === 0xff && (b[1] & 0xe0) === 0xe0 && ((b[1] >> 1) & 3) !== 0 && ((b[1] >> 3) & 3) !== 1
 }
 
+const BR_V1_L1 = [0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448]
+const BR_V1_L2 = [0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384]
+const BR_V1_L3 = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320]
+const BR_V2_L1 = [0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256]
+const BR_V2_L23 = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160]
+const SR = { 3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000] } as const
+
+/** Byte length of the MPEG audio frame whose header starts at `b[at]`, or 0 when those bytes are not a valid header (free-format counts as invalid). */
+function mpegFrameLength(b: Uint8Array, at: number): number {
+  if (at + 4 > b.length || b[at] !== 0xff || (b[at + 1] & 0xe0) !== 0xe0) return 0
+  const ver = (b[at + 1] >> 3) & 3
+  const layer = (b[at + 1] >> 1) & 3
+  if (ver === 1 || layer === 0) return 0
+  const brIdx = b[at + 2] >> 4
+  const srIdx = (b[at + 2] >> 2) & 3
+  if (brIdx === 0 || brIdx === 15 || srIdx === 3) return 0
+  const table = ver === 3 ? (layer === 3 ? BR_V1_L1 : layer === 2 ? BR_V1_L2 : BR_V1_L3) : layer === 3 ? BR_V2_L1 : BR_V2_L23
+  const kbps = table[brIdx]
+  const sr = SR[ver as 0 | 2 | 3][srIdx]
+  const pad = (b[at + 2] >> 1) & 1
+  if (layer === 3) return (Math.floor((12 * kbps * 1000) / sr) + pad) * 4
+  return Math.floor(((layer === 1 && ver !== 3 ? 72 : 144) * kbps * 1000) / sr) + pad
+}
+
+/**
+ * Two MPEG frames back to back somewhere in the first `window` bytes of `b` (header, then the next header exactly one frame later).
+ * Some taggers write an ID3 size that is a few dozen bytes short, so the audio starts a little after where the tag says. One
+ * frame-sync is accident-prone; two at the exact distance a frame header predicts are not. Like `startsWithMpegFrame`, this only
+ * confirms a file that already claims to be an mp3 — it never names a format and never triggers a rename.
+ */
+export function hasMpegFramesWithin(b: Uint8Array, window: number): boolean {
+  for (let i = 0; i < Math.min(window, b.length - 4); i++) {
+    const len = mpegFrameLength(b, i)
+    if (len > 0 && mpegFrameLength(b, i + len) > 0) return true
+  }
+  return false
+}
+
 export interface ExtensionMismatch {
   /** what the file really is */
   actual: AudioFormat
