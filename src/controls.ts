@@ -5583,6 +5583,8 @@ const barOneQ = {
   current: null as Track | null,
   doneCount: 0,
   skipped: 0,
+  /** Why songs were skipped without an answer (no grid), kept for the closing message: a single notice slot would otherwise lose it. */
+  noGrid: [] as string[],
   /** Songs found already checked only once loaded (identified late, or under another file name): counted, never silently dropped. */
   alreadyChecked: 0,
   /** A start or an answer is in flight: a second click while it runs must not repeat it. */
@@ -5656,6 +5658,7 @@ export async function startBarOneQueue(): Promise<void> {
   barOneQ.visited = new Set()
   barOneQ.doneCount = 0
   barOneQ.skipped = 0
+  barOneQ.noGrid = []
   barOneQ.alreadyChecked = 0
   barOneQ.run++
   barOneQ.deckId = decks.A.track == null ? 'A' : decks.B.track == null ? 'B' : 'A'
@@ -5677,7 +5680,7 @@ async function advanceBarOne(): Promise<void> {
       const track = nextInQueue(barOneQ.order, barOneQ.visited)
       if (!track) {
         if (engine.decks[barOneQ.deckId].playing) togglePlay(barOneQ.deckId)
-        barOneNotice(`${barOneSummary()} No more songs in the queue.`, 'info')
+        barOneNotice(`${barOneSummary()} No more songs in the queue.`, barOneQ.noGrid.length > 0 ? 'warn' : 'info')
         useStore.getState().setBarOneQueue(null)
         return
       }
@@ -5703,6 +5706,7 @@ async function advanceBarOne(): Promise<void> {
       const d = useStore.getState().decks[deckId]
       if (d.track?.id !== track.id || !d.beatGrid) {
         barOneQ.skipped++
+        barOneQ.noGrid.push(track.title ?? track.name)
         barOneNotice(`"${track.title ?? track.name}" has no beat grid to check (it did not load or the analysis found none). It stays unchecked.`)
         continue
       }
@@ -5777,7 +5781,9 @@ export async function answerBarOne(answer: 'yes' | 'here' | 'skip'): Promise<voi
 }
 
 function barOneSummary(): string {
-  return `Checked ${barOneQ.doneCount}, skipped ${barOneQ.skipped}${barOneQ.alreadyChecked > 0 ? `, ${barOneQ.alreadyChecked} already checked under another name` : ''}.`
+  const names = barOneQ.noGrid.slice(0, 3).map((n) => `"${n}"`).join(', ')
+  const noGrid = barOneQ.noGrid.length > 0 ? ` No beat grid, so not shown: ${names}${barOneQ.noGrid.length > 3 ? ` and ${barOneQ.noGrid.length - 3} more` : ''} (see "analysis failed" in the library bar).` : ''
+  return `Checked ${barOneQ.doneCount}, skipped ${barOneQ.skipped}${barOneQ.alreadyChecked > 0 ? `, ${barOneQ.alreadyChecked} already checked under another name` : ''}.${noGrid}`
 }
 
 export function stopBarOneQueue(): void {

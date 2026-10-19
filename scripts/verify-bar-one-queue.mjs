@@ -236,6 +236,16 @@ const labelNow = await page.getByRole('button', { name: /(stop checking|check) t
 ok('after Stop the button counts the unchecked songs it knows', /check the 1 · \d+ new/i.test(labelNow), labelNow)
 ok('and a row carries the "1?" marker', (await page.getByText('1?', { exact: true }).count()) > 0)
 
+const showBtn = page.getByRole('button', { name: /Show \d+ unchecked/ })
+const nShown = Number(((await showBtn.innerText()).match(/\d+/) ?? ['0'])[0])
+await showBtn.click()
+await page.waitForTimeout(400)
+const rowsShown = await page.locator('tbody tr[data-track-id], tbody tr').count()
+ok('the unchecked filter shows only those songs', nShown > 0 && rowsShown <= nShown + 2 && rowsShown >= 1, `button ${nShown}, rows ${rowsShown}`)
+await showBtn.click()
+await page.waitForTimeout(300)
+ok('and a second press brings the whole list back', (await page.locator('tbody tr').count()) > rowsShown)
+
 await ctl('startBarOneQueue')
 const r6 = await ready()
 ok('a new run does not offer the two answered songs again', r6.hash !== r1.hash && r6.hash !== r2.hash, String(r6.track))

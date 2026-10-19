@@ -170,6 +170,7 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
   const [dupOnly, setDupOnly] = useState(false)
   /** v0.9.41: only the tracks with no artist, each with its suggestion — like Duplicates only, the suggestions live in this view and not in the plain list. */
   const [artistOnly, setArtistOnly] = useState(false)
+  const [oneOnly, setOneOnly] = useState(false)
   const barOneQueueOn = useStore((st) => st.barOneQueue != null)
   const ownerChecked = useStore((st) => st.ownerCheckedHashes)
   // v0.8.38: the track whose BPM/key the owner is checking against Beatport — see SourceCheckPanel.
@@ -933,6 +934,10 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
     () => (artistSuggestions && library.tagsRead && library.hashesRead ? suggestArtists(library.tracks) : null),
     [artistSuggestions, library.tracks, library.tagsRead, library.hashesRead],
   )
+  // The last unchecked song got its answer, or the setting went off: the filter ends with its button.
+  useEffect(() => {
+    if (oneOnly && (!barOneQueue || barOneOpen == null || barOneOpen.unchecked === 0)) setOneOnly(false)
+  }, [oneOnly, barOneQueue, barOneOpen])
   // Turned off in Settings while the view is open: the view goes with it, never a filter left on with no button to clear it.
   useEffect(() => {
     if (!artistSuggestions) setArtistOnly(false)
@@ -941,7 +946,9 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
     ? duplicatesView(sortedFiltered, dupReport.byTrack, library.sortKey == null)
     : artistOnly
       ? sortedFiltered.filter((t) => artistReport?.needs.has(t.id) ?? !t.artist)
-      : sortedFiltered
+      : oneOnly
+        ? sortedFiltered.filter((t) => t.contentHash != null && ownerChecked != null && !ownerChecked.has(t.contentHash))
+        : sortedFiltered
   const activeCrate = library.activeCrateId ? (crates.get(library.activeCrateId) ?? null) : null
   const list = similarTo
     ? orderBySimilarMatches(preMixList, similarMatches)
@@ -1004,6 +1011,7 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
     }),
     ...(dupOnly ? [{ label: 'Duplicates only', clear: () => setDupOnly(false) }] : []),
     ...(artistOnly ? [{ label: 'No artist only', clear: () => setArtistOnly(false) }] : []),
+    ...(oneOnly ? [{ label: '"1" not checked only', clear: () => setOneOnly(false) }] : []),
     ...(activeCrate ? [{ label: `Crate: ${activeCrate.name}`, clear: () => ctl.setActiveCrate(null) }] : []),
     ...(similarToTrack
       ? [{ label: `Similar to: ${similarToTrack.title ?? similarToTrack.name}`, clear: () => setSimilarTo(null) }]
@@ -1422,6 +1430,7 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
                 onClick={() => {
                   setDupOnly((v) => !v)
                   setArtistOnly(false)
+                  setOneOnly(false)
                 }}
                 title={duplicatesTitle(dupReport.groups, dupReport.unchecked)}
               >
@@ -1450,6 +1459,21 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
               {!barOneQueueOn && barOneOpen && barOneOpen.unidentified > 0 && ` · ${barOneOpen.unidentified} identifying`}
             </Button>
           )}
+          {barOneQueue && !library.scanning && barOneOpen && barOneOpen.unchecked > 0 && (
+            <Button
+              variant="toggle"
+              size="sm"
+              active={oneOnly}
+              onClick={() => {
+                setOneOnly((v) => !v)
+                setDupOnly(false)
+                setArtistOnly(false)
+              }}
+              title={'Shows only the songs whose "1" you have not checked, marked 1? in the list. Songs still being identified are not in it.'}
+            >
+              Show {barOneOpen.unchecked} unchecked
+            </Button>
+          )}
           {!library.scanning && artistReport && artistReport.missing > 0 && (
             <Button
               variant="toggle"
@@ -1458,6 +1482,7 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
               onClick={() => {
                 setArtistOnly((v) => !v)
                 setDupOnly(false)
+                setOneOnly(false)
               }}
               title={`Tracks whose file carries no artist${artistReport.suspect > 0 ? `, or an artist tag that is a pack or a remixer (${artistReport.suspect})` : ''}. ${artistReport.byTrack.size} have a suggestion (from the file name, or the same song in another file); ${artistReport.noHint} have none — type those in. Nothing is written to your files.`}
             >
