@@ -1,5 +1,5 @@
 """
-v0.9.72 experiment, step 2: can a model learned from Shalom's own "1" marks pick the bar line better than the shipped detectBarOne?
+v0.9.72/v0.9.74 experiment, step 2: can a model learned from Shalom's own "1" marks pick the bar line better than the shipped detectBarOne?
 
     python scripts/fit-barone-model.py [path/to/barone-all.json]      (default: %TEMP%/barone-all.json)
 
@@ -65,11 +65,57 @@ def phase_features(s):
         votes /= votes.sum() + eps
         for p in range(4):
             rows[p].append(votes[p])
+    if VOCAL and 'v' in s:
+        add_vocal(rows, s, ratio, n, eps)
     cur = s.get('current') or {}
     for p in range(4):
         hit = 1.0 if cur.get('beat') == p else 0.0
         rows[p] += [hit, hit * float(cur.get('margin', 0.0)), 1.0 if p == 0 else 0.0]
     return np.array(rows)
+
+
+def votes_of(mask, eps=1e-9):
+    v = np.array([mask[p::4].sum() for p in range(4)], float)
+    return v / (v.sum() + eps)
+
+
+def add_vocal(rows, s, ratio, n, eps):
+    # v0.9.74: does singing start on the "1"? Same shape as the energy cues above, on the app's own singing detector per beat.
+    v = np.array(s['v'], float)[:n]
+    vl = np.array(s['vl'], float)[:n]
+    vp = np.array(s['vp'], float)[:n]
+    for x in (v, vl - vl.min(), vp):
+        r = ratio(x)
+        for p in range(4):
+            rows[p].append(r[p])
+    # singing starts: voice probability crosses 0.5 after two quiet beats. Vote for that beat and, separately, for the beat after
+    # (a line sung from a pickup lands its first strong word one beat later).
+    sing = vp >= 0.5
+    start = np.zeros(n, bool)
+    start[2:] = sing[2:] & ~sing[1:-1] & ~sing[:-2]
+    after = np.zeros(n, bool)
+    after[1:] = start[:-1]
+    for mask in (start, after):
+        vv = votes_of(mask)
+        for p in range(4):
+            rows[p].append(vv[p])
+    # the strongest rises of the singing score, beat to beat
+    d = np.zeros(n)
+    d[1:] = np.maximum(0, v[1:] - v[:-1])
+    vv = votes_of(d >= np.quantile(d, 0.9))
+    for p in range(4):
+        rows[p].append(vv[p])
+    # singing gets stronger over 2 bars starting here
+    c = np.concatenate([[0], np.cumsum(v)])
+    rise = np.zeros(n)
+    for k in range(WIN, n - WIN):
+        rise[k] = max(0.0, (c[k + WIN] - c[k]) - (c[k] - c[k - WIN])) / WIN
+    vv = votes_of(rise >= np.quantile(rise, 0.9))
+    for p in range(4):
+        rows[p].append(vv[p])
+
+
+VOCAL = False
 
 
 def fit(X, y, lam=1.0, iters=600, lr=0.1):
@@ -88,7 +134,23 @@ def fit(X, y, lam=1.0, iters=600, lr=0.1):
 
 
 def main():
+    global VOCAL
     songs = json.load(open(PATH, encoding='utf8'))
+    has_vocal = any('v' in s for s in songs)
+    if has_vocal:
+        bad = [s for s in songs if 'v' in s and s.get('vocalError')]
+        print(f'singing data: {sum("v" in s for s in songs)} songs, {len(bad)} where the detector gave no answer (their singing cues are all 0)')
+        unknown = sorted({s.get('genre') or '(none)' for s in songs if 'v' in s and s.get('genreKnown') is False})
+        if unknown:
+            print(f'genres the singing model does not know (weaker singing cues there): {", ".join(unknown)}')
+        print('--- without singing cues (v0.9.72) ---')
+        run(songs, verdict=False)
+        VOCAL = True
+        print('--- with singing cues (v0.9.74) ---')
+    run(songs, verdict=True)
+
+
+def run(songs, verdict):
     data = []
     for s in songs:
         f = phase_features(s)
@@ -121,6 +183,12 @@ def main():
     report('dance (House/Techno/Trance)', [g in DANCE for g in genre])
     report('Hip Hop + Mizrahi', [g in WEAK for g in genre])
     report('other genres', [g not in DANCE and g not in WEAK for g in genre])
+    mu = X.reshape(-1, X.shape[2]).mean(0)
+    sd = X.reshape(-1, X.shape[2]).std(0) + 1e-9
+    w = fit((X - mu) / sd, y)
+    print(f'ceiling (trained and tested on the same songs, on purpose): {np.mean(((X - mu) / sd @ w).argmax(1) == y) * 100:.1f}%')
+    if not verdict:
+        return
     weak = np.array([g in WEAK for g in genre])
     dance = np.array([g in DANCE for g in genre])
     ok_weak = weak.sum() > 0 and np.mean(pred[weak] == y[weak]) >= 0.80
@@ -128,4 +196,5 @@ def main():
     print('PASS' if ok_weak and ok_dance else 'FAIL', f'(Hip Hop+Mizrahi >= 80%: {ok_weak}; dance no worse than today minus one song: {ok_dance})')
 
 
-main()
+if __name__ == "__main__":
+    main()

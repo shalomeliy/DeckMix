@@ -112,7 +112,7 @@ for (let i = 0; i < songs.length; i++) {
   const s = songs[i]
   if (!s.filePath) continue
   const r = await page.evaluate(
-    async ({ i, base, grid }) => {
+    async ({ i, base, grid, genre }) => {
       const { buildOnsetEnvelope, pcmFromAudioBuffer } = await import('http://localhost:5173/src/platform/analyzer-js/analyze.ts')
       const { repairWav } = await import('http://localhost:5173/src/core/wav-repair.ts')
       const { detectBarOne } = await import('http://localhost:5173/src/core/downbeat.ts')
@@ -218,9 +218,48 @@ for (let i = 0; i < songs.length; i++) {
       const r4 = (a) => a.map((v) => +v.toPrecision(4))
       // what ships today, on the same envelope the deck uses at load: the baseline the learned model must beat
       const current = detectBarOne(bands[0], framesPerSec, grid)
-      return { dur, nBeats, current, e: e.map(r4), on: on.map(r4), oh: oh.map(r4), chroma, flux }
+      // v0.9.74: the app's own singing detector, per beat — does singing start on the "1"? Frame score (the hand-weighted cue mix,
+      // ~fine time steps), harmonic level, and the learned model's voice probability (half-second cells, so only about one per beat).
+      const v = new Array(nBeats).fill(0)
+      const vl = new Array(nBeats).fill(0)
+      const vp = new Array(nBeats).fill(0)
+      let vocalError = null
+      let genreKnown = null
+      try {
+        // inside the try: a broken singing import costs this song's singing cues, not the whole run
+        const { vocalFeatures, frameScores, VOCAL_PARAMS } = await import('http://localhost:5173/src/core/sound/vocal-presence.ts')
+        const { cellFeatureRows, CELL_SEC } = await import('http://localhost:5173/src/core/sound/cell-features.ts')
+        const { cellProbabilities, parseVocalModel } = await import('http://localhost:5173/src/core/sound/vocal-model.ts')
+        const modelJson = (await import('http://localhost:5173/src/core/sound/vocal-model.json?import')).default
+        const genreJson = (await import('http://localhost:5173/src/core/sound/vocal-genre-models.json?import')).default
+        const vf = vocalFeatures(pcm)
+        if ('features' in vf) {
+          const f = vf.features
+          const sc = frameScores(f, VOCAL_PARAMS)
+          const cp = cellProbabilities(cellFeatureRows(f, dur), genre, parseVocalModel(modelJson, genreJson))
+          const probs = cp.probs
+          genreKnown = cp.genreKnown
+          for (let k = 0; k < nBeats; k++) {
+            const t = grid.offsetSec + k * beatSec
+            const a = Math.floor(t / f.frameSec)
+            const z = Math.min(f.frames, Math.floor((t + beatSec) / f.frameSec))
+            let sv = 0
+            let sl = 0
+            for (let j = a; j < z; j++) {
+              sv += sc[j]
+              sl += f.level[j]
+            }
+            v[k] = sv / Math.max(1, z - a)
+            vl[k] = sl / Math.max(1, z - a)
+            vp[k] = probs[Math.min(probs.length - 1, Math.floor((t + beatSec / 2) / CELL_SEC))] ?? 0
+          }
+        } else vocalError = vf.result.state
+      } catch (err) {
+        vocalError = String(err?.message ?? err)
+      }
+      return { dur, nBeats, current, e: e.map(r4), on: on.map(r4), oh: oh.map(r4), chroma, flux, v: r4(v), vl: r4(vl), vp: r4(vp), vocalError, genreKnown }
     },
-    { i, base: BASE, grid: s.detectorGrid },
+    { i, base: BASE, grid: s.detectorGrid, genre: s.genre ?? '' },
   ).catch((e) => ({ error: String(e?.message ?? e).split('\n')[0] }))
   if (r.error) {
     console.log(`  ✗ ${s.trackId}: ${r.error}`)
