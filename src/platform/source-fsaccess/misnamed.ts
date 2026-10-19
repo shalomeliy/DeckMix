@@ -26,10 +26,10 @@ const extOf = (name: string): string => (name.includes('.') ? name.split('.').po
 
 export interface MisnamedReport {
   misnamed: MisnamedFile[]
-  /** content we could not name — an unknown is counted, not treated as fine */
-  unverified: number
-  /** files that could not be opened for the check */
-  unreadable: number
+  /** content we could not name — an unknown is listed, not treated as fine. Ids, not a count: the dialog names every one the badge counts */
+  unverified: string[]
+  /** files that could not be opened for the check (ids, for the same reason) */
+  unreadable: string[]
 }
 
 /** Walks the scanned tracks and reports every one whose content disagrees with its extension. Reads a few bytes per file, writes nothing. */
@@ -37,14 +37,14 @@ export async function findMisnamedFiles(
   tracks: readonly Track[],
   shouldStop: () => boolean = () => false,
 ): Promise<MisnamedReport> {
-  const report: MisnamedReport = { misnamed: [], unverified: 0, unreadable: 0 }
+  const report: MisnamedReport = { misnamed: [], unverified: [], unreadable: [] }
   for (const track of tracks) {
     if (shouldStop()) break
     try {
       const file = await track.handle.getFile()
       const actual = await sniffFormat(file)
       if (!actual) {
-        report.unverified++
+        report.unverified.push(track.id)
         continue
       }
       const ext = extOf(file.name)
@@ -53,7 +53,7 @@ export async function findMisnamedFiles(
         report.misnamed.push({ trackId: track.id, fileName: file.name, currentExt: ext, actual, suggestedExt: m.suggestedExt })
       }
     } catch {
-      report.unreadable++
+      report.unreadable.push(track.id)
     }
   }
   return report

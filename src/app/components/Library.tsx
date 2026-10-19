@@ -477,7 +477,7 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
     // tagsRead/hashesRead down now, not when applyTags starts: the fresh, untagged
     // list below would otherwise sit under the previous scan's "true" and read as
     // a library with no artists at all (change-reviewer, 06/10).
-    setLibrary({ scanning: true, folderName: name, scanMsg: 'Scanning…', bootDetail: null, tagsRead: false, hashesRead: false, misnamed: [], misnamedUnverified: 0, misnamedUnreadable: 0, misnamedChecked: false, misnamedOpen: false })
+    setLibrary({ scanning: true, folderName: name, scanMsg: 'Scanning…', bootDetail: null, tagsRead: false, hashesRead: false, misnamed: [], misnamedUnverified: [], misnamedUnreadable: [], misnamedChecked: false, misnamedOpen: false })
     rememberScanRoot(handle)
 
     let tracks: Track[]
@@ -1397,17 +1397,17 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
           {!library.scanning && library.tracks.length > 0 && !library.misnamedChecked && (
             <span className="text-2xs text-grid-dim">checking file formats…</span>
           )}
-          {!library.scanning && library.misnamedChecked && (library.misnamed.length > 0 || library.misnamedUnverified > 0 || library.misnamedUnreadable > 0) && (
+          {!library.scanning && library.misnamedChecked && (library.misnamed.length > 0 || library.misnamedUnverified.length > 0 || library.misnamedUnreadable.length > 0) && (
             <button
               type="button"
               className="rounded-[var(--radius-xs)] bg-surface-2 px-1.5 py-0.5 text-2xs font-semibold text-warn hover:bg-surface-3"
-              title={`File-format check: ${library.misnamed.length} with the wrong extension, ${library.misnamedUnverified} whose content could not be identified, ${library.misnamedUnreadable} that could not be opened. Click for the list.`}
+              title={`File-format check: ${library.misnamed.length} with the wrong extension, ${library.misnamedUnverified.length} whose content could not be identified, ${library.misnamedUnreadable.length} that could not be opened. Click for the list.`}
               onClick={() => setLibrary({ misnamedOpen: true })}
             >
               {[
                 library.misnamed.length > 0 ? `${library.misnamed.length} wrong extension` : '',
-                library.misnamedUnverified > 0 ? `${library.misnamedUnverified} unverified` : '',
-                library.misnamedUnreadable > 0 ? `${library.misnamedUnreadable} unreadable` : '',
+                library.misnamedUnverified.length > 0 ? `${library.misnamedUnverified.length} unverified` : '',
+                library.misnamedUnreadable.length > 0 ? `${library.misnamedUnreadable.length} unreadable` : '',
               ]
                 .filter(Boolean)
                 .join(' · ')}

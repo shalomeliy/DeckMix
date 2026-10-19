@@ -108,7 +108,11 @@ export function MisnamedDialog() {
             </p>
           )}
           {misnamed.length === 0 ? (
-            <p className="py-3 text-grid-text">No file with the wrong extension is left in the list.</p>
+            <p className="py-3 text-grid-text">
+              {unverified.length > 0 || unreadable.length > 0
+                ? 'No file with a wrong extension was found. The files below could not be checked.'
+                : 'No file with the wrong extension is left in the list.'}
+            </p>
           ) : (
             <ul className="divide-y divide-hairline/60">
               {misnamed.map((m) => {
@@ -152,11 +156,33 @@ export function MisnamedDialog() {
               ))}
             </div>
           )}
-          {(unverified > 0 || unreadable > 0) && (
-            <p className="mt-3 text-2xs text-grid-dim">
-              Not checked (usually MP3 files with no tag at the start, which carry no safe signature): {unverified} file{unverified === 1 ? '' : 's'} whose content could not be identified from the first bytes
-              {unreadable > 0 ? `, ${unreadable} that could not be opened` : ''}. They are left alone.
-            </p>
+          {(unverified.length > 0 || unreadable.length > 0) && (
+            <div className="mt-3 border-t border-hairline pt-2 text-2xs text-grid-dim">
+              <p className="mb-1">
+                Not checked, listed so nothing is hidden. They are left alone, there is nothing to fix here. Unverified is usually an MP3 with no tag at the start, which carries no safe signature.
+              </p>
+              {[
+                { label: 'Unverified', ids: unverified },
+                { label: 'Could not be opened', ids: unreadable },
+              ].map(
+                (g) =>
+                  g.ids.length > 0 && (
+                    <div key={g.label} className="mt-1">
+                      <div className="font-semibold text-grid-muted">
+                        {g.label} ({g.ids.length})
+                      </div>
+                      {g.ids.map((id) => {
+                        const t = tracks.find((x) => x.id === id)
+                        return (
+                          <div key={id} className="truncate" title={t?.path ?? id}>
+                            {t?.path ?? id}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ),
+              )}
+            </div>
           )}
         </div>
         <footer className="flex shrink-0 items-center gap-2 border-t border-hairline px-4 py-2.5">
