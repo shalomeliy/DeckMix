@@ -186,6 +186,7 @@ export function TransitionPointsPanel({
   const { candidates, lateCandidates } = useMemo(() => {
     const all = bands ? findTransitionCandidates(bands, durationSec, beatGrid) : []
     const ok = all.filter((c) => enoughSongAfterMix(endSec, beatGrid, plainMixEndInB(c.sec, beatGrid, TRANSITION_CROSSFADE_SEC)))
+    ok.sort((x, y) => x.sec - y.sec)
     return { candidates: ok, lateCandidates: all.length > ok.length }
   }, [bands, durationSec, endSec, beatGrid])
 
@@ -265,7 +266,8 @@ export function TransitionPointsPanel({
         <div className="mb-2 text-2xs text-grid-muted" data-testid="handoff-note">{handoffNote}</div>
       ) : (
         <div className="mb-2 flex flex-col gap-1" data-testid="handoff-rows">
-          {rows.slice(0, MAX_HANDOFF_ROWS).map(({ voice, plan }) => (
+          {/* v0.12.12 (owner, 19/10): shown in song order, start first. Which rows make the cap is still the longest run-ins (`handoffRows`). */}
+          {rows.slice(0, MAX_HANDOFF_ROWS).sort((x, y) => x.plan.entrySec - y.plan.entrySec).map(({ voice, plan }) => (
             <button
               key={voice.voiceSec}
               type="button"
@@ -291,7 +293,7 @@ export function TransitionPointsPanel({
         <div className="mb-2 text-2xs text-grid-muted" data-testid="swap-note">{handoffNote?.replace('מסירת שירה', 'החלפת שירה').replace('המסירה', 'המיקס')}</div>
       ) : (
         <div className="mb-2 flex flex-col gap-1" data-testid="swap-rows">
-          {swap.rows.slice(0, MAX_HANDOFF_ROWS).map(({ entry, plan }) => (
+          {swap.rows.slice(0, MAX_HANDOFF_ROWS).sort((x, y) => x.entry.voiceSec - y.entry.voiceSec).map(({ entry, plan }) => (
             <button
               key={entry.voiceSec}
               type="button"
@@ -325,6 +327,13 @@ export function TransitionPointsPanel({
         </div>
       ) : (
         <div className="flex flex-col gap-1">
+          {/* v0.12.12 (owner, 19/10: "4 points, all 3:15"): every energy point joins A at the same second — A's one quiet window — so it is said once
+              here, not under each point, where it read as four copies of one mix. The points differ in where this song starts. */}
+          {join && (
+            <div className="mb-0.5 px-2 text-2xs text-grid-muted" data-testid="phrase-join">
+              {`כל הנקודות נכנסות כשדק ${otherDeckId} ב-${fmtSec(join.sec)} — ${join.why} · בעוד ${fmtSec(join.sec - otherPositionBucketSec)}`}
+            </div>
+          )}
           {candidates.map((c) => {
             const { text, dot } = proximityMessage(c.sec)
             const vocal = vocalMessage
@@ -335,12 +344,7 @@ export function TransitionPointsPanel({
                 onClick={() => onSelect(c.sec)}
                 className="rounded-[var(--radius-sm)] text-left transition-opacity hover:opacity-80"
               >
-                <Pill tone="idle" label={`${fmtSec(c.sec)} · ${REASON_LABEL[c.reason]}`} />
-                {join && (
-                  <span className="mt-0.5 block px-2 text-2xs text-grid-muted" data-testid="phrase-join">
-                    {`נכנס כשדק ${otherDeckId} ב-${fmtSec(join.sec)} — ${join.why} · בעוד ${fmtSec(join.sec - otherPositionBucketSec)}`}
-                  </span>
-                )}
+                <Pill tone="idle" label={`השיר מתחיל מ-${fmtSec(c.sec)} · ${REASON_LABEL[c.reason]}`} />
                 <span className="mt-0.5 flex items-center gap-1 px-2 text-2xs text-grid-muted">
                   <span className="h-1 w-1 shrink-0 rounded-full" style={{ background: dot }} />
                   {text}
