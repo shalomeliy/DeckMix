@@ -74,6 +74,14 @@ export function detectAudioFormat(b: Uint8Array, afterId3: boolean): AudioFormat
   return null
 }
 
+/**
+ * Bare MPEG frame-sync at byte 0 (no ID3 tag). Too weak to ever *name* a file (see top of file), but enough to agree with a
+ * file that already claims to be an mp3: it can only confirm "nothing contradicts the name", never trigger a rename.
+ */
+export function startsWithMpegFrame(b: Uint8Array): boolean {
+  return b.length >= 4 && b[0] === 0xff && (b[1] & 0xe0) === 0xe0 && ((b[1] >> 1) & 3) !== 0 && ((b[1] >> 3) & 3) !== 1
+}
+
 export interface ExtensionMismatch {
   /** what the file really is */
   actual: AudioFormat

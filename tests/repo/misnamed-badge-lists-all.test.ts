@@ -21,4 +21,11 @@ describe('misnamed report', () => {
     expect(r.unverified).toEqual(['a'])
     expect(r.unreadable).toEqual(['b'])
   })
+
+  it('an untagged .mp3 that starts with an MPEG frame is not unverified, but the same bytes under another name still are', async () => {
+    const frame = [0xff, 0xfb, 0x90, 0x00, 0, 0, 0, 0, 0, 0, 0, 0]
+    const r = await findMisnamedFiles([track('a', 'a.mp3', frame), track('b', 'b.wav', frame)])
+    expect(r.unverified).toEqual(['b'])
+    expect(r.misnamed).toEqual([])
+  })
 })

@@ -4,6 +4,7 @@ import {
   extensionMismatch,
   id3TagLength,
   renamedWithExtension,
+  startsWithMpegFrame,
   type AudioFormat,
   type MisnamedFile,
 } from '@/core/audio-format'
@@ -43,11 +44,13 @@ export async function findMisnamedFiles(
     try {
       const file = await track.handle.getFile()
       const actual = await sniffFormat(file)
+      const ext = extOf(file.name)
       if (!actual) {
+        // an untagged ".mp3" that really starts with an MPEG frame agrees with its name: nothing to report, nothing to fix
+        if (ext === 'mp3' && startsWithMpegFrame(await slice(file, 0, 4))) continue
         report.unverified.push(track.id)
         continue
       }
-      const ext = extOf(file.name)
       const m = extensionMismatch(ext, actual)
       if (m) {
         report.misnamed.push({ trackId: track.id, fileName: file.name, currentExt: ext, actual, suggestedExt: m.suggestedExt })
