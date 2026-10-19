@@ -272,8 +272,10 @@ export function TransitionPointsPanel({
               onClick={() => onHandoff(voice)}
               className="rounded-[var(--radius-sm)] text-left transition-opacity hover:opacity-80"
             >
-              {/* v0.9.17: when A gets there, not B's own entry second — "נכנס ב-0:04" with A at 0:07 read as "right now". */}
-              <Pill tone="idle" label={`נכנס כשדק ${otherDeckId} ב-${fmtSec(plan.joinSec)} · ${plan.runwayBars} תיבות בלי שירה · שר מ-${fmtSec(plan.bVoiceSec)}`} />
+              {/* v0.9.17: when A gets there, not B's own entry second — "נכנס ב-0:04" with A at 0:07 read as "right now".
+                  v0.12.11 (owner, 19/10): every row joins at the SAME A second (A's first quiet window), so a row that named only that read as
+                  three copies of one mix. They differ in where B starts, so that leads the row. */}
+              <Pill tone="idle" label={`השיר מתחיל מ-${fmtSec(plan.entrySec)} · כשדק ${otherDeckId} ב-${fmtSec(plan.joinSec)} · ${plan.runwayBars} תיבות בלי שירה · שר מ-${fmtSec(plan.bVoiceSec)}`} />
               <span className="mt-0.5 flex items-center gap-1 px-2 text-2xs text-grid-muted">
                 <span className="h-1 w-1 shrink-0 rounded-full" style={{ background: 'var(--color-live)' }} />
                 {plan.onVoiceEnd ? `דק ${otherDeckId} מסיים לשיר ב-${fmtSec(plan.joinSec)}` : `דק ${otherDeckId} שקט ב-${fmtSec(plan.joinSec)}`}
