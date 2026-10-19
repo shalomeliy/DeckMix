@@ -55,6 +55,31 @@ for (const m of tNew.mark) {
 const OUT = path.join(process.env.TEMP ?? '.', 'barone-all.json')
 console.log(`${songs.length} marked songs`)
 
+// 19/10: a song renamed or moved since it was marked crashed the whole run (an unhandled stream error). Look for it by name
+// elsewhere in the library (also under another extension, after a v0.9.59 rename); if it is gone, leave it out and SAY so at the end.
+const byStem = new Map()
+const walk = (dir) => {
+  for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, ent.name)
+    if (ent.isDirectory()) walk(full)
+    else {
+      const stem = path.parse(ent.name).name.toLowerCase()
+      if (!byStem.has(stem)) byStem.set(stem, [])
+      byStem.get(stem).push(full)
+    }
+  }
+}
+walk(ROOT)
+const moved = []
+const missing = []
+for (const s of songs) {
+  const at = path.join(ROOT, s.trackId)
+  if (fs.existsSync(at)) { s.filePath = at; continue }
+  const found = byStem.get(path.parse(s.trackId).name.toLowerCase())
+  if (found?.length === 1) { s.filePath = found[0]; moved.push(s.trackId) }
+  else missing.push(s.trackId)
+}
+
 const server = http.createServer((req, res) => {
   if (req.url === '/__blank') {
     res.writeHead(200, { 'Content-Type': 'text/html' })
@@ -64,7 +89,10 @@ const server = http.createServer((req, res) => {
   const s = songs[Number(req.url.split('/').pop())]
   if (!s) return res.writeHead(404).end()
   res.writeHead(200, { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/octet-stream' })
-  fs.createReadStream(path.join(ROOT, s.trackId)).pipe(res)
+  if (!s.filePath) return res.writeHead(404).end()
+  const stream = fs.createReadStream(s.filePath)
+  stream.on('error', () => res.destroy())
+  stream.pipe(res)
 })
 await new Promise((r) => server.listen(0, '127.0.0.1', r))
 const BASE = `http://127.0.0.1:${server.address().port}`
@@ -79,8 +107,10 @@ let page = await openPage()
 
 const rows = []
 const t0 = Date.now()
+const failed = []
 for (let i = 0; i < songs.length; i++) {
   const s = songs[i]
+  if (!s.filePath) continue
   const r = await page.evaluate(
     async ({ i, base, grid }) => {
       const { buildOnsetEnvelope, pcmFromAudioBuffer } = await import('http://localhost:5173/src/platform/analyzer-js/analyze.ts')
@@ -192,7 +222,10 @@ for (let i = 0; i < songs.length; i++) {
     },
     { i, base: BASE, grid: s.detectorGrid },
   ).catch((e) => ({ error: String(e?.message ?? e).split('\n')[0] }))
-  if (r.error) console.log(`  ✗ ${s.trackId}: ${r.error}`)
+  if (r.error) {
+    console.log(`  ✗ ${s.trackId}: ${r.error}`)
+    failed.push(s.trackId)
+  }
   if (!r.error) rows.push({ contentHash: s.contentHash, trackId: s.trackId, genre: s.genre, set: s.set, grid: s.detectorGrid, truthSec: s.truthSec, truthBeat: beatOf(s.truthSec, s.detectorGrid), ...r })
   if ((i + 1) % 15 === 0) {
     await page.close()
@@ -203,4 +236,7 @@ for (let i = 0; i < songs.length; i++) {
 await browser.close()
 server.close()
 fs.writeFileSync(OUT, JSON.stringify(rows))
-console.log(`wrote ${OUT}`)
+console.log(`wrote ${OUT}: ${rows.length} of ${songs.length} songs`)
+if (moved.length) console.log(`found under a new place or extension: ${moved.length}`)
+if (missing.length) console.log(`NOT FOUND in the library, left out: ${missing.length}\n  ${missing.join('\n  ')}`)
+if (failed.length) console.log(`could not be read, left out: ${failed.length}`)
