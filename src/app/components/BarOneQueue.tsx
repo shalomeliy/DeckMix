@@ -28,7 +28,7 @@ export function BarOneQueue({ deckId }: { deckId: DeckId }) {
       <button type="button" disabled={!ready} onClick={() => void ctl.answerBarOne('yes')} className={`${btn} bg-accent text-grid-bg`} title='The yellow line is on the strong first beat of the bar. Saves it for this song and loads the next.'>
         This is the 1
       </button>
-      <button type="button" disabled={!ready} onClick={() => void ctl.answerBarOne('here')} className={`${btn} bg-surface-3 text-grid-text`} title='Press at the moment the 1 is, while it plays: the yellow lines move to the playhead. Saves it and loads the next.'>
+      <button type="button" disabled={!ready} onClick={() => void ctl.answerBarOne('here')} className={`${btn} bg-surface-3 text-grid-text`} title='Press when you hear the 1, while it plays. It does not have to be exact: the bar line moves to the nearest beat, so a press a little late still lands on the right one. Saves it and loads the next.'>
         The 1 is here
       </button>
       <button type="button" disabled={!ready} onClick={() => void ctl.answerBarOne('skip')} className={`${btn} bg-surface-2 text-grid-muted`} title="Leave this song unchecked. It comes back in the next run.">

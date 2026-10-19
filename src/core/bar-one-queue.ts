@@ -4,7 +4,7 @@
  * Why Hip Hop and Mizrahi first: the detector's "1" is right on ~93% of the owner's dance songs and ~70% of those (`docs/handoff/v0.9.5.md`),
  * so his minutes go where the computer is worst.
  */
-import { nextBarLineSec } from '@/core/beatgrid'
+import { nextBarLineSec, setDownbeatAt } from '@/core/beatgrid'
 import type { BeatGrid } from '@/core/types'
 
 export interface QueueTrack {
@@ -40,4 +40,15 @@ export function queueRemaining(order: readonly QueueTrack[], visitedIds: Readonl
 export function checkStartSec(durationSec: number, grid: BeatGrid | null): number {
   const t = Math.max(0, durationSec * 0.3)
   return grid && grid.bpm > 0 ? nextBarLineSec(t, grid) : t
+}
+
+/**
+ * "The 1 is here", pressed by hand: a press lands 100-200 ms after the beat it meant, and taking the playhead as the new bar line would
+ * carry that delay into the whole grid. The detector's beats are already within ~25 ms on 97% of the corrected songs, so the press only
+ * picks WHICH beat is the "1": the grid keeps its beat positions and its bar line moves to the nearest one.
+ */
+export function barLineAtNearestBeat(grid: BeatGrid, pressSec: number): BeatGrid {
+  const beatSec = 60 / grid.bpm
+  const n = Math.round((pressSec - grid.offsetSec) / beatSec)
+  return setDownbeatAt(grid.bpm, grid.offsetSec + n * beatSec)
 }

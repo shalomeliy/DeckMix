@@ -101,7 +101,7 @@ import { getCues, putCues } from '@/platform/cues-idb/store'
 import { clearTempo, getTempo } from '@/platform/tempo-idb/store'
 import { getAllGridCorrections, getGridCorrection, putGridCorrection } from '@/platform/grid-corrections-idb/store'
 import { compareGrid, gridCheckExportText, type DriftRow } from '@/core/grid-drift'
-import { checkStartSec, nextInQueue, queueOrder, queueRemaining } from '@/core/bar-one-queue'
+import { barLineAtNearestBeat, checkStartSec, nextInQueue, queueOrder, queueRemaining } from '@/core/bar-one-queue'
 import { ownerCorrection, reconcileSavedGrid, resolveGridCorrection } from '@/core/grid-corrections'
 import { getExcellentPoints, markExcellent } from '@/platform/mix-ratings-idb/store'
 import { markExcellentPair } from '@/platform/mix-pairs-idb/store'
@@ -5726,7 +5726,14 @@ export async function answerBarOne(answer: 'yes' | 'here' | 'skip'): Promise<voi
         return
       }
       // Confirming always writes a record, even over a grid detection already trusted: that record is what makes the song "checked".
-      const saved = answer === 'yes' ? await persistGridCorrection(deckId) : await setDownbeatHere(deckId)
+      let saved: boolean
+      if (answer === 'yes') saved = await persistGridCorrection(deckId)
+      else if (st.beatGrid && gridEditAllowed(deckId)) {
+        // The press only picks the beat; the grid's own beat positions stay (see barLineAtNearestBeat).
+        const next = barLineAtNearestBeat(st.beatGrid, engine.decks[deckId].position)
+        useStore.getState().patchDeck(deckId, { beatGrid: next, bpm: next.bpm, beatGridConfirmed: true })
+        saved = await persistGridCorrection(deckId)
+      } else saved = await setDownbeatHere(deckId) // no grid yet: the plain playhead is all there is
       if (run !== barOneQ.run) return // Stop was pressed while it saved; the queue is gone and must not move on
       if (!saved) {
         barOneNotice('The answer was not saved (see the message above). Try again or skip.')

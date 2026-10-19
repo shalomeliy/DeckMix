@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { checkStartSec, nextInQueue, queueOrder, queueRemaining } from '@/core/bar-one-queue'
+import { barLineAtNearestBeat, checkStartSec, nextInQueue, queueOrder, queueRemaining } from '@/core/bar-one-queue'
 
 const t = (id: string, genre?: string, contentHash?: string) => ({ id, genre, contentHash })
 
@@ -36,5 +36,23 @@ describe('checkStartSec', () => {
   })
   it('without a grid it is the plain point', () => {
     expect(checkStartSec(200, null)).toBe(60)
+  })
+})
+
+describe('barLineAtNearestBeat', () => {
+  const grid = { bpm: 120, offsetSec: 0.013 } // beat = 0.5 s
+  it('a press 150 ms late lands on the beat it meant, not 150 ms after it', () => {
+    const g = barLineAtNearestBeat(grid, 10.013 + 0.15)
+    expect(g.bpm).toBe(120)
+    expect(((10.013 - g.offsetSec) / 0.5) % 1 === 0 || Math.abs((((10.013 - g.offsetSec) / 0.5) % 1)) < 1e-6).toBe(true)
+  })
+  it('an early press picks the beat it was heading for', () => {
+    const g = barLineAtNearestBeat(grid, 10.013 - 0.1)
+    expect(Math.abs((((10.013 - g.offsetSec) / 2) % 1) || 0)).toBeLessThan(1e-6)
+  })
+  it('keeps the detector beat phase within a hair: only the bar line moves', () => {
+    const g = barLineAtNearestBeat(grid, 33.3)
+    const beatPhase = (((g.offsetSec - grid.offsetSec) / 0.5) % 1 + 1) % 1
+    expect(Math.min(beatPhase, 1 - beatPhase)).toBeLessThan(1e-6)
   })
 })
