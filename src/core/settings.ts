@@ -167,7 +167,8 @@ export const DEFAULTS: Settings = {
   vocalMarking: false,
   sampleMarking: false,
   artistSuggestions: true,
-  barOneQueue: true,
+  // Off since v0.9.73 (Shalom, 19/10): the whole "1" check feature (button, count, filter, 1? marker, notices) is opt-in.
+  barOneQueue: false,
   bassSwap: 'instant',
   mixAssistKeySync: 2,
 }
@@ -568,7 +569,7 @@ export const FIELDS: Field[] = [
     kind: 'toggle',
     key: 'barOneQueue',
     label: 'Check the "1" song after song',
-    help: 'Adds a "Check the 1" button above the list. It loads a song you have not checked yet onto a stopped deck and plays it from a bar line: press "This is the 1" if the yellow line is on it, "The 1 is here" at the moment it should be, or "Skip". Songs the computer is least sure of (Hip Hop, Mizrahi) come first. Your answer is saved for that song. Nothing is written to your files.',
+    help: 'Adds a "Check the 1" button above the list, a count of songs not checked yet, a "Show N unchecked" filter and a 1? marker on those rows. It loads a song you have not checked yet onto a stopped deck and plays it from a bar line: press "This is the 1" if the yellow line is on it, "The 1 is here" at the moment it should be, or "Skip". Songs the computer is least sure of (Hip Hop, Mizrahi) come first. Your answer is saved for that song. Nothing is written to your files.',
     group: 'library',
     keywords: ["bar", "one", "downbeat", "grid", "check", "queue", "bass", "תחילת בסים", "הראשון", "סימון", "רשת", "בדיקה", "תור"],
   },

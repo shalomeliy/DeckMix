@@ -87,6 +87,8 @@ function harness() {
   const mem = new Map()
   window.__mem = mem
   mem.set('deckmix:libraryDir', makeDir('Tracks'))
+  // The feature is off by default (v0.9.73); this script tests it, so it starts with it on.
+  mem.set('deckmix:settings', { version: 1, barOneQueue: true })
   const fire = (obj, prop, value) =>
     setTimeout(() => {
       obj.result = value

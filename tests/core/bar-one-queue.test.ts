@@ -67,3 +67,10 @@ describe('countUnchecked', () => {
     expect(countUnchecked([t('1', 'x', 'a')], new Set(['a']))).toEqual({ unchecked: 0, unidentified: 0 })
   })
 })
+
+describe('the feature switch', () => {
+  it('is off by default (Shalom, 19/10): a fresh install shows no Check the 1 button, count or marker', async () => {
+    const { DEFAULTS } = await import('@/core/settings')
+    expect(DEFAULTS.barOneQueue).toBe(false)
+  })
+})
