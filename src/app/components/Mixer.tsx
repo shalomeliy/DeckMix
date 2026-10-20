@@ -221,11 +221,11 @@ function ChannelStrip({ deckId }: { deckId: DeckId }) {
 }
 
 /**
- * v0.9.63: what the handoff's button says about where B sings. Until then it named `handoffSec`, which was where B's voice came in; since the
- * handoff waits for A's voice to be over, B sings when A is out (`endSec`), and `handoffSec` is only the bass swap halfway there.
+ * What the handoff's button says about where B sings. v0.12.13: B's voice comes in on the bass swap again (`handoffSec`, the end of A's
+ * transition), and A goes down after it; from v0.9.63 to v0.12.12 it came in when A was out (`endSec`).
  */
-function handoffSingsText(t: { toDeckId: string; fromDeckId: string; endSec?: number | null }): string {
-  return t.endSec != null ? `דק ${t.toDeckId} שר כשדק ${t.fromDeckId} יגיע ל-${ctl.formatMinSec(t.endSec)}` : 'מסירת שירה'
+function handoffSingsText(t: { toDeckId: string; fromDeckId: string; handoffSec?: number | null }): string {
+  return t.handoffSec != null ? `דק ${t.toDeckId} שר כשדק ${t.fromDeckId} יגיע ל-${ctl.formatMinSec(t.handoffSec)}` : 'מסירת שירה'
 }
 
 /**

@@ -104,13 +104,12 @@ interface Props {
   onVocalSwap: (entry: SwapEntry) => void
 }
 
-/** Shown at most: the longest run-ins, then the earliest. A row is a click target on a ~710 px screen, and the energy points still have to fit under them. */
-const MAX_HANDOFF_ROWS = 3
+/** Shown at most, earliest first. A row is a click target on a ~710 px screen, and the energy points still have to fit under them. */
+const MAX_HANDOFF_ROWS = 4
 
 /**
  * The handoff rows (v0.9.15): one per voice of the incoming song that has room for a run-in before it, each planned against the playing song.
- * v0.9.63: the longest run-in first (16, then 8, then 4 bars — what DJs aim for, `docs/research/vocal-entry-timing.md`), the earliest among
- * equals. The plan itself is core's (`planHandoff`).
+ * In song order since v0.12.13, the incoming song's earliest way in first. The plan itself is core's (`planHandoff`).
  */
 function handoffRows(other: HandoffSide, otherPosSec: number, self: HandoffSide): { rows: { voice: BVoiceStart; plan: HandoffPlan }[]; allLate: boolean } {
   const rows: { voice: BVoiceStart; plan: HandoffPlan }[] = []
@@ -122,14 +121,14 @@ function handoffRows(other: HandoffSide, otherPosSec: number, self: HandoffSide)
       unplanned++
       continue
     }
-    // v0.9.23: a voice this close to the song's end would leave B over before the mix is — not offered. Since v0.9.63 the mix is over when
-    // B's voice comes in, whatever run-in the click re-plans to (`startVocalHandoffAt`), so this plan's end is the click's too.
+    // v0.9.23: a voice this close to the song's end would leave B over before the mix is — not offered.
     if (enoughSongAfterMix(self.durationSec, self.grid, handoffEndInB(plan))) rows.push({ voice, plan })
     else late++
   }
   // Only when the song's end is the whole reason: a voice deck A never goes quiet for is the other reason, and the note must not blame one
   // for the other.
-  return { rows: rows.sort((x, y) => y.plan.runwayBars - x.plan.runwayBars || x.plan.joinSec - y.plan.joinSec), allLate: late > 0 && unplanned === 0 }
+  // v0.12.13 (owner, 19/10): in song order — the incoming song's earliest way in first.
+  return { rows: rows.sort((x, y) => x.plan.entrySec - y.plan.entrySec), allLate: late > 0 && unplanned === 0 }
 }
 
 /*
@@ -232,19 +231,18 @@ export function TransitionPointsPanel({
           ? 'מסירת שירה: אין בשיר הזה 4 תיבות בלי שירה לפני שהשירה נכנסת'
           : allLate
           ? 'מסירת שירה: אין בשיר הזה נקודה שנשאר אחריה מספיק שיר'
-          : `מסירת שירה: אין בדק ${otherDeckId} עד סוף השיר רגע שקט מספיק ארוך (4 תיבות) להוריד אותו`
+          : `מסירת שירה: בשיר הזה אין מספיק נגינה בלי שירה לפני שהוא שר כדי לכסות מעבר של דק ${otherDeckId} — או שדק ${otherDeckId} לא מפסיק לשיר עד הסוף`
         : null
   // The second signal on each energy point: is the playing song singing while the plain transition runs? Never merged with the energy dot.
   // v0.9.17: an energy point starts where the playing song's next phrase starts, not on its next bar — the row says when.
-  // v0.9.63 (the owner, 07/10: "only after the singing in the outgoing song is over"): it starts where the playing song is quiet for the whole
-  // mix (`ctl.deckPhraseJoin`), so this checks A alone. Until then it only asked "a voice over a voice", and B's intro under A's verse read as
-  // "clean" — 80% of these mixes ran over A's singing on his marked songs. A quiet A cannot clash with any B, so no B check is needed.
+  // Since v0.12.13 (the owner, 19/10) waiting for A's quiet is only the handoff's rule: this line says, as a fact, whether A sings during
+  // the plain mix (`ctl.deckPhraseJoin`); it is not a refusal.
   const join = phraseJoin(otherPositionBucketSec)
-  // Only A's reading matters here: the red line must show even when this song (B) has no voice reading of its own.
+  // Only A's reading matters here: the line must show even when this song (B) has no voice reading of its own.
   const vocalMessage: { text: string; dot: string } | null = !join
     ? null
     : join.aVoiceSec != null
-      ? { text: `דק ${otherDeckId} שר ב-${fmtSec(join.aVoiceSec)} — ייכנס על שירה`, dot: 'var(--color-danger)' }
+      ? { text: `דק ${otherDeckId} שר ב-${fmtSec(join.aVoiceSec)} — המעבר ירוץ על השירה שלו`, dot: 'var(--color-warn)' }
       : 'missing' in otherVocalSide
         ? null // the join line itself says A's singing there is unknown
         : { text: 'שירה: נקי', dot: 'var(--color-live)' }
@@ -266,22 +264,18 @@ export function TransitionPointsPanel({
         <div className="mb-2 text-2xs text-grid-muted" data-testid="handoff-note">{handoffNote}</div>
       ) : (
         <div className="mb-2 flex flex-col gap-1" data-testid="handoff-rows">
-          {/* v0.12.12 (owner, 19/10): shown in song order, start first. Which rows make the cap is still the longest run-ins (`handoffRows`). */}
-          {rows.slice(0, MAX_HANDOFF_ROWS).sort((x, y) => x.plan.entrySec - y.plan.entrySec).map(({ voice, plan }) => (
+          {rows.slice(0, MAX_HANDOFF_ROWS).map(({ voice, plan }) => (
             <button
               key={voice.voiceSec}
               type="button"
               onClick={() => onHandoff(voice)}
               className="rounded-[var(--radius-sm)] text-left transition-opacity hover:opacity-80"
             >
-              {/* v0.9.17: when A gets there, not B's own entry second — "נכנס ב-0:04" with A at 0:07 read as "right now".
-                  v0.12.11 (owner, 19/10): every row joins at the SAME A second (A's first quiet window), so a row that named only that read as
-                  three copies of one mix. They differ in where B starts, so that leads the row. */}
-              <Pill tone="idle" label={`השיר מתחיל מ-${fmtSec(plan.entrySec)} · כשדק ${otherDeckId} ב-${fmtSec(plan.joinSec)} · ${plan.runwayBars} תיבות בלי שירה · שר מ-${fmtSec(plan.bVoiceSec)}`} />
+              {/* v0.12.13: his five steps in one row — B's drums from here, A's last line ends, A's transition, B sings. */}
+              <Pill tone="idle" label={`השיר מתחיל מ-${fmtSec(plan.entrySec)} · שר מ-${fmtSec(plan.bVoiceSec)}`} />
               <span className="mt-0.5 flex items-center gap-1 px-2 text-2xs text-grid-muted">
                 <span className="h-1 w-1 shrink-0 rounded-full" style={{ background: 'var(--color-live)' }} />
-                {plan.onVoiceEnd ? `דק ${otherDeckId} מסיים לשיר ב-${fmtSec(plan.joinSec)}` : `דק ${otherDeckId} שקט ב-${fmtSec(plan.joinSec)}`}
-                {` · בעוד ${fmtSec(plan.joinSec - otherPositionBucketSec)} · יוצא עד שזה שר`}
+                {`תופים כשדק ${otherDeckId} ב-${fmtSec(plan.joinSec)} · הוא מסיים לשיר ב-${fmtSec(plan.aVoiceEndSec)} · מעבר ${plan.transitionBars} תיבות · בעוד ${fmtSec(plan.joinSec - otherPositionBucketSec)}`}
               </span>
             </button>
           ))}
@@ -327,8 +321,8 @@ export function TransitionPointsPanel({
         </div>
       ) : (
         <div className="flex flex-col gap-1">
-          {/* v0.12.12 (owner, 19/10: "4 points, all 3:15"): every energy point joins A at the same second — A's one quiet window — so it is said once
-              here, not under each point, where it read as four copies of one mix. The points differ in where this song starts. */}
+          {/* v0.12.12 (owner, 19/10: "4 points, all 3:15"): every energy point joins A at the same second — A's next phrase start — so it is said
+              once here, not under each point, where it read as four copies of one mix. The points differ in where this song starts. */}
           {join && (
             <div className="mb-0.5 px-2 text-2xs text-grid-muted" data-testid="phrase-join">
               {`כל הנקודות נכנסות כשדק ${otherDeckId} ב-${fmtSec(join.sec)} — ${join.why} · בעוד ${fmtSec(join.sec - otherPositionBucketSec)}`}

@@ -74,7 +74,7 @@ export const MIX_GRADUAL_SWAP_BARS = 1
 
 /**
  * One transition, on one axis. `joinSec`: B starts (crossfader still fully on A). `swapSec`: the bass swap — for a handoff the plan's
- * `handoffSec`, halfway through the run-in since v0.9.63. `fadeEndSec`: A is gone (for a handoff, where B's voice comes in).
+ * `handoffSec`, where B's voice comes in since v0.12.13. `fadeEndSec`: A is gone.
  */
 export interface EqMixPlan {
   joinSec: number
@@ -206,8 +206,8 @@ export function eqMixFrame(
 /**
  * The plan for a plain transition (an energy point or a "Mix in" pad): a fixed `fadeSec` of wall clock from the join. The bass swap goes on
  * the last bar line at or before the middle (at least one bar in) — whole bars from the join, which itself lands on a yellow line — so the
- * same order fits inside the same seconds as before v0.9.18, and the "voice: clean" check next to each energy point (since v0.9.63 A's
- * quiet over that same window, `ctl.deckPhraseJoin`) still holds. Only a bar longer than the whole fade (under 30 BPM at 8 s) puts it
+ * same order fits inside the same seconds as before v0.9.18, and the vocal line next to each energy point (A's singing over that same
+ * window, `ctl.deckPhraseJoin`) still describes it. Only a bar longer than the whole fade (under 30 BPM at 8 s) puts it
  * off a line, at the middle. `barSec` is one bar of A in wall seconds (its bar at its current tempo).
  */
 export function plainEqMixPlan(fadeSec: number, barSec: number): EqMixPlan {

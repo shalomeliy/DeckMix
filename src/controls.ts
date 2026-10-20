@@ -58,7 +58,7 @@ import {
 import { exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
 import { catchUpFactor, kickLockStep, KICK_LOCK_MAX_BARS, KICK_LOCK_SEC, KICK_LOCK_SETTLE_SEC, KICK_LOCK_KEEP_START_SEC, KICK_LOCK_NUDGE_SEC, KICK_LOCK_PLAIN_SHIFT_BARS } from '@/core/kick-lock'
 import { AUTO_MIX_CROSSFADER_CURVE, eqMixFrame, incomingUnderA, plainEqMixPlan, type BassSwapStyle, type EqBand, type EqBands, type EqMixPlan } from '@/core/eq-mix'
-import { HANDOFF_NEEDS_STRAIGHT_SYNC, MIN_BARS_AFTER_MIX, enoughSongAfterMix, firstVoiceInSec, handoffSide, nextPhraseStartSec, planHandoff, quietJoinSec, plainMixEndInB, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
+import { HANDOFF_NEEDS_STRAIGHT_SYNC, MIN_BARS_AFTER_MIX, enoughSongAfterMix, firstVoiceInSec, handoffSide, nextPhraseStartSec, planHandoff, plainMixEndInB, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
 import { SWAP_CROSSFADER_CURVE, planVocalSwap, swapIncoming, vocalSwapFrame, type SwapEntry, type VocalSwapPlan } from '@/core/vocal-swap-mix'
 import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
 import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
@@ -924,29 +924,8 @@ export async function startExcellentPairTransition(
     exitSec == null
       ? 'This pair was saved before exit points were remembered — mixing on the next bar. Rate it Excellent again to save where it mixed.'
       : null
-  const moved = exitSec == null ? null : moveExitOffVoice(fromDeckId, exitSec)
-  startAutoTransition(fromDeckId, target, entrySec, moved?.sec ?? exitSec ?? null, moved?.note ?? oldPairNote)
-}
-
-/**
- * v0.9.63: an excellent pair's saved exit second, held to the owner's rule (07/10) — "only after the singing in the outgoing song is over".
- * A pair rated before the rule could have mixed over A's verse; it is moved to where A is quiet for the whole mix, and the notice says from
- * where to where. With no such moment left, it stays where it was saved and says it will run over A's voice. With no voice reading for A it
- * stays too, and says the singing there is unknown. Null when A is quiet there, or without a grid (`startAutoTransition` refuses that).
- */
-function moveExitOffVoice(fromDeckId: DeckId, exitSec: number): { sec: number; note: string } | null {
-  const grid = useStore.getState().decks[fromDeckId].beatGrid
-  const side = deckHandoffSide(fromDeckId)
-  if (!grid) return null
-  // No voice reading: the rule cannot be checked — said, never assumed clean (the project's "never skip silently").
-  if ('missing' in side) return { sec: exitSec, note: `לא ידוע אם דק ${fromDeckId} שר ב-${formatMinSec(exitSec)} (${side.missing}) — המעבר ייכנס איפה שנשמר.` }
-  const need = plainMixNeedSec(fromDeckId, grid)
-  const sings = firstVoiceInSec(side, exitSec, exitSec + need)
-  if (sings == null) return null
-  const quiet = quietJoinSec(side, exitSec, need)
-  return quiet
-    ? { sec: quiet.sec, note: `המעבר נשמר ב-${formatMinSec(exitSec)}, אבל דק ${fromDeckId} שר שם — הוא ייכנס ב-${formatMinSec(quiet.sec)}, כשהשירה נגמרת.` }
-    : { sec: exitSec, note: `דק ${fromDeckId} שר ב-${formatMinSec(sings)} ואין אחרי זה רגע שקט שמחזיק מעבר שלם — המעבר ייכנס על שירה, איפה שנשמר.` }
+  // v0.12.13 (owner, 19/10): an excellent pair mixes where it was saved, singing or not — v0.9.63's move off A's voice is gone with its rule.
+  startAutoTransition(fromDeckId, target, entrySec, exitSec ?? null, oldPairNote)
 }
 
 /**
@@ -4033,7 +4012,7 @@ export function startAutoTransition(
   /**
    * v0.9.15, Mix Assist by sound: a vocal handoff (`core/vocal-handoff.ts`). `waitUntilSec` is then the plan's join line; instead of the fixed
    * fade from the join, the crossfader follows A's own play position — B up to the middle after the join, the bass swap on `handoffSec`, A
-   * down to nothing by `fadeEndSec`. Since v0.9.63 the join is where A's voice is over and `fadeEndSec` is where B's voice comes in.
+   * down to nothing by `fadeEndSec`. Since v0.12.13 the join is under A's last lines and B's voice comes in on `handoffSec`, the end of A's transition.
    */
   handoff: { handoffSec: number; fadeEndSec: number } | null = null,
   /** v0.9.17: `waitUntilSec` is a phrase start of A (`startAutoTransitionOnPhrase`), not a saved exit second — only the "passed" text differs. */
@@ -4398,8 +4377,8 @@ export function startAutoTransition(
 }
 
 /**
- * Mix Assist by sound (v0.9.15): one click on a handoff row. B waits paused until the plan's join line on A — since v0.9.63 the line where
- * A's voice is over — enters in its own stretch with no voice, and sings once A is out; A goes down while it is quiet. Everything else —
+ * Mix Assist by sound (v0.9.15): one click on a handoff row. B waits paused until the plan's join line on A — since v0.12.13 a few bars
+ * before A's last line ends — enters in its own stretch with no voice, sings where A's transition ends, and A goes down after. Everything else —
  * refusals, the bar alignment, cancel, the rating — is `startAutoTransition`'s, unchanged.
  */
 export function startVocalHandoff(fromDeckId: DeckId, toDeckId: DeckId, plan: HandoffPlan) {
@@ -4474,7 +4453,7 @@ export function startVocalHandoffAt(fromDeckId: DeckId, toDeckId: DeckId, voice:
  * "you mixed right away instead of waiting for the right moment … you are supposed to know when to come in by where the verses start". It
  * now waits for the next phrase start of A (`nextPhraseStartSec`): counted from where A's voice starts and stops, or, with no voice to count
  * from, from the grid's first yellow line — and the notice says which, so a count he cannot check is never passed off as his verses.
- * v0.9.63: the join is `deckPhraseJoin`'s — where A's voice is over for the whole mix — and the notice says why there.
+ * The join is `deckPhraseJoin`'s, and the notice says why there.
  */
 export function startAutoTransitionOnPhrase(fromDeckId: DeckId, toDeckId: DeckId, entrySec: number) {
   const phrase = deckPhraseJoin(fromDeckId, engine.decks[fromDeckId].position)
@@ -4482,37 +4461,34 @@ export function startAutoTransitionOnPhrase(fromDeckId: DeckId, toDeckId: DeckId
     startAutoTransition(fromDeckId, toDeckId, entrySec) // no grid: refuses, and says why
     return
   }
-  startAutoTransition(fromDeckId, toDeckId, entrySec, phrase.sec, `דק ${toDeckId} ייכנס כשדק ${fromDeckId} יגיע ל-${formatMinSec(phrase.sec)} — ${phrase.why}.`, null, true)
+  // Singing under the mix is allowed since v0.12.13, but still said — never a silent pick.
+  const over = phrase.aVoiceSec != null ? ` דק ${fromDeckId} שר ב-${formatMinSec(phrase.aVoiceSec)}, אז המעבר ירוץ על השירה שלו.` : ''
+  startAutoTransition(fromDeckId, toDeckId, entrySec, phrase.sec, `דק ${toDeckId} ייכנס כשדק ${fromDeckId} יגיע ל-${formatMinSec(phrase.sec)} — ${phrase.why}.${over}`, null, true)
 }
 
 /**
  * Where an energy point or a Mix-in pad joins, from `positionSec` of the outgoing deck, and why there — in the owner's words. One function
  * for the panel's line and the click, so the two can only differ by the second the panel's position is floored to. Null without a grid.
  *
- * v0.9.63, the owner (07/10): "only after the singing in the outgoing song is over does the incoming song join". Until then this was A's
- * next phrase start, which could be mid-verse or the very line A starts singing on: on his marked songs, 80% of these mixes ran while A sang.
- * Now the join is where A is quiet for the whole mix (`quietJoinSec`). When A sings to its end with no such moment, the old phrase start
- * stays and `aVoiceSec` names where A sings in it — the panel draws it red and the notice names it; never a silent pick. With no voice reading for A, the
- * phrase count from the grid, and the words say A's singing is unknown there.
+ * v0.12.13, the owner (19/10): waiting for A to stop singing is only for joining a voice to a voice (the vocal handoff). From v0.9.63 to
+ * here this waited for a stretch where A was quiet for the whole mix, so a click could wait past the moment he heard as the way in (his
+ * screenshot: a drum break at 3:09–3:11, the mix at 3:15). Back to A's next phrase start (v0.9.17); `aVoiceSec` still names where A sings
+ * in the mix, as a fact.
+ * With no voice reading for A, the phrase count from the grid, and the words say A's singing is unknown there.
  */
 export function deckPhraseJoin(deckId: DeckId, positionSec: number): { sec: number; why: string; aVoiceSec: number | null } | null {
   const deck = useStore.getState().decks[deckId]
   if (!deck.beatGrid) return null
   const side = deckHandoffSide(deckId)
-  if (!('missing' in side)) {
-    const quiet = quietJoinSec(side, positionSec, plainMixNeedSec(deckId, deck.beatGrid))
-    if (quiet) return { sec: quiet.sec, why: quiet.onVoiceEnd ? 'כשהשירה שלו נגמרת' : 'תחילת קטע בלי שירה', aVoiceSec: null }
-  }
   const phrase = nextPhraseStartSec(deck.beatGrid, 'missing' in side ? null : side.timeline, songEndSec(deck.audibleEndSec, deck.durationSec), positionSec)
   const aVoiceSec = 'missing' in side ? null : firstVoiceInSec(side, phrase.sec, phrase.sec + plainMixNeedSec(deckId, deck.beatGrid))
-  if (aVoiceSec != null) return { sec: phrase.sec, why: 'הוא שר עד סוף השיר בלי רגע שקט שמחזיק מעבר שלם, אז על השירה שלו', aVoiceSec }
   const why =
     phrase.by === 'voice'
       ? 'תחילת קטע'
       : phrase.by === 'grid'
       ? `תחילת קטע, לפי ספירת 8 תיבות מתחילת השיר (${'missing' in side ? `${side.missing} — לא ידוע אם הוא שר שם` : 'אין בו שירה'})`
       : 'אין עוד תחילת קטע לפני סוף השיר, אז בתיבה הבאה'
-  return { sec: phrase.sec, why, aVoiceSec: null }
+  return { sec: phrase.sec, why, aVoiceSec }
 }
 
 /**

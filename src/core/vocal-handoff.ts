@@ -12,6 +12,8 @@ import { KICK_LOCK_PLAIN_SHIFT_BARS } from '@/core/kick-lock'
  * put B's drums under A's last lines, a median 13 s. He chose, on a card, the same rule for the handoff as for every other way in: B starts on
  * the yellow line where A's voice is over, plays a run-in of N bars with no voice while A goes down, and sings when A is gone. N is the
  * longest of `RUN_IN_BARS` that fits both quiets (the research: 16 bars in house and techno, 8 when there is no room, 4 at least).
+ * **v0.12.13, the owner again (19/10): waiting for A's quiet is no longer a rule for any mix, and this one goes back to B under A's last lines — but
+ * with B's voice landing exactly where A's transition ends** (`planHandoff`'s own comment).
  *
  * "Only drums" is done first by WHERE B enters — in a stretch of B that has no voice — and not by separated channels: the app has no
  * stems, and fading separated channels one by one is the method the patent in ROADMAP.md v0.9.15 covers. Choosing the moment by the voice
@@ -21,8 +23,8 @@ import { KICK_LOCK_PLAIN_SHIFT_BARS } from '@/core/kick-lock'
  * Everything is counted in bars. With SYNC on, B's beats follow A's, so N bars of A and N bars of B take the same time, whatever the two
  * BPMs are; each side converts bars to its own track seconds with its own grid. That holds only when SYNC plays B straight: since v0.8.36 it
  * plays B half- or double-time when straight is out of the fader's reach, and then B runs through 2 (or ½) of its bars per bar of A. The
- * caller does not plan in that case and says why (`HANDOFF_NEEDS_STRAIGHT_SYNC`). The plan is clean by construction: from the join until A is
- * fully out, A is in a stretch with no voice, and B is in one until its voice line — which is where A is out.
+ * caller does not plan in that case and says why (`HANDOFF_NEEDS_STRAIGHT_SYNC`). Since v0.12.13 B's drums play under A's last lines on
+ * purpose; what stays clean by construction is B's quiet until its voice line, which is where A's transition ends.
  *
  * Voice is read as the countdown reads it (`voiceRuns`): `unsure` counts as voice and a gap of 2 s or less is still voice (`COUNTDOWN_MERGE_GAP_SEC`: too short to bring another singer in),
  * so a plan never promises a quiet stretch the strip only drew dashed. Pure.
@@ -33,15 +35,8 @@ export const HANDOFF_NEEDS_STRAIGHT_SYNC = 'מסירת שירה: הדקים יס
 
 /** The fewest bars B plays with no voice before it sings — less is not a run-in, it is a cut. Half a phrase. Chosen, not measured. */
 export const MIN_RUNWAY_BARS = 4
-/** A is taken down over at least this many bars — "slowly" (his word) — and only inside A's own quiet stretch. Chosen, not measured. */
+/** A is taken down over this many bars after B's voice comes in — "slowly" (his word). Chosen, not measured. */
 export const MIN_FADE_BARS = 4
-/**
- * v0.9.63: the run-ins a handoff picks from, longest first — B's bars with no voice between A's voice end and B's voice line, A going down
- * over all of them. 16 is what DJs use in house and techno, 8 when there is no room, 4 the least (`docs/research/vocal-entry-timing.md`:
- * transitions in 1,557 real sets pile up on multiples of 8 bars). On his songs (07/10) Mizrahi mostly fits only 4; which of the three sounds
- * best is his ear's call, not this file's.
- */
-export const RUN_IN_BARS = [16, 8, MIN_RUNWAY_BARS] as const
 
 export interface HandoffSide {
   timeline: VocalTimeline
@@ -55,20 +50,26 @@ export interface HandoffSide {
 }
 
 export interface HandoffPlan {
-  /** A track seconds, a yellow line on A: A's voice is over (or A is already quiet), and B starts playing here. */
+  /** A track seconds, a yellow line on A: B starts playing here, under A's last bars of singing (v0.12.13). */
   joinSec: number
   /** B track seconds, a yellow line on B: where B starts — `runwayBars` before its voice, inside a stretch of B with no voice. */
   entrySec: number
-  /** A track seconds: the bass swap, halfway through the run-in (`core/eq-mix.ts`'s `swapSec`). */
+  /** A track seconds: the end of A's transition — B's voice comes in and the bass swaps here (`core/eq-mix.ts`'s `swapSec`). */
   handoffSec: number
   /** B track seconds: the yellow line B's voice starts on (at or just before the voice itself). B is there when A is at `fadeEndSec`. */
   bVoiceSec: number
-  /** A track seconds: A is fully out and B's voice comes in — the transition is finished. */
+  /** A track seconds: A is fully out, `MIN_FADE_BARS` after `handoffSec` — the transition is finished. */
   fadeEndSec: number
-  /** Bars from the join to B's voice: one of `RUN_IN_BARS`. A goes down over all of them. */
+  /** Bars from the join to B's voice: A's transition plus the bars B plays under A's last singing (v0.12.13). */
   runwayBars: number
   /** True when the join is at the end of one of A's voices; false when A was already quiet there and the join is later in that quiet. */
   onVoiceEnd: boolean
+  /** v0.12.13: A track seconds, the yellow line A's last line of this handoff ends on — B has been playing under it for a few bars. */
+  aVoiceEndSec: number
+  /** v0.12.13: bars of A's transition, from `aVoiceEndSec` to B's voice (`handoffSec`). */
+  transitionBars: number
+  /** v0.12.13: B track seconds where A is out — `MIN_FADE_BARS` after B's voice line. */
+  bMixEndSec: number
 }
 
 /**
@@ -121,9 +122,9 @@ export function plainMixEndInB(entrySec: number, grid: Pick<BeatGrid, 'bpm'> | n
   return entrySec + crossfadeSec * 1.5 + (1 + KICK_LOCK_PLAIN_SHIFT_BARS) * (grid && grid.bpm > 0 ? barSec(grid) : FALLBACK_BAR_SEC)
 }
 
-/** Where a handoff is over, in B's own seconds: since v0.9.63 A is out when B's voice comes in. */
-export function handoffEndInB(plan: Pick<HandoffPlan, 'bVoiceSec'>): number {
-  return plan.bVoiceSec
+/** Where a handoff is over, in B's own seconds: since v0.12.13 A goes down after B's voice comes in, so `MIN_FADE_BARS` of B later. */
+export function handoffEndInB(plan: Pick<HandoffPlan, 'bMixEndSec'>): number {
+  return plan.bMixEndSec
 }
 const EPS = 1e-6
 
@@ -213,47 +214,69 @@ export function nextPhraseStartSec(
 }
 
 /**
- * The earliest clean handoff into B's voice at `bVoice`, with A at `aPositionSec` now. Null when none is left in A — the caller says so in
- * words.
+ * v0.12.13, the owner (19/10), replacing v0.9.63's order for this mix only: "only when you join a voice of the outgoing song to a voice of
+ * the incoming one must there be a separation — the outgoing song's last line ends, a transition plays, and right as the transition ends the
+ * incoming song comes in, sitting perfectly on the beats". His steps: (1) A plays with its voice and bass; (2) B comes in, drums only — its
+ * bass killed (his card, 19/10) — while A still sings; (3) A's voice ends and A's transition plays; (4) B's voice starts the moment that
+ * transition ends; (5) A's voice band goes, then its sound and bass (`core/eq-mix.ts`, with the swap on B's voice line).
  *
- * v0.9.63: B joins where A's voice is over — the yellow line after it, or a whole phrase later while A is still quiet (v0.9.17's phrase rule,
- * never on just the next bar) — and sings `runwayBars` later, with A gone by then. The run-in is the longest of `RUN_IN_BARS` that fits A's
- * quiet from the join and B's quiet before its voice; when none fits here, the next phrase line in the same quiet is tried (it can only have
- * less room), then A's next voice end.
+ * A's transition: the quiet after one of A's voices, up to one phrase (`PHRASE_BARS`) — or less when A sings again sooner. B plays under
+ * A's last bars of singing for `UNDER_A_BARS`, at least `MIN_UNDER_A_BARS`. Measured on his marks before building
+ * (`/mnt/project-files/research/handoff-transition-2026-10-19/results.md`): with 4 bars under A, 64% of same-genre pairs had any such
+ * moment (failed the rule set beforehand); with 2, 75% (passed). So 4 when B's quiet allows it, 2 at the least.
+ */
+export const UNDER_A_BARS = 4
+export const MIN_UNDER_A_BARS = 2
+
+/**
+ * The earliest such handoff into B's voice at `bVoice`, with A at `aPositionSec` now: the first voice end of A still ahead whose transition
+ * B's quiet can cover with at least `MIN_UNDER_A_BARS` to spare, and which leaves A `MIN_FADE_BARS` after it to go down in. Null when none
+ * is left — the caller says so in words.
  */
 export function planHandoff(a: HandoffSide, aPositionSec: number, b: HandoffSide, bVoice: BVoiceStart): HandoffPlan | null {
   const barA = barSec(a.grid)
   const barB = barSec(b.grid)
   // B needs a beat of A to join on: the next yellow line still ahead (a join exactly on the playhead would already be behind it by the next frame).
   const firstJoin = nextBarLineSec(aPositionSec + EPS, a.grid)
-  if (bVoice.quietBars < MIN_RUNWAY_BARS) return null
-  for (const q of quietStretches(a, aPositionSec)) {
-    // A's voice ends mid-bar more often than not: the join waits for the yellow line after it, so A is quiet from there on.
-    const voiceEnd = quietPhraseStart(a, q)
-    for (let joinSec = voiceEnd; ; joinSec += PHRASE_BARS * barA) {
-      const aQuietBars = Math.floor((q.to - joinSec) / barA + EPS)
-      const runway = RUN_IN_BARS.find((n) => n <= aQuietBars && n <= bVoice.quietBars)
-      if (runway == null) break
-      if (joinSec < firstJoin - EPS) continue
-      return {
-        joinSec,
-        entrySec: bVoice.voiceSec - runway * barB,
-        // On a yellow line: every run-in is an even number of bars.
-        handoffSec: joinSec + (runway / 2) * barA,
-        bVoiceSec: bVoice.voiceSec,
-        // Clamped: the floor above allows a hair past the quiet's end, and when that end is the song's end the engine's position is clamped
-        // to the duration and would never reach a fade end beyond it — the transition would hang just short of finishing.
-        fadeEndSec: Math.min(q.to, joinSec + runway * barA),
-        runwayBars: runway,
-        onVoiceEnd: q.afterVoice && joinSec === voiceEnd,
-      }
+  const runs = voiceRuns(a.timeline, a.durationSec)
+  for (let i = 0; i < runs.length; i++) {
+    const voiceEnd = barLineAtOrAfterSec(runs[i].to, a.grid)
+    const nextVoice = i + 1 < runs.length ? runs[i + 1].from : a.durationSec
+    // One bar of quiet is kept after the transition when A sings again: B's voice comes in on the transition's end and A's voice band goes
+    // over that bar (`eqMixFrame`'s MID swap), so A's next line starts with its MIDs already cut — never at full over B's first line.
+    const quietBars = Math.floor((nextVoice - voiceEnd) / barA + EPS)
+    const transitionBars = Math.min(PHRASE_BARS, i + 1 < runs.length ? quietBars - 1 : quietBars)
+    if (transitionBars < 1) continue
+    const transitionEnd = voiceEnd + transitionBars * barA
+    if (transitionEnd + MIN_FADE_BARS * barA > a.durationSec + EPS) continue
+    // Bars B can play under A's singing: what its quiet leaves after the transition, and what is still ahead of the playhead.
+    const roomInB = bVoice.quietBars - transitionBars
+    const roomInA = Math.floor((voiceEnd - firstJoin) / barA + EPS)
+    // B comes in while A sings (his step 2), not before a short line of A starts.
+    const sung = Math.floor((voiceEnd - barLineAtOrAfterSec(runs[i].from, a.grid)) / barA + EPS)
+    const under = Math.min(UNDER_A_BARS, roomInB, roomInA, sung)
+    if (under < MIN_UNDER_A_BARS) continue
+    const runwayBars = transitionBars + under
+    return {
+      joinSec: voiceEnd - under * barA,
+      entrySec: bVoice.voiceSec - runwayBars * barB,
+      // The bass swap on B's voice line: A's mids (its voice band) go over the next bar, then its highs, then the crossfader (`eqMixFrame`).
+      handoffSec: transitionEnd,
+      bVoiceSec: bVoice.voiceSec,
+      fadeEndSec: transitionEnd + MIN_FADE_BARS * barA,
+      runwayBars,
+      onVoiceEnd: true, // kept for the plan's shape; always the end of a voice since v0.12.13
+      aVoiceEndSec: voiceEnd,
+      transitionBars,
+      bMixEndSec: bVoice.voiceSec + MIN_FADE_BARS * barB,
     }
   }
   return null
 }
 
 /**
- * v0.9.63: where a plain transition (an energy point, a "Mix in" pad, an excellent pair moved off A's voice) joins — the first yellow line
+ * Not used by the app since v0.12.13 (plain mixes join on A's next phrase start again, `ctl.deckPhraseJoin`); kept, with its tests, as the
+ * rule the owner may want back. v0.9.63: where a plain transition (an energy point, a "Mix in" pad, an excellent pair moved off A's voice) joins — the first yellow line
  * from `positionSec` on where A is not singing and stays so for `needSec` of A (the whole mix), and A plays on for at least `MIN_FADE_BARS`
  * after it. Like `planHandoff`'s join: at the end of A's voice, or whole phrases after it while A is still quiet — never on just any bar.
  * Null when A has no such moment left; the caller then says, in words, that the mix will run over A's voice.
