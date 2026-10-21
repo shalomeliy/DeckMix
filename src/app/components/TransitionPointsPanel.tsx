@@ -10,7 +10,7 @@ import type { BeatGrid, DeckId } from '@/core/types'
 import { TRANSITION_CROSSFADE_SEC } from '@/core/constants'
 import { HANDOFF_NEEDS_STRAIGHT_SYNC, bVoiceStarts, enoughSongAfterMix, handoffEndInB, planHandoff, plainMixEndInB, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
 import { SWAP_BARS, planVocalSwap, swapEntries, type SwapEntry, type VocalSwapPlan } from '@/core/vocal-swap-mix'
-import { withoutBad, type BadEntry } from '@/core/bad-mixes'
+import { excellentFirst, isExcellentEntry, withoutBad, type BadEntry } from '@/core/bad-mixes'
 import { Pill } from '@/app/components/controls'
 
 /**
@@ -105,6 +105,8 @@ interface Props {
   onVocalSwap: (entry: SwapEntry) => void
   /** v0.12.14: this pair's mixes rated Bad (by the incoming song's start second). Rows at those seconds are left out, and counted. */
   badEntries: readonly BadEntry[]
+  /** v0.12.15: entry seconds of this pair rated Excellent: listed first, marked, and never hidden by a Bad. */
+  excellentSecs: readonly number[]
   /** "Show again": forgets the Bad ratings of this pair. */
   onRestoreBad: () => void
 }
@@ -181,6 +183,7 @@ export function TransitionPointsPanel({
   phraseJoin,
   onVocalSwap,
   badEntries,
+  excellentSecs,
   onRestoreBad,
 }: Props) {
   // bands stays null until *this deck's* load-time analysis resolves
@@ -196,7 +199,8 @@ export function TransitionPointsPanel({
     return { candidates: ok, lateCandidates: all.length > ok.length }
   }, [bands, durationSec, endSec, beatGrid])
 
-  const { shown: candidates, hidden: hiddenEnergy } = withoutBad(allCandidates, (c) => c.sec, badEntries)
+  const { shown: candidatesShown, hidden: hiddenEnergy } = withoutBad(allCandidates, (c) => c.sec, badEntries, excellentSecs)
+  const candidates = excellentFirst(candidatesShown, (c) => c.sec, excellentSecs)
   const incomingProfile = useMemo(
     () => (bands ? analyzeEnergyProfile(bands, durationSec) : null),
     [bands, durationSec],
@@ -229,9 +233,10 @@ export function TransitionPointsPanel({
   )
   // v0.12.14: the Bad-rated rows come out after the notes below were decided on the full lists, so a section whose every row was rated Bad
   // says so (hiddenBad) instead of claiming the song has no such mix.
-  const { shown: rows, hidden: hiddenHandoff } = withoutBad(allRows, (r) => r.plan.entrySec, badEntries)
-  const swapShown = swapAll ? withoutBad(swapAll.rows, (r) => r.plan.entrySec, badEntries) : null
-  const swap = swapAll && swapShown ? { ...swapAll, rows: swapShown.shown } : null
+  const { shown: rowsShown, hidden: hiddenHandoff } = withoutBad(allRows, (r) => r.plan.entrySec, badEntries, excellentSecs)
+  const rows = excellentFirst(rowsShown, (r) => r.plan.entrySec, excellentSecs)
+  const swapShown = swapAll ? withoutBad(swapAll.rows, (r) => r.plan.entrySec, badEntries, excellentSecs) : null
+  const swap = swapAll && swapShown ? { ...swapAll, rows: excellentFirst(swapShown.shown, (r) => r.plan.entrySec, excellentSecs) } : null
   const hiddenBad = hiddenHandoff + (swapShown?.hidden ?? 0) + hiddenEnergy
   // Why there is no handoff row, in words — the panel never just leaves the section out.
   const handoffNote = !sides
@@ -294,7 +299,7 @@ export function TransitionPointsPanel({
               className="rounded-[var(--radius-sm)] text-left transition-opacity hover:opacity-80"
             >
               {/* v0.12.13: his five steps in one row — B's drums from here, A's last line ends, A's transition, B sings. */}
-              <Pill tone="idle" label={`השיר מתחיל מ-${fmtSec(plan.entrySec)} · שר מ-${fmtSec(plan.bVoiceSec)}`} />
+              <Pill tone={isExcellentEntry(excellentSecs, plan.entrySec) ? 'accent' : 'idle'} label={`${isExcellentEntry(excellentSecs, plan.entrySec) ? '★ ' : ''}השיר מתחיל מ-${fmtSec(plan.entrySec)} · שר מ-${fmtSec(plan.bVoiceSec)}`} />
               <span className="mt-0.5 flex items-center gap-1 px-2 text-2xs text-grid-muted">
                 <span className="h-1 w-1 shrink-0 rounded-full" style={{ background: 'var(--color-live)' }} />
                 {`תופים כשדק ${otherDeckId} ב-${fmtSec(plan.joinSec)} · הוא מסיים לשיר ב-${fmtSec(plan.aVoiceEndSec)} · מעבר ${plan.transitionBars} תיבות · בעוד ${fmtSec(plan.joinSec - otherPositionBucketSec)}`}
@@ -316,7 +321,7 @@ export function TransitionPointsPanel({
               onClick={() => onVocalSwap(entry)}
               className="rounded-[var(--radius-sm)] text-left transition-opacity hover:opacity-80"
             >
-              <Pill tone="idle" label={`מתחיל כשדק ${otherDeckId} ב-${fmtSec(plan.joinSec)} · נכנס מהשירה שלו ב-${fmtSec(plan.bVoiceSec)}`} />
+              <Pill tone={isExcellentEntry(excellentSecs, plan.entrySec) ? 'accent' : 'idle'} label={`${isExcellentEntry(excellentSecs, plan.entrySec) ? '★ ' : ''}מתחיל כשדק ${otherDeckId} ב-${fmtSec(plan.joinSec)} · נכנס מהשירה שלו ב-${fmtSec(plan.bVoiceSec)}`} />
               <span className="mt-0.5 flex items-center gap-1 px-2 text-2xs text-grid-muted">
                 <span className="h-1 w-1 shrink-0 rounded-full" style={{ background: 'var(--color-live)' }} />
                 {plan.onVoiceEnd ? `דק ${otherDeckId} מסיים לשיר ב-${fmtSec(plan.joinSec)}` : `דק ${otherDeckId} שקט ב-${fmtSec(plan.joinSec)}`}
@@ -379,7 +384,7 @@ export function TransitionPointsPanel({
                 onClick={() => onSelect(c.sec)}
                 className="rounded-[var(--radius-sm)] text-left transition-opacity hover:opacity-80"
               >
-                <Pill tone="idle" label={`השיר מתחיל מ-${fmtSec(c.sec)} · ${REASON_LABEL[c.reason]}`} />
+                <Pill tone={isExcellentEntry(excellentSecs, c.sec) ? 'accent' : 'idle'} label={`${isExcellentEntry(excellentSecs, c.sec) ? '★ ' : ''}השיר מתחיל מ-${fmtSec(c.sec)} · ${REASON_LABEL[c.reason]}`} />
                 <span className="mt-0.5 flex items-center gap-1 px-2 text-2xs text-grid-muted">
                   <span className="h-1 w-1 shrink-0 rounded-full" style={{ background: dot }} />
                   {text}

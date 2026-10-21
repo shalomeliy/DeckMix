@@ -83,7 +83,3 @@ export function pairRows(
     .sort((a, b) => b.entries.length - a.entries.length)
 }
 
-/** v0.12.14: a mix rated Bad takes out the Excellent entries at that same point, so one point is never both. */
-export function removeEntriesNear(entries: readonly PairEntry[], entrySec: number, windowSec: number): PairEntry[] {
-  return entries.filter((e) => Math.abs(e.entrySec - entrySec) >= windowSec)
-}

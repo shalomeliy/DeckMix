@@ -27,8 +27,24 @@ export function addBadEntry(existing: readonly BadEntry[], next: BadEntry): BadE
  * Splits a panel section into what is offered and how many rows the owner's Bad ratings took out, so the panel can say the number
  * (never skip silently) instead of just shortening.
  */
-export function withoutBad<T>(rows: readonly T[], entrySecOf: (row: T) => number, bad: readonly BadEntry[]): { shown: T[]; hidden: number } {
+export function withoutBad<T>(
+  rows: readonly T[],
+  entrySecOf: (row: T) => number,
+  bad: readonly BadEntry[],
+  excellentSecs: readonly number[] = [],
+): { shown: T[]; hidden: number } {
   if (bad.length === 0) return { shown: [...rows], hidden: 0 }
-  const shown = rows.filter((r) => !isBadEntry(bad, entrySecOf(r)))
+  // an Excellent point is never hidden by a Bad (owner, 21/10)
+  const shown = rows.filter((r) => isExcellentEntry(excellentSecs, entrySecOf(r)) || !isBadEntry(bad, entrySecOf(r)))
   return { shown, hidden: rows.length - shown.length }
+}
+
+export const isExcellentEntry = (excellentSecs: readonly number[], entrySec: number): boolean =>
+  excellentSecs.some((s) => Math.abs(s - entrySec) < SAME_BAD_WINDOW_SEC)
+
+/** Rows the owner rated Excellent first, each group keeping its own order. */
+export function excellentFirst<T>(rows: readonly T[], entrySecOf: (row: T) => number, excellentSecs: readonly number[]): T[] {
+  if (excellentSecs.length === 0) return [...rows]
+  const good = rows.filter((r) => isExcellentEntry(excellentSecs, entrySecOf(r)))
+  return [...good, ...rows.filter((r) => !isExcellentEntry(excellentSecs, entrySecOf(r)))]
 }

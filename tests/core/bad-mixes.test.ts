@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addBadEntry, isBadEntry, SAME_BAD_WINDOW_SEC, withoutBad } from '@/core/bad-mixes'
-import { removeEntriesNear } from '@/core/pair-entries'
+import { addBadEntry, excellentFirst, isBadEntry, SAME_BAD_WINDOW_SEC, withoutBad } from '@/core/bad-mixes'
 
 describe('bad mixes', () => {
   const bad = [{ entrySec: 64, at: 1 }]
@@ -22,8 +21,9 @@ describe('bad mixes', () => {
   it('with nothing rated bad, every row stays', () => {
     expect(withoutBad([{ s: 1 }], (x) => x.s, [])).toEqual({ shown: [{ s: 1 }], hidden: 0 })
   })
-  it('a Bad rating removes the Excellent entry at the same point only', () => {
-    const e = [{ entrySec: 64, at: 1 }, { entrySec: 128, at: 2 }]
-    expect(removeEntriesNear(e, 65, SAME_BAD_WINDOW_SEC).map((x) => x.entrySec)).toEqual([128])
+  it('an Excellent point is never hidden by a Bad and comes first', () => {
+    const rows = [{ s: 10 }, { s: 64 }, { s: 128 }]
+    expect(withoutBad(rows, (x) => x.s, bad, [64]).shown).toHaveLength(3)
+    expect(excellentFirst(rows, (x) => x.s, [128]).map((x) => x.s)).toEqual([128, 10, 64])
   })
 })

@@ -107,9 +107,8 @@ import { compareGrid, gridCheckExportText, type DriftRow } from '@/core/grid-dri
 import { barLineAtNearestBeat, checkStartSec, nextInQueue, queueOrder, queueRemaining } from '@/core/bar-one-queue'
 import { ownerCorrection, reconcileSavedGrid, resolveGridCorrection } from '@/core/grid-corrections'
 import { getExcellentPoints, markExcellent } from '@/platform/mix-ratings-idb/store'
-import { markExcellentPair, removeExcellentNear } from '@/platform/mix-pairs-idb/store'
+import { markExcellentPair } from '@/platform/mix-pairs-idb/store'
 import { clearBadMixes, markBadMix } from '@/platform/mix-bad-idb/store'
-import { SAME_BAD_WINDOW_SEC } from '@/core/bad-mixes'
 import { clock } from '@/platform/clock-audio'
 import { analyseDeckTrackNow, inBackgroundPass, readOriginalTempoKey, readTagBpm, readTrackData } from '@/platform/source-fsaccess/library'
 import { analysisCacheKey } from '@/core/analysis-cache'
@@ -4762,7 +4761,7 @@ export function rateMixTransition(rating: 'bad' | 'needs-work' | 'excellent') {
 /**
  * v0.12.14, the owner (21/10): a mix rated Bad must stop coming back, and another one be offered. The pair + the incoming song's entry second
  * is remembered (`mix-bad-idb`); Mix Assist's panel then leaves those rows out and says how many (`TransitionPointsPanel`), so the other
- * rows of the same pair are the alternative. An Excellent saved at the same point is removed — one point is never both. A hash still missing
+ * rows of the same pair are the alternative. An Excellent saved at the same point is NOT removed (owner, 21/10): the panel keeps it, first and marked, whatever a later Bad says. A hash still missing
  * (analysis not done) is said, not skipped, same as the Excellent pair.
  */
 function saveBadMix(r: NonNullable<AppState['pendingMixRating']>) {
@@ -4773,7 +4772,6 @@ function saveBadMix(r: NonNullable<AppState['pendingMixRating']>) {
   }
   const { contentHash: from, toContentHash: to, entrySec } = r
   void markBadMix(from, to, entrySec)
-    .then(() => removeExcellentNear(from, to, entrySec, SAME_BAD_WINDOW_SEC))
     .then(() => {
       useStore.setState((s) => ({ badMixesRev: s.badMixesRev + 1, excellentPairsRev: s.excellentPairsRev + 1 }))
       setNotice({

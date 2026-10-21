@@ -6,6 +6,8 @@ import { useSettings } from '@/app/hooks/useSettings'
 import { useFlash } from '@/app/state/flash'
 import { useStore } from '@/app/state/store'
 import { getBadEntries } from '@/platform/mix-bad-idb/store'
+import { getExcellentFollowUps } from '@/platform/mix-pairs-idb/store'
+import { entriesOf } from '@/core/pair-entries'
 import type { BadEntry } from '@/core/bad-mixes'
 import type { DeckId } from '@/core/types'
 import { heardSemitones, shiftCamelot } from '@/core/key-sync'
@@ -76,19 +78,27 @@ export function Deck({ deckId }: { deckId: DeckId }) {
   const pairFromHash = otherTrack?.contentHash
   const pairToHash = deck.track?.contentHash
   const [badEntries, setBadEntries] = useState<BadEntry[]>([])
+  // the same pair's Excellent entry seconds: first in the panel and marked (v0.12.15)
+  const [excellentSecs, setExcellentSecs] = useState<number[]>([])
+  const excellentPairsRev = useStore((s) => s.excellentPairsRev)
   useEffect(() => {
     let cancelled = false
     if (!pairFromHash || !pairToHash) {
       setBadEntries([])
+      setExcellentSecs([])
       return
     }
     void getBadEntries(pairFromHash, pairToHash).then((b) => {
       if (!cancelled) setBadEntries(b)
     })
+    void getExcellentFollowUps(pairFromHash).then((f) => {
+      const pair = f.find((p) => p.toHash === pairToHash)
+      if (!cancelled) setExcellentSecs(pair ? entriesOf(pair).map((e) => e.entrySec) : [])
+    })
     return () => {
       cancelled = true
     }
-  }, [pairFromHash, pairToHash, badMixesRev])
+  }, [pairFromHash, pairToHash, badMixesRev, excellentPairsRev])
   const manualTags = useStore((s) => s.vocalManual)
   const vocalSide = useMemo(
     () => (showTransitionPoints ? ctl.deckHandoffSide(deckId) : { missing: '' }),
@@ -374,6 +384,7 @@ export function Deck({ deckId }: { deckId: DeckId }) {
               otherVocalSide={otherVocalSide}
               syncMult={ctl.handoffSyncMultiplier(otherDeckId, deckId)}
               badEntries={badEntries}
+              excellentSecs={excellentSecs}
               onRestoreBad={() => pairFromHash && pairToHash && ctl.restoreBadMixes(pairFromHash, pairToHash)}
               onHandoff={(voice) => ctl.startVocalHandoffAt(otherDeckId, deckId, voice)}
               onVocalSwap={(entry) => ctl.startVocalSwapAt(otherDeckId, deckId, entry)}
