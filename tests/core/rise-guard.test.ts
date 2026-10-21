@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { analyzeEnergyProfile } from '@/core/structure'
-import { joinWithoutCut, riseCutByQuietEntry } from '@/core/rise-guard'
+import { joinWithoutCut, riseCutByQuietEntry, riseOnRow } from '@/core/rise-guard'
 
 /** bands = low/mid/high triples, one bucket per second; `levels` is the per-second loudness. */
 function profile(levels: number[]) {
@@ -42,4 +42,22 @@ describe('joinWithoutCut', () => {
     expect(joinWithoutCut(40, next, () => bad)).toMatchObject({ sec: 40, moved: false, stuck: true }))
   it('stops when the song has no phrase start left', () =>
     expect(joinWithoutCut(40, () => null, () => bad)).toMatchObject({ stuck: true }))
+})
+
+describe('riseOnRow', () => {
+  const lv = (levels: number[]) => {
+    const b = new Float32Array(levels.length * 3)
+    levels.forEach((l, i) => (b[i * 3] = l))
+    return { bands: b, durationSec: levels.length }
+  }
+  const a = lv([...steady(60, 0.5), ...steady(60, 1)])
+  const quiet = lv([...steady(20, 0.15), ...steady(100, 0.9)])
+  it('says cuts / ok from the two songs\' bands', () => {
+    expect(riseOnRow(a, quiet, 58, 0, 6)).toBe('cuts')
+    expect(riseOnRow(a, quiet, 20, 0, 6)).toBe('ok')
+  })
+  it('says unchecked, not ok, when a song has no bands yet', () => {
+    expect(riseOnRow({ bands: null, durationSec: 120 }, quiet, 58, 0, 6)).toBe('unchecked')
+    expect(riseOnRow(a, { durationSec: 120 }, 58, 0, 6)).toBe('unchecked')
+  })
 })

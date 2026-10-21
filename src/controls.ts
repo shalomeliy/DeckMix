@@ -60,10 +60,10 @@ import {
 import { exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
 import { catchUpFactor, kickLockStep, KICK_LOCK_MAX_BARS, KICK_LOCK_SEC, KICK_LOCK_SETTLE_SEC, KICK_LOCK_KEEP_START_SEC, KICK_LOCK_NUDGE_SEC, KICK_LOCK_PLAIN_SHIFT_BARS } from '@/core/kick-lock'
 import { AUTO_MIX_CROSSFADER_CURVE, eqMixFrame, incomingUnderA, plainEqMixPlan, type BassSwapStyle, type EqBand, type EqBands, type EqMixPlan } from '@/core/eq-mix'
-import { joinWithoutCut, riseCutByQuietEntry } from '@/core/rise-guard'
+import { energyProfileOf, joinWithoutCut, riseCutByQuietEntry } from '@/core/rise-guard'
 import { HANDOFF_NEEDS_STRAIGHT_SYNC, MIN_BARS_AFTER_MIX, enoughSongAfterMix, firstVoiceInSec, handoffSide, nextPhraseStartSec, planHandoff, plainMixEndInB, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
 import { SWAP_CROSSFADER_CURVE, planVocalSwap, swapIncoming, vocalSwapFrame, type SwapEntry, type VocalSwapPlan } from '@/core/vocal-swap-mix'
-import { analyzeEnergyProfile, findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
+import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
 import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
 import { MIN_REGION_SEC, barLineAtOrBeforeSec, closeOpenMark, drawnBarGrid, moveRegionEdge, undoLastEnd, type VocalManualTag } from '@/core/sound/vocal-manual'
 import { deleteVocalManual, getAllVocalManual, getVocalManual, putVocalManual } from '@/platform/vocal-manual-idb/store'
@@ -4678,14 +4678,6 @@ export function deckPhraseJoin(
  * a bar, since the real entry can move that much to land on a yellow line, plus the bar(s) the v0.9.33 kick lock may push the start back —
  * without them a quiet stretch that just fits would end with A singing over the tail of the fade.
  */
-/** An energy profile is a pass over the whole contour and the panel asks per row on every render: kept per analysis, which `bands` identifies. */
-const energyProfiles = new WeakMap<Float32Array, ReturnType<typeof analyzeEnergyProfile>>()
-function energyProfileOf(bands: Float32Array, durationSec: number) {
-  let p = energyProfiles.get(bands)
-  if (!p) energyProfiles.set(bands, (p = analyzeEnergyProfile(bands, durationSec)))
-  return p
-}
-
 function plainMixNeedSec(deckId: DeckId, grid: BeatGrid): number {
   const deck = useStore.getState().decks[deckId]
   return TRANSITION_CROSSFADE_SEC * deckRate(deck.baseRate, deck.tempo, cfg.tempoRange) + barSecOf(grid) * (0.5 + KICK_LOCK_PLAIN_SHIFT_BARS)

@@ -9,6 +9,7 @@ import {
 import type { BeatGrid, DeckId } from '@/core/types'
 import { TRANSITION_CROSSFADE_SEC } from '@/core/constants'
 import { HANDOFF_NEEDS_STRAIGHT_SYNC, bVoiceStarts, enoughSongAfterMix, handoffEndInB, planHandoff, plainMixEndInB, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
+import { riseOnRow } from '@/core/rise-guard'
 import { SWAP_BARS, planVocalSwap, swapEntries, type SwapEntry, type VocalSwapPlan } from '@/core/vocal-swap-mix'
 import { excellentFirst, isExcellentEntry, withoutBad, type BadEntry } from '@/core/bad-mixes'
 import { Pill } from '@/app/components/controls'
@@ -221,6 +222,16 @@ export function TransitionPointsPanel({
   }
 
   const sides = 'missing' in vocalSide || 'missing' in otherVocalSide ? null : { self: vocalSide, other: otherVocalSide }
+  // v0.12.17: said on the row, never moved (`riseOnRow`): the playing song rises soon after this join and the incoming one starts quiet.
+  const riseLine = (joinSec: number, entrySec: number, spanSec: number) => {
+    if (!sides) return null
+    const r = riseOnRow(sides.other, sides.self, joinSec, entrySec, spanSec)
+    return r === 'ok'
+      ? null
+      : r === 'cuts'
+        ? { text: `דק ${otherDeckId} עולה אחרי הכניסה והשיר הזה מתחיל שקט (לפי עוצמה)`, dot: 'var(--color-warn)' }
+        : { text: 'לא נבדק אם הכניסה קוטעת עלייה — אין עדיין ניתוח עוצמה לשני השירים', dot: 'var(--color-grid-dim)' }
+  }
   const { rows: allRows, allLate } = useMemo(
     () => (sides && syncMult === 1 && hasVoice(sides.self) ? handoffRows(sides.other, otherPositionBucketSec, sides.self) : { rows: [], allLate: false }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -304,6 +315,15 @@ export function TransitionPointsPanel({
                 <span className="h-1 w-1 shrink-0 rounded-full" style={{ background: 'var(--color-live)' }} />
                 {`תופים כשדק ${otherDeckId} ב-${fmtSec(plan.joinSec)} · הוא מסיים לשיר ב-${fmtSec(plan.aVoiceEndSec)} · מעבר ${plan.transitionBars} תיבות · בעוד ${fmtSec(plan.joinSec - otherPositionBucketSec)}`}
               </span>
+              {(() => {
+                const r = riseLine(plan.joinSec, plan.entrySec, plan.fadeEndSec - plan.joinSec)
+                return r && (
+                  <span className="flex items-center gap-1 px-2 text-2xs text-grid-muted" data-testid="rise-note">
+                    <span className="h-1 w-1 shrink-0 rounded-full" style={{ background: r.dot }} />
+                    {r.text}
+                  </span>
+                )
+              })()}
             </button>
           ))}
         </div>
@@ -328,6 +348,15 @@ export function TransitionPointsPanel({
                 {` · בעוד ${fmtSec(plan.joinSec - otherPositionBucketSec)} · ${Math.round(plan.endSec - plan.joinSec)} שנ'`}
                 {plan.bassHold ? ` · הבס של דק ${otherDeckId} ממשיך עד שהבס הנכנס מתחיל` : plan.holdSkipped ? ` · בלי המשך בס: ${plan.holdSkipped}` : ''}
               </span>
+              {(() => {
+                const r = riseLine(plan.joinSec, plan.entrySec, plan.endSec - plan.joinSec)
+                return r && (
+                  <span className="flex items-center gap-1 px-2 text-2xs text-grid-muted" data-testid="rise-note">
+                    <span className="h-1 w-1 shrink-0 rounded-full" style={{ background: r.dot }} />
+                    {r.text}
+                  </span>
+                )
+              })()}
             </button>
           ))}
           {swap.note && <div className="px-2 text-2xs text-grid-muted" data-testid="swap-left-out">{swap.note}</div>}

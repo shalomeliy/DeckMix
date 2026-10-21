@@ -1,4 +1,4 @@
-import { type EnergyProfile } from '@/core/structure'
+import { analyzeEnergyProfile, type EnergyProfile } from '@/core/structure'
 
 /**
  * v0.12.16, the owner (21/10): "A starts to rise in bass and drums, and right at the rise the mix begins with a song that is quiet, only
@@ -83,4 +83,29 @@ export function joinWithoutCut(
     if (!v.cuts) return { sec, moved: true, stuck: false, verdict: v }
   }
   return { sec: firstSec, moved: false, stuck: true, verdict: first }
+}
+
+/** An energy profile is a pass over the whole contour and the panel asks per row on every render: kept per analysis, which `bands` identifies. */
+const profiles = new WeakMap<Float32Array, EnergyProfile>()
+export function energyProfileOf(bands: Float32Array, durationSec: number): EnergyProfile {
+  let p = profiles.get(bands)
+  if (!p) profiles.set(bands, (p = analyzeEnergyProfile(bands, durationSec)))
+  return p
+}
+
+/**
+ * The same reading for a vocal swap or a handoff row, on the two songs' own energy (v0.12.17, the owner's decision, 21/10): said on the row,
+ * never moved — on his songs the rule fires on 14% of these plans but also on a handoff he called perfect, so a move waits for his ear.
+ * `'unchecked'` when either song has no energy reading yet: said as that, never as "fine".
+ */
+export function riseOnRow(
+  a: { bands?: Float32Array | null; durationSec: number },
+  b: { bands?: Float32Array | null; durationSec: number },
+  joinSec: number,
+  entrySec: number,
+  mixSec: number,
+): 'cuts' | 'ok' | 'unchecked' {
+  if (!a.bands || !b.bands) return 'unchecked'
+  const v = riseCutByQuietEntry(energyProfileOf(a.bands, a.durationSec), joinSec, energyProfileOf(b.bands, b.durationSec), entrySec, mixSec)
+  return v.cuts ? 'cuts' : 'ok'
 }
