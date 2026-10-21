@@ -15,6 +15,26 @@ import { useStore } from '@/app/state/store'
 export function TransitionRatingPrompt() {
   const pending = useStore((s) => s.pendingMixRating)
   if (!pending) return null
+  // v0.12.15: this point is already saved as Excellent — asking "how did it work" again would let one odd listen overwrite a settled rating.
+  if (pending.alreadyExcellent) {
+    return (
+      <div className="flex shrink-0 items-center gap-2 bg-surface-2 px-4 py-1.5 text-2xs text-grid-muted">
+        <span className="min-w-0 flex-1 truncate">This mix was already rated Excellent.</span>
+        <button
+          onClick={() => ctl.rateMixTransition('remove-excellent')}
+          className="shrink-0 rounded-[var(--radius-xs)] px-1.5 py-0.5 hover:bg-surface-3"
+        >
+          Remove Excellent
+        </button>
+        <button
+          onClick={() => ctl.rateMixTransition('keep')}
+          className="shrink-0 rounded-[var(--radius-xs)] px-1.5 py-0.5 font-semibold text-live hover:bg-surface-3"
+        >
+          Keep
+        </button>
+      </div>
+    )
+  }
   return (
     <div className="flex shrink-0 items-center gap-2 bg-surface-2 px-4 py-1.5 text-2xs text-grid-muted">
       <span className="min-w-0 flex-1 truncate">

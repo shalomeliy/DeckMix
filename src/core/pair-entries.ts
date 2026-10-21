@@ -83,3 +83,13 @@ export function pairRows(
     .sort((a, b) => b.entries.length - a.entries.length)
 }
 
+
+/** v0.12.15: a point is the one already saved as Excellent when it falls within `windowSec` of a saved entry. */
+export function hasEntryNear(entries: readonly PairEntry[], entrySec: number, windowSec: number): boolean {
+  return entries.some((e) => Math.abs(e.entrySec - entrySec) < windowSec)
+}
+
+/** The owner's "remove Excellent": drops the entries at that point. */
+export function removeEntriesNear(entries: readonly PairEntry[], entrySec: number, windowSec: number): PairEntry[] {
+  return entries.filter((e) => Math.abs(e.entrySec - entrySec) >= windowSec)
+}

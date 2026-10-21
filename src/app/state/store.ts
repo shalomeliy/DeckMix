@@ -300,6 +300,8 @@ export interface AppState {
     entrySec: number
     /** v0.8.16: where the outgoing deck actually was at the join — what a replay waits for. Not `exitPointSec`, which is a structure guess made at the click. */
     joinedFromSec: number
+    /** v0.12.15: this exact entry point is already saved as Excellent, so the prompt does not ask "how did it go" again. Filled in a moment after the prompt opens. */
+    alreadyExcellent?: boolean
   } | null
 
   library: {

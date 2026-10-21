@@ -107,7 +107,9 @@ import { compareGrid, gridCheckExportText, type DriftRow } from '@/core/grid-dri
 import { barLineAtNearestBeat, checkStartSec, nextInQueue, queueOrder, queueRemaining } from '@/core/bar-one-queue'
 import { ownerCorrection, reconcileSavedGrid, resolveGridCorrection } from '@/core/grid-corrections'
 import { getExcellentPoints, markExcellent } from '@/platform/mix-ratings-idb/store'
-import { markExcellentPair } from '@/platform/mix-pairs-idb/store'
+import { getExcellentFollowUps, markExcellentPair, removeExcellentNear } from '@/platform/mix-pairs-idb/store'
+import { entriesOf, hasEntryNear } from '@/core/pair-entries'
+import { SAME_BAD_WINDOW_SEC } from '@/core/bad-mixes'
 import { clearBadMixes, markBadMix } from '@/platform/mix-bad-idb/store'
 import { clock } from '@/platform/clock-audio'
 import { analyseDeckTrackNow, inBackgroundPass, readOriginalTempoKey, readTagBpm, readTrackData } from '@/platform/source-fsaccess/library'
@@ -4649,6 +4651,19 @@ function finishTransition() {
         joinedFromSec: t.joinedFromSec ?? t.exitPointSec,
       },
     })
+    // v0.12.15 (owner, 21/10): a point already saved as Excellent is not asked about again. The lookup is async, so the prompt opens
+    // normally and switches when it lands — only if it is still this same prompt.
+    const pending = useStore.getState().pendingMixRating
+    if (pending?.contentHash && pending.toContentHash) {
+      const { contentHash: from, toContentHash: to, entrySec } = pending
+      void getExcellentFollowUps(from).then((f) => {
+        const pair = f.find((p) => p.toHash === to)
+        const cur = useStore.getState().pendingMixRating
+        if (pair && cur === pending && hasEntryNear(entriesOf(pair), entrySec, SAME_BAD_WINDOW_SEC)) {
+          useStore.setState({ pendingMixRating: { ...pending, alreadyExcellent: true } })
+        }
+      })
+    }
   }
 }
 
@@ -4701,10 +4716,26 @@ export function cancelTransition() {
  * `excellentMixPoints` is patched too, so the exit-point indicator picks up
  * the mark immediately without waiting for a reload.
  */
-export function rateMixTransition(rating: 'bad' | 'needs-work' | 'excellent') {
+export function rateMixTransition(rating: 'bad' | 'needs-work' | 'excellent' | 'keep' | 'remove-excellent') {
   const { pendingMixRating, decks, patchDeck } = useStore.getState()
   if (!pendingMixRating) return
   useStore.setState({ pendingMixRating: null })
+  // v0.12.15: the answers of a mix whose point is already Excellent. 'keep' changes nothing; 'remove-excellent' is the only way the rating goes.
+  if (rating === 'keep') return
+  if (rating === 'remove-excellent') {
+    const { contentHash: from, toContentHash: to, entrySec } = pendingMixRating
+    if (!from || !to) return
+    void removeExcellentNear(from, to, entrySec, SAME_BAD_WINDOW_SEC)
+      .then(() => {
+        useStore.setState((s) => ({ excellentPairsRev: s.excellentPairsRev + 1 }))
+        useStore.getState().setNotice({ text: `דירוג Excellent של נקודת הכניסה ${formatMinSec(entrySec)} הוסר.`, tone: 'info', source: 'mixRating' })
+      })
+      .catch((err) => {
+        console.error('removeExcellentNear failed', err)
+        useStore.getState().setNotice({ text: 'הסרת ה-Excellent לא נשמרה.', tone: 'warn', source: 'mixRating' })
+      })
+    return
+  }
   if (rating === 'bad') {
     saveBadMix(pendingMixRating)
     return

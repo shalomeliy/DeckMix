@@ -27,3 +27,15 @@ describe('bad mixes', () => {
     expect(excellentFirst(rows, (x) => x.s, [128]).map((x) => x.s)).toEqual([128, 10, 64])
   })
 })
+
+import { hasEntryNear, removeEntriesNear } from '@/core/pair-entries'
+describe('already Excellent', () => {
+  const e = [{ entrySec: 64, at: 1 }, { entrySec: 128, at: 2 }]
+  it('finds the saved point and only that one', () => {
+    expect(hasEntryNear(e, 65, SAME_BAD_WINDOW_SEC)).toBe(true)
+    expect(hasEntryNear(e, 90, SAME_BAD_WINDOW_SEC)).toBe(false)
+  })
+  it('removing drops only that point', () => {
+    expect(removeEntriesNear(e, 65, SAME_BAD_WINDOW_SEC).map((x) => x.entrySec)).toEqual([128])
+  })
+})
