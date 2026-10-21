@@ -11,7 +11,7 @@ const controls = readFileSync('src/controls.ts', 'utf8')
 describe('Mix Assist reasons with the song end', () => {
   it.each([
     ['deckHandoffSide', /handoffSide\(vocal, tag, deck\.beatGrid, songEndSec\(deck\.audibleEndSec, deck\.durationSec\)\)/],
-    ['deckPhraseJoin', /nextPhraseStartSec\(deck\.beatGrid, [^\n]*songEndSec\(deck\.audibleEndSec, deck\.durationSec\)/],
+    ['deckPhraseJoin', /const end = songEndSec\(deck\.audibleEndSec, deck\.durationSec\)\n[^]*?nextPhraseStartSec\(grid, timeline, end, positionSec\)/],
     ['refuseTooLateEntry after the load', /refuseTooLateEntry\(target, entrySec, songEndSec\(loaded\.audibleEndSec, loaded\.durationSec\)/],
     ['refuseTooLateEntry on a pad press', /refuseTooLateEntry\(deckId, cue!\.positionSec, songEndSec\(decks\[deckId\]\.audibleEndSec/],
     ['outgoing exit candidates', /\.filter\(\(c\) => c\.sec < fromEnd\)/],

@@ -377,7 +377,7 @@ export function Deck({ deckId }: { deckId: DeckId }) {
               onRestoreBad={() => pairFromHash && pairToHash && ctl.restoreBadMixes(pairFromHash, pairToHash)}
               onHandoff={(voice) => ctl.startVocalHandoffAt(otherDeckId, deckId, voice)}
               onVocalSwap={(entry) => ctl.startVocalSwapAt(otherDeckId, deckId, entry)}
-              phraseJoin={(pos) => ctl.deckPhraseJoin(otherDeckId, pos)}
+              phraseJoin={(pos, entrySec) => ctl.deckPhraseJoin(otherDeckId, pos, entrySec == null ? undefined : { toDeckId: deckId, sec: entrySec })}
               onSelect={(sec) => {
                 // Starts where the other deck's voice is over for the whole mix (v0.9.63; its next phrase start in v0.9.17). No
                 // "Mix in" pad here any more — it's saved only if the mix is

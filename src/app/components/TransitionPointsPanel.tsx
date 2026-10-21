@@ -100,7 +100,7 @@ interface Props {
   /** A handoff row was clicked: the plan is recomputed from the live position at the click (`ctl.startVocalHandoffAt`). */
   onHandoff: (voice: BVoiceStart) => void
   /** v0.9.17: where an energy point would join the other deck, and why there (`ctl.deckPhraseJoin`); null without a grid. */
-  phraseJoin: (otherPositionSec: number) => { sec: number; why: string; aVoiceSec: number | null } | null
+  phraseJoin: (otherPositionSec: number, entrySec?: number) => { sec: number; why: string; aVoiceSec: number | null; rise: 'ok' | 'moved' | 'stuck' | 'unchecked' } | null
   /** A vocal-swap row was clicked (`ctl.startVocalSwapAt`): planned again from the live position. */
   onVocalSwap: (entry: SwapEntry) => void
   /** v0.12.14: this pair's mixes rated Bad (by the incoming song's start second). Rows at those seconds are left out, and counted. */
@@ -355,6 +355,23 @@ export function TransitionPointsPanel({
           {candidates.map((c) => {
             const { text, dot } = proximityMessage(c.sec)
             const vocal = vocalMessage
+            // v0.12.16: a point whose own join differs from the one above (it would cut a rise of A with a quiet start) says so, as a fact.
+            const own = phraseJoin(otherPositionBucketSec, c.sec)
+            const riseNote =
+              own?.rise === 'moved'
+                ? `כניסה בעוד ${fmtSec(own.sec - otherPositionBucketSec)} (דק ${otherDeckId} ב-${fmtSec(own.sec)}) — לא קוטעת עלייה`
+                : own?.rise === 'stuck'
+                  ? `דק ${otherDeckId} עולה אחרי הכניסה והשיר הזה מתחיל שקט — לא נמצאה נקודה טובה יותר`
+                  : own?.rise === 'unchecked'
+                    ? 'לא נבדק אם הכניסה קוטעת עלייה — אין עדיין ניתוח עוצמה לשני השירים'
+                    : null
+            // A moved join sings (or not) at its own second, not at the shared one above.
+            const vocalHere =
+              own?.rise === 'moved' && vocal
+                ? own.aVoiceSec != null
+                  ? { text: `דק ${otherDeckId} שר ב-${fmtSec(own.aVoiceSec)} — המעבר ירוץ על השירה שלו`, dot: 'var(--color-warn)' }
+                  : { text: 'שירה: נקי', dot: 'var(--color-live)' }
+                : vocal
             return (
               <button
                 key={`${c.reason}-${c.sec}`}
@@ -367,10 +384,16 @@ export function TransitionPointsPanel({
                   <span className="h-1 w-1 shrink-0 rounded-full" style={{ background: dot }} />
                   {text}
                 </span>
-                {vocal && (
+                {vocalHere && (
                   <span className="flex items-center gap-1 px-2 text-2xs text-grid-muted">
-                    <span className="h-1 w-1 shrink-0 rounded-full" style={{ background: vocal.dot }} />
-                    {vocal.text}
+                    <span className="h-1 w-1 shrink-0 rounded-full" style={{ background: vocalHere.dot }} />
+                    {vocalHere.text}
+                  </span>
+                )}
+                {riseNote && (
+                  <span className="flex items-center gap-1 px-2 text-2xs text-grid-muted" data-testid="rise-note">
+                    <span className="h-1 w-1 shrink-0 rounded-full" style={{ background: own?.rise === 'stuck' ? 'var(--color-warn)' : 'var(--color-live)' }} />
+                    {riseNote}
                   </span>
                 )}
               </button>

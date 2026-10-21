@@ -58,9 +58,10 @@ import {
 import { exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
 import { catchUpFactor, kickLockStep, KICK_LOCK_MAX_BARS, KICK_LOCK_SEC, KICK_LOCK_SETTLE_SEC, KICK_LOCK_KEEP_START_SEC, KICK_LOCK_NUDGE_SEC, KICK_LOCK_PLAIN_SHIFT_BARS } from '@/core/kick-lock'
 import { AUTO_MIX_CROSSFADER_CURVE, eqMixFrame, incomingUnderA, plainEqMixPlan, type BassSwapStyle, type EqBand, type EqBands, type EqMixPlan } from '@/core/eq-mix'
+import { joinWithoutCut, riseCutByQuietEntry } from '@/core/rise-guard'
 import { HANDOFF_NEEDS_STRAIGHT_SYNC, MIN_BARS_AFTER_MIX, enoughSongAfterMix, firstVoiceInSec, handoffSide, nextPhraseStartSec, planHandoff, plainMixEndInB, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
 import { SWAP_CROSSFADER_CURVE, planVocalSwap, swapIncoming, vocalSwapFrame, type SwapEntry, type VocalSwapPlan } from '@/core/vocal-swap-mix'
-import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
+import { analyzeEnergyProfile, findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
 import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
 import { MIN_REGION_SEC, barLineAtOrBeforeSec, closeOpenMark, drawnBarGrid, moveRegionEdge, undoLastEnd, type VocalManualTag } from '@/core/sound/vocal-manual'
 import { deleteVocalManual, getAllVocalManual, getVocalManual, putVocalManual } from '@/platform/vocal-manual-idb/store'
@@ -4458,14 +4459,15 @@ export function startVocalHandoffAt(fromDeckId: DeckId, toDeckId: DeckId, voice:
  * The join is `deckPhraseJoin`'s, and the notice says why there.
  */
 export function startAutoTransitionOnPhrase(fromDeckId: DeckId, toDeckId: DeckId, entrySec: number) {
-  const phrase = deckPhraseJoin(fromDeckId, engine.decks[fromDeckId].position)
+  const phrase = deckPhraseJoin(fromDeckId, engine.decks[fromDeckId].position, { toDeckId, sec: entrySec })
   if (!phrase) {
     startAutoTransition(fromDeckId, toDeckId, entrySec) // no grid: refuses, and says why
     return
   }
   // Singing under the mix is allowed since v0.12.13, but still said — never a silent pick.
   const over = phrase.aVoiceSec != null ? ` דק ${fromDeckId} שר ב-${formatMinSec(phrase.aVoiceSec)}, אז המעבר ירוץ על השירה שלו.` : ''
-  startAutoTransition(fromDeckId, toDeckId, entrySec, phrase.sec, `דק ${toDeckId} ייכנס כשדק ${fromDeckId} יגיע ל-${formatMinSec(phrase.sec)} — ${phrase.why}.${over}`, null, true)
+  const rise = phrase.rise === 'unchecked' ? ` לא בדקתי אם הכניסה קוטעת עלייה של דק ${fromDeckId}: אין עדיין ניתוח עוצמה לשני השירים, או שזו תחילת הקטע האחרונה.` : phrase.rise === 'moved' ? ` הזזתי את הכניסה כדי לא לקטוע עלייה של דק ${fromDeckId} עם התחלה שקטה של דק ${toDeckId} (לפי עוצמה, לא לפי מה שמנגן).` : phrase.rise === 'stuck' ? ` שים לב: דק ${fromDeckId} עולה אחרי הכניסה ודק ${toDeckId} מתחיל שקט, ולא מצאתי נקודה טובה יותר — כדאי לבחור נקודת כניסה אחרת (לפי עוצמה, לא לפי מה שמנגן).` : ''
+  startAutoTransition(fromDeckId, toDeckId, entrySec, phrase.sec, `דק ${toDeckId} ייכנס כשדק ${fromDeckId} יגיע ל-${formatMinSec(phrase.sec)} — ${phrase.why}.${over}${rise}`, null, true)
 }
 
 /**
@@ -4478,11 +4480,44 @@ export function startAutoTransitionOnPhrase(fromDeckId: DeckId, toDeckId: DeckId
  * in the mix, as a fact.
  * With no voice reading for A, the phrase count from the grid, and the words say A's singing is unknown there.
  */
-export function deckPhraseJoin(deckId: DeckId, positionSec: number): { sec: number; why: string; aVoiceSec: number | null } | null {
+export function deckPhraseJoin(
+  deckId: DeckId,
+  positionSec: number,
+  entry?: { toDeckId: DeckId; sec: number },
+): { sec: number; why: string; aVoiceSec: number | null; rise: 'ok' | 'moved' | 'stuck' | 'unchecked' } | null {
   const deck = useStore.getState().decks[deckId]
   if (!deck.beatGrid) return null
   const side = deckHandoffSide(deckId)
-  const phrase = nextPhraseStartSec(deck.beatGrid, 'missing' in side ? null : side.timeline, songEndSec(deck.audibleEndSec, deck.durationSec), positionSec)
+  const grid = deck.beatGrid
+  const timeline = 'missing' in side ? null : side.timeline
+  const end = songEndSec(deck.audibleEndSec, deck.durationSec)
+  let phrase = nextPhraseStartSec(grid, timeline, end, positionSec)
+  // v0.12.16 (the owner, 21/10): never join in the middle of a rise of A with a quiet start of B (`core/rise-guard.ts`). With no energy reading
+  // of either song nothing is checked, and `rise` stays 'none' — the panel and the notice only claim what was measured.
+  let rise: 'ok' | 'moved' | 'stuck' | 'unchecked' = 'ok'
+  const to = entry ? useStore.getState().decks[entry.toDeckId] : null
+  if (entry && to) {
+    // Not run means said so (`unchecked`), never a silent "fine": a song still being analysed has no contour, and a join on A's last bars has no later one to move to.
+    if (!deck.bands || !to.bands || phrase.by === 'end') rise = 'unchecked'
+    else {
+      const a = energyProfileOf(deck.bands, deck.durationSec)
+      const b = energyProfileOf(to.bands, to.durationSec)
+      const mixSec = plainMixNeedSec(deckId, grid)
+      const r = joinWithoutCut(
+        phrase.sec,
+        (after) => {
+          const n = nextPhraseStartSec(grid, timeline, end, after)
+          return n.by === 'end' ? null : n.sec
+        },
+        (join) => riseCutByQuietEntry(a, join, b, entry.sec, mixSec),
+      )
+      if (r.moved) {
+        // `by` follows the second that was chosen, not the first one tried: the reason shown must be true for the join shown.
+        phrase = nextPhraseStartSec(grid, timeline, end, r.sec - barSecOf(grid) * 0.5)
+        rise = 'moved'
+      } else if (r.stuck) rise = 'stuck'
+    }
+  }
   const aVoiceSec = 'missing' in side ? null : firstVoiceInSec(side, phrase.sec, phrase.sec + plainMixNeedSec(deckId, deck.beatGrid))
   const why =
     phrase.by === 'voice'
@@ -4490,7 +4525,7 @@ export function deckPhraseJoin(deckId: DeckId, positionSec: number): { sec: numb
       : phrase.by === 'grid'
       ? `תחילת קטע, לפי ספירת 8 תיבות מתחילת השיר (${'missing' in side ? `${side.missing} — לא ידוע אם הוא שר שם` : 'אין בו שירה'})`
       : 'אין עוד תחילת קטע לפני סוף השיר, אז בתיבה הבאה'
-  return { sec: phrase.sec, why, aVoiceSec }
+  return { sec: phrase.sec, why, aVoiceSec, rise }
 }
 
 /**
@@ -4498,6 +4533,14 @@ export function deckPhraseJoin(deckId: DeckId, positionSec: number): { sec: numb
  * a bar, since the real entry can move that much to land on a yellow line, plus the bar(s) the v0.9.33 kick lock may push the start back —
  * without them a quiet stretch that just fits would end with A singing over the tail of the fade.
  */
+/** An energy profile is a pass over the whole contour and the panel asks per row on every render: kept per analysis, which `bands` identifies. */
+const energyProfiles = new WeakMap<Float32Array, ReturnType<typeof analyzeEnergyProfile>>()
+function energyProfileOf(bands: Float32Array, durationSec: number) {
+  let p = energyProfiles.get(bands)
+  if (!p) energyProfiles.set(bands, (p = analyzeEnergyProfile(bands, durationSec)))
+  return p
+}
+
 function plainMixNeedSec(deckId: DeckId, grid: BeatGrid): number {
   const deck = useStore.getState().decks[deckId]
   return TRANSITION_CROSSFADE_SEC * deckRate(deck.baseRate, deck.tempo, cfg.tempoRange) + barSecOf(grid) * (0.5 + KICK_LOCK_PLAIN_SHIFT_BARS)
