@@ -45,6 +45,7 @@ const STORAGE_KEYS = [
   'deckmix:libraryDir',
   'deckmix:midiMapping',
   'deckmix:mixbad:',
+  'deckmix:mixlog-index',
   'deckmix:mixpairs:',
   'deckmix:mixratings:',
   'deckmix:sampler:bank',
