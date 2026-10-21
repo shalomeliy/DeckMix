@@ -16,8 +16,8 @@ export type LogEvent =
   | { t: number; k: 'knob'; key: string; v: number }
   | { t: number; k: 'load'; deck: DeckLetter; hash: string | null }
   | { t: number; k: 'play'; deck: DeckLetter; on: boolean }
-  | { t: number; k: 'seek'; deck: DeckLetter; sec: number; byHand: boolean }
-  | { t: number; k: 'mix'; phase: 'start' | 'end' | 'cancel'; mixType: string; from: DeckLetter; to: DeckLetter; entrySec?: number; joinSec?: number }
+  | { t: number; k: 'pos'; deck: DeckLetter; sec: number }
+  | { t: number; k: 'mix'; phase: 'start' | 'end' | 'cancel'; mixType: string; from: DeckLetter; to: DeckLetter; exitSec?: number; joinSec?: number }
   | { t: number; k: 'rate'; rating: 'bad' | 'needs-work' | 'excellent' | 'keep' | 'remove-excellent' }
 
 /** A written knob value changes by at least this (all knobs are normalised to 0..1 by the caller). */

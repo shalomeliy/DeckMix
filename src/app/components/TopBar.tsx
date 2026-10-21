@@ -386,11 +386,37 @@ function RecordingBadge() {
 
   return (
     <span className="relative inline-flex">
+      <MixLogControl />
       <Button variant="ghost" size="sm" onClick={() => void ctl.startRecordMaster()}>
         Record master
       </Button>
       <HintIcon id="topbar.recordMaster" className="absolute -right-1.5 -top-1.5" />
     </span>
+  )
+}
+
+/** v0.13.0: the mix log switch (`controls.ts`, "Mix log"). Beside "Record master" when it is idle; independent of it. */
+function MixLogControl() {
+  const mixLog = useStore((s) => s.mixLog)
+  return (
+    <>
+      {mixLog.on ? <Pill tone="live" label={`Log · ${mixLog.events}`} /> : null}
+      <Button
+        variant="toggle"
+        size="sm"
+        active={mixLog.on}
+        tone="var(--color-danger)"
+        title="Record what you do while mixing (faders, EQ, loads, mixes, ratings) so the app can learn from your ratings"
+        onClick={() => void (mixLog.on ? ctl.stopMixLog() : ctl.startMixLog())}
+      >
+        {mixLog.on ? 'Stop log' : 'Log mixes'}
+      </Button>
+      {!mixLog.on ? (
+        <Button variant="ghost" size="sm" onClick={() => void ctl.exportMixLog()}>
+          Export log
+        </Button>
+      ) : null}
+    </>
   )
 }
 

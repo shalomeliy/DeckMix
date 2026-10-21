@@ -29,7 +29,9 @@ import {
 import { encodeWav } from '@/core/wav'
 import { saveMasterRecording, saveSplitMasterRecording } from '@/platform/recorder-fsaccess/writer'
 import { formatSetHistory } from '@/core/set-history'
-import { saveSetHistoryText, saveTagsJson } from '@/platform/history-export-fsaccess/writer'
+import { saveSetHistoryText, saveTagsJson, saveMixLogJson } from '@/platform/history-export-fsaccess/writer'
+import { MixLogger, type DeckLetter } from '@/core/mix-log'
+import { appendMixLogChunk, listMixLogSessions, readMixLogSession } from '@/platform/mixlog-idb/store'
 import {
   BEATGRID_NUDGE_SEC,
   HOT_CUE_COLORS,
@@ -3303,6 +3305,148 @@ export function discardRecordedMaster(): void {
 }
 
 // ————————————————————————————————————————————————————————————————
+// Mix log (v0.13.0). A "Log mixes" switch in the top bar records what the owner does while mixing — knobs, loads, play/pause, the
+// mix that ran and how it ended, and his rating — so a later step can learn from his ratings (`core/mix-log.ts`, experiment in
+// `docs/handoff/mix-log-experiment.md`). It samples the store every 50 ms instead of hooking each setter: faders and EQ move from the
+// mouse, MIDI and the auto-mix (which writes the engine directly), and only the store sees all of them. Read-only with respect to
+// the app: it never changes a control. A hidden tab slows the timer to ~1 s, so those stretches are coarser, not missing.
+// ————————————————————————————————————————————————————————————————
+
+const MIXLOG_TICK_MS = 50
+const MIXLOG_CHUNK_MS = 30_000
+const POS_EVERY_MS = 1000
+
+interface MixLogRun {
+  logger: MixLogger
+  id: string
+  startedAt: number
+  savedUpTo: number
+  chunk: number
+  lastChunkAt: number
+  lastPosAt: number
+  timer: number
+  prev: { playing: Record<DeckLetter, boolean>; hash: Record<DeckLetter, string | null>; mix: boolean }
+  /** Set by `cancelTransition` so the next "transition gone" is logged as a cancel and not as a normal end. */
+  cancelled: boolean
+  failed: boolean
+}
+let mixLogRun: MixLogRun | null = null
+
+function mixTypeOf(t: NonNullable<AppState['activeTransition']>): string {
+  return t.swap ? 'swap' : t.handoffSec != null ? 'handoff' : t.onPhrase ? 'phrase' : t.waitingUntilSec != null ? 'pair-replay' : 'plain'
+}
+
+function mixLogSample(run: MixLogRun) {
+  const st = useStore.getState()
+  const { logger } = run
+  const now = performance.now()
+  logger.knob('xfade', st.mixer.crossfader)
+  logger.knob('master', st.mixer.masterVolume)
+  for (const d of ['A', 'B'] as const) {
+    const c = st.mixer.channels[d]
+    logger.knob(`vol:${d}`, c.volume)
+    logger.knob(`eq:${d}:low`, c.eqLow)
+    logger.knob(`eq:${d}:mid`, c.eqMid)
+    logger.knob(`eq:${d}:high`, c.eqHigh)
+    logger.knob(`filter:${d}`, c.filter)
+    const deck = st.decks[d]
+    const hash = deck.track?.contentHash ?? deck.track?.id ?? null
+    if (hash !== run.prev.hash[d]) {
+      run.prev.hash[d] = hash
+      logger.event({ k: 'load', deck: d, hash })
+    }
+    if (deck.playing !== run.prev.playing[d]) {
+      run.prev.playing[d] = deck.playing
+      logger.event({ k: 'play', deck: d, on: deck.playing })
+    }
+    if (now - run.lastPosAt >= POS_EVERY_MS && deck.track) logger.event({ k: 'pos', deck: d, sec: Math.round(deck.positionSec * 10) / 10 })
+  }
+  if (now - run.lastPosAt >= POS_EVERY_MS) run.lastPosAt = now
+  const t = st.activeTransition
+  if (t && !run.prev.mix) {
+    run.prev.mix = true
+    run.cancelled = false
+    logger.event({ k: 'mix', phase: 'start', mixType: mixTypeOf(t), from: t.fromDeckId, to: t.toDeckId, exitSec: t.exitPointSec, joinSec: t.waitingUntilSec ?? undefined })
+  } else if (!t && run.prev.mix) {
+    run.prev.mix = false
+    const last = logger.events.findLast((e) => e.k === 'mix' && e.phase === 'start')
+    if (last && last.k === 'mix') logger.event({ k: 'mix', phase: run.cancelled ? 'cancel' : 'end', mixType: last.mixType, from: last.from, to: last.to })
+  }
+  logger.flush()
+  if (logger.events.length !== st.mixLog.events) useStore.setState({ mixLog: { on: true, events: logger.events.length } })
+  if (now - run.lastChunkAt >= MIXLOG_CHUNK_MS) void persistMixLog(run)
+}
+
+async function persistMixLog(run: MixLogRun) {
+  run.lastChunkAt = performance.now()
+  const fresh = run.logger.events.slice(run.savedUpTo)
+  if (fresh.length === 0) return
+  const upTo = run.logger.events.length
+  try {
+    await appendMixLogChunk(run, run.chunk, fresh)
+    run.savedUpTo = upTo
+    run.chunk++
+  } catch (err) {
+    console.error('[mixlog] save failed', err)
+    if (!run.failed) {
+      run.failed = true
+      useStore.getState().setNotice({ text: 'The mix log could not be saved to the browser storage; it is kept in memory until you stop it.', tone: 'warn', source: 'mixLog' })
+    }
+  }
+}
+
+export function startMixLog(): void {
+  if (mixLogRun) return
+  const startedAt = Date.now()
+  const origin = performance.now()
+  const logger = new MixLogger(() => Math.round(performance.now() - origin))
+  const st = useStore.getState()
+  const run: MixLogRun = {
+    logger, id: new Date(startedAt).toISOString().replace(/[:.]/g, '-'), startedAt, savedUpTo: 0, chunk: 0,
+    lastChunkAt: performance.now(), lastPosAt: -Infinity, timer: 0,
+    prev: { playing: { A: false, B: false }, hash: { A: null, B: null }, mix: false }, cancelled: false, failed: false,
+  }
+  mixLogRun = run
+  // a mix that is already running when the switch goes on starts the log from its own beginning-state, not as a phantom "start"
+  run.prev.mix = st.activeTransition != null
+  run.timer = window.setInterval(() => mixLogSample(run), MIXLOG_TICK_MS)
+  useStore.setState({ mixLog: { on: true, events: 0 } })
+}
+
+export async function stopMixLog(): Promise<void> {
+  const run = mixLogRun
+  if (!run) return
+  mixLogRun = null
+  window.clearInterval(run.timer)
+  run.logger.flush()
+  await persistMixLog(run)
+  useStore.setState({ mixLog: { on: false, events: run.logger.events.length } })
+  useStore.getState().setNotice({
+    text: `Mix log stopped — ${run.logger.events.length} events${run.failed ? ' (not all saved: see the earlier warning)' : ' saved'}. Use "Export log" to get the file.`,
+    tone: run.failed ? 'warn' : 'info',
+    source: 'mixLog',
+  })
+}
+
+/** Everything saved (all sessions) as one JSON file, plus the live session if it is still running. */
+export async function exportMixLog(): Promise<'ok' | 'cancelled' | 'empty'> {
+  if (mixLogRun) await persistMixLog(mixLogRun)
+  try {
+    const sessions = []
+    for (const s of await listMixLogSessions()) sessions.push({ id: s.id, startedAt: s.startedAt, events: await readMixLogSession(s) })
+    if (sessions.length === 0) return 'empty'
+    const text = JSON.stringify({ app: 'deckmix-mixlog', version: 1, exportedAt: new Date().toISOString(), sessions })
+    const result = await saveMixLogJson(text, `deckmix-mixlog-${new Date().toISOString().slice(0, 10)}.json`)
+    if (result === 'ok') useStore.getState().setNotice({ text: `Mix log saved (${sessions.length} session${sessions.length === 1 ? '' : 's'}).`, tone: 'info', source: 'mixLog' })
+    return result
+  } catch (err) {
+    console.error('[mixlog] export failed', err)
+    useStore.getState().setNotice({ text: `The mix log could not be exported. (${err instanceof Error ? err.message : String(err)})`, tone: 'warn', source: 'mixLog' })
+    throw err
+  }
+}
+
+// ————————————————————————————————————————————————————————————————
 // Manual beat-grid correction (v0.3.0). No FLX4 control is bound to any of
 // these: discovering which physical buttons are actually free needs the real
 // hardware this remote session doesn't have, so guessing here would risk
@@ -4680,6 +4824,7 @@ function finishTransition() {
 export function cancelTransition() {
   const t = activeTransition
   if (!t) return
+  if (mixLogRun) mixLogRun.cancelled = true
   activeTransition = null
   t.unsubscribe()
   t.kick?.meter.stop()
@@ -4719,6 +4864,11 @@ export function cancelTransition() {
 export function rateMixTransition(rating: 'bad' | 'needs-work' | 'excellent' | 'keep' | 'remove-excellent') {
   const { pendingMixRating, decks, patchDeck } = useStore.getState()
   if (!pendingMixRating) return
+  // v0.13.0: every answer is logged, 'needs-work' included (it is saved nowhere else); flushed first so the knobs end on their true values.
+  if (mixLogRun) {
+    mixLogRun.logger.flush()
+    mixLogRun.logger.event({ k: 'rate', rating })
+  }
   useStore.setState({ pendingMixRating: null })
   // v0.12.15: the answers of a mix whose point is already Excellent. 'keep' changes nothing; 'remove-excellent' is the only way the rating goes.
   if (rating === 'keep') return

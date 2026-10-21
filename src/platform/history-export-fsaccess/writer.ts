@@ -51,3 +51,8 @@ export async function saveTagsJson(text: string, suggestedName: string): Promise
   await writable.close()
   return 'ok'
 }
+
+/** v0.13.0's mix log export — a NEW file the owner names, same rule as the tag export above. */
+export async function saveMixLogJson(text: string, suggestedName: string): Promise<'ok' | 'cancelled'> {
+  return saveTagsJson(text, suggestedName)
+}

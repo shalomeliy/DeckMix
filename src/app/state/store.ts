@@ -44,6 +44,7 @@ export type NoticeSource =
   | 'mixRating'
   | 'tagging'
   | 'tempo'
+  | 'mixLog'
 
 /**
  * v0.5.5's natural-language control bar — see `controls.ts`'s AI section
@@ -173,6 +174,8 @@ export interface AppState {
    * spec is explicit that canceling the save dialog must never silently
    * drop a recording, so this stays true until the owner saves or discards.
    */
+  /** v0.13.0: the mix log (`core/mix-log.ts`) is running; `events` counts what it has written this session. */
+  mixLog: { on: boolean; events: number }
   recording: {
     active: 'master' | null
     startedAt: number | null
@@ -537,6 +540,7 @@ export const useStore = create<AppState>((set) => ({
     armedSlot: null,
   },
   fx: [emptyFx(), emptyFx()],
+  mixLog: { on: false, events: 0 },
   recording: { active: null, startedAt: null, bytesRecorded: 0, savedState: 'idle', trackBoundariesSec: [] },
   history: [],
   library: {
