@@ -1,6 +1,6 @@
 # 🎛️ DeckMix
 
-**DeckMix** is a high-performance, browser-based DJ system designed with a professional Serato-style layout. It is engineered to integrate seamlessly with hardware controllers (such as the Pioneer DDJ-FLX4) using native web technologies.
+**DeckMix** is a high-performance, browser-based DJ system designed with a professional layout. It is engineered to integrate seamlessly with hardware controllers using native web technologies.
 
 ---
 
