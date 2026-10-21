@@ -11,6 +11,7 @@ import type {
   MidiDeviceInfo,
   MidiStatus,
   MixerState,
+  MixReplay,
   Track,
 } from '@/core/types'
 import type { AIToolCall } from '@/core/ports/ai'
@@ -305,6 +306,8 @@ export interface AppState {
     joinedFromSec: number
     /** v0.12.15: this exact entry point is already saved as Excellent, so the prompt does not ask "how did it go" again. Filled in a moment after the prompt opens. */
     alreadyExcellent?: boolean
+    /** v0.12.18: the mix that ran, when it was a vocal handoff or swap — what its Excellent pad replays. Absent for the plain mix. */
+    mix?: MixReplay
   } | null
 
   library: {

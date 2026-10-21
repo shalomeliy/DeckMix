@@ -147,6 +147,17 @@ export interface HotCue {
    * label had only one possible cause.
    */
   kind?: 'mixEntry'
+  /**
+   * v0.12.18 (the owner, 21/10): which mix an Excellent pad came from. Until then the pad kept only B's start second and every press ran
+   * the plain 5-second fade, so a long vocal handoff he rated came back as a fast cut. Absent = the plain mix (and every pad saved before).
+   */
+  mix?: MixReplay
+}
+
+/** A vocal handoff or a vocal swap, by the B voice line it was planned on (`BVoiceStart.voiceSec` / `SwapEntry.voiceSec`). */
+export interface MixReplay {
+  type: 'handoff' | 'swap'
+  voiceSec: number
 }
 
 export interface BeatGrid {

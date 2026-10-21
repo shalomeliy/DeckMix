@@ -61,8 +61,8 @@ import { exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
 import { catchUpFactor, kickLockStep, KICK_LOCK_MAX_BARS, KICK_LOCK_SEC, KICK_LOCK_SETTLE_SEC, KICK_LOCK_KEEP_START_SEC, KICK_LOCK_NUDGE_SEC, KICK_LOCK_PLAIN_SHIFT_BARS } from '@/core/kick-lock'
 import { AUTO_MIX_CROSSFADER_CURVE, eqMixFrame, incomingUnderA, plainEqMixPlan, type BassSwapStyle, type EqBand, type EqBands, type EqMixPlan } from '@/core/eq-mix'
 import { energyProfileOf, joinWithoutCut, riseCutByQuietEntry } from '@/core/rise-guard'
-import { HANDOFF_NEEDS_STRAIGHT_SYNC, MIN_BARS_AFTER_MIX, enoughSongAfterMix, firstVoiceInSec, handoffSide, nextPhraseStartSec, planHandoff, plainMixEndInB, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
-import { SWAP_CROSSFADER_CURVE, planVocalSwap, swapIncoming, vocalSwapFrame, type SwapEntry, type VocalSwapPlan } from '@/core/vocal-swap-mix'
+import { HANDOFF_NEEDS_STRAIGHT_SYNC, MIN_BARS_AFTER_MIX, bVoiceStarts, enoughSongAfterMix, firstVoiceInSec, handoffEndInB, handoffSide, nextPhraseStartSec, planHandoff, plainMixEndInB, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
+import { SWAP_CROSSFADER_CURVE, planVocalSwap, swapEntries, swapIncoming, vocalSwapFrame, type SwapEntry, type VocalSwapPlan } from '@/core/vocal-swap-mix'
 import { findTransitionCandidates, resolveExitPointSec } from '@/core/structure'
 import { setGenreOverrideByHash } from '@/platform/genre-overrides-idb/store'
 import { MIN_REGION_SEC, barLineAtOrBeforeSec, closeOpenMark, drawnBarGrid, moveRegionEdge, undoLastEnd, type VocalManualTag } from '@/core/sound/vocal-manual'
@@ -150,9 +150,9 @@ import {
 import { getAllTags, putDecideTag, putFreshTag, putMarkTag, putVocalMarksTag, putVocalReviewTag, putVocalTag, type AllTags } from '@/platform/tagging-idb/store'
 import { TagPlayer } from '@/platform/audio-webaudio/tag-player'
 import {
-  hasMixEntryNear,
   isOrdinalLabel,
   mixEntryLabel,
+  mixEntryNear,
   moveHotCue as moveHotCuePure,
   pickHotCueSlot,
   shouldTriggerMixEntry,
@@ -190,7 +190,7 @@ import type { AIMessage, AIToolCall } from '@/core/ports/ai'
 import type { ArtistOption } from '@/core/artist-suggest'
 import { canLookUp, lookupTerm, onlineOptions } from '@/core/online-artist'
 import { itunesLookup } from '@/platform/artist-lookup-itunes/lookup'
-import type { BeatGrid, BpmOrigin, DeckId, PadMode, Track } from '@/core/types'
+import type { BeatGrid, BpmOrigin, DeckId, MixReplay, PadMode, Track } from '@/core/types'
 import { aiLocalProvider } from '@/platform/ai-local'
 import {
   acknowledgeAiWarning as acknowledgeAiWarning_idb,
@@ -1931,12 +1931,50 @@ export function pressHotCue(deckId: DeckId, index: number) {
   const cue = decks[deckId].hotCues.find((c) => c.index === index)
   const otherDeckId: DeckId = deckId === 'A' ? 'B' : 'A'
   if (shouldTriggerMixEntry(cue, decks[deckId].playing, decks[otherDeckId].playing)) {
+    // A handoff or swap pad is judged as its panel row is (`replayMixEntry`) — the plain mix's 24-bar rule below, counted from where B
+    // starts, would refuse a handoff whose B starts early in a short song although the row itself runs it.
+    if (cue!.mix && replayMixEntry(otherDeckId, deckId, cue!.mix)) return
     if (refuseTooLateEntry(deckId, cue!.positionSec, songEndSec(decks[deckId].audibleEndSec, decks[deckId].durationSec), decks[deckId].beatGrid, 'sync')) return
     // The same start as the panel's click (v0.9.17: on A's next phrase start, not its next bar).
+    const before = activeTransition
     startAutoTransitionOnPhrase(otherDeckId, deckId, cue!.positionSec)
+    // Only when the plain mix did start: a refusal's own notice stays as it is.
+    if (cue!.mix && activeTransition && activeTransition !== before) {
+      const was = useStore.getState().notice?.text
+      useStore.getState().setNotice({
+        text: `הפד נשמר מ${cue!.mix.type === 'swap' ? 'החלפת השירה' : 'מסירת השירה'}, אבל סימוני השירה של דק ${deckId} השתנו ואין יותר שורה כזו — רץ מעבר רגיל במקום.${was ? ` ${was}` : ''}`,
+        tone: 'warn',
+        source: 'sync',
+      })
+    }
     return
   }
   setHotCue(deckId, index)
+}
+
+/**
+ * v0.12.18: an Excellent pad of a vocal handoff or swap runs that same row again, found by its B voice line. `false` when B's marks changed
+ * and that line is no longer one — the caller then runs the plain mix and says so, since it is not the mix he rated.
+ */
+function replayMixEntry(fromDeckId: DeckId, toDeckId: DeckId, mix: MixReplay): boolean {
+  const b = deckHandoffSide(toDeckId)
+  if ('missing' in b) return false
+  if (mix.type === 'swap') {
+    const e = swapEntries(b).entries.find((x) => Math.abs(x.voiceSec - mix.voiceSec) < 0.5)
+    if (e) startVocalSwapAt(fromDeckId, toDeckId, e)
+    return !!e
+  }
+  const v = bVoiceStarts(b).find((x) => Math.abs(x.voiceSec - mix.voiceSec) < 0.5)
+  if (!v) return false
+  // The panel's own length check (v0.9.23), which `startVocalHandoffAt` does not repeat: B must not end before the mix does.
+  const a = deckHandoffSide(fromDeckId)
+  const plan = 'missing' in a ? null : planHandoff(a, engine.decks[fromDeckId].position, b, v)
+  if (plan && !enoughSongAfterMix(b.durationSec, b.grid, handoffEndInB(plan))) {
+    useStore.getState().setNotice({ text: `מסירת השירה של הפד לא התחילה: השיר בדק ${toDeckId} ייגמר מוקדם מדי אחרי המיקס.`, tone: 'warn', source: 'sync' })
+    return true
+  }
+  startVocalHandoffAt(fromDeckId, toDeckId, v)
+  return true
 }
 
 export function deleteHotCue(deckId: DeckId, index: number) {
@@ -1970,7 +2008,7 @@ export function moveHotCue(deckId: DeckId, fromIndex: number, toIndex: number) {
  * oldest `createdAt` when all 8 are full (`pickHotCueSlot`, `core/hotcues.ts`)
  * — always a visible overwrite in the Pad Grid, never a silent one.
  */
-export function saveMixEntryHotCue(deckId: DeckId, positionSec: number, label: string) {
+export function saveMixEntryHotCue(deckId: DeckId, positionSec: number, label: string, mix?: MixReplay) {
   const deck = engine.decks[deckId]
   if (!deck.hasTrack) return
   const { patchDeck, decks } = useStore.getState()
@@ -1985,6 +2023,7 @@ export function saveMixEntryHotCue(deckId: DeckId, positionSec: number, label: s
       color: HOT_CUE_COLORS[index % HOT_CUE_COLORS.length],
       createdAt: Date.now(),
       kind: 'mixEntry' as const,
+      ...(mix ? { mix } : {}),
     },
   ].sort((a, b) => a.index - b.index)
   patchDeck(deckId, { hotCues: next })
@@ -3983,6 +4022,8 @@ interface ActiveTransition {
    * reported as the mix's.
    */
   kick?: { meter: KickMeter; fromTime: number }
+  /** v0.12.18: set by the handoff and swap rows' starts, carried to the rating so an Excellent pad replays this mix, not the plain fade. */
+  replay?: MixReplay
 }
 
 const EQ_KEY = { low: 'eqLow', mid: 'eqMid', high: 'eqHigh' } as const
@@ -4549,7 +4590,17 @@ export function startVocalSwapAt(fromDeckId: DeckId, toDeckId: DeckId, entry: Sw
     useStore.getState().setNotice({ text: 'החלפת השירה כבר לא אפשרית מהמקום הזה — בחר שורה אחרת בחלון של Mix Assist.', tone: 'warn', source: 'sync' })
     return
   }
+  const before = activeTransition
   startAutoTransition(fromDeckId, toDeckId, plan.entrySec, plan.joinSec, null, { handoffSec: plan.voiceSec, fadeEndSec: plan.endSec }, false, plan)
+  markReplay(before, { type: 'swap', voiceSec: entry.voiceSec })
+}
+
+/**
+ * The transition this row just started is tagged with its mix, for an Excellent pad. Only a NEW one: a refused start ("already running")
+ * leaves the old transition in place, and tagging that would give a plain mix's pad a handoff he never heard.
+ */
+function markReplay(before: ActiveTransition | null, replay: MixReplay) {
+  if (activeTransition && activeTransition !== before) activeTransition.replay = replay
 }
 
 /**
@@ -4593,7 +4644,9 @@ export function startVocalHandoffAt(fromDeckId: DeckId, toDeckId: DeckId, voice:
     useStore.getState().setNotice({ text: 'מסירת השירה כבר לא אפשרית מהמקום הזה — בחר שורה אחרת בחלון של Mix Assist.', tone: 'warn', source: 'sync' })
     return
   }
+  const before = activeTransition
   startVocalHandoff(fromDeckId, toDeckId, plan)
+  markReplay(before, { type: 'handoff', voiceSec: voice.voiceSec })
 }
 
 /**
@@ -4785,6 +4838,7 @@ function finishTransition() {
         // `join` always runs before the fade that reaches here, so this is set;
         // the fallback only keeps the type honest.
         joinedFromSec: t.joinedFromSec ?? t.exitPointSec,
+        ...(t.replay ? { mix: t.replay } : {}),
       },
     })
     // v0.12.15 (owner, 21/10): a point already saved as Excellent is not asked about again. The lookup is async, so the prompt opens
@@ -4863,7 +4917,11 @@ export function rateMixTransition(rating: 'bad' | 'needs-work' | 'excellent' | '
   }
   useStore.setState({ pendingMixRating: null })
   // v0.12.15: the answers of a mix whose point is already Excellent. 'keep' changes nothing; 'remove-excellent' is the only way the rating goes.
-  if (rating === 'keep') return
+  // 'keep' (v0.12.18): a pad saved before it knew its mix learns it now — the one way to fix an old pad without rating again.
+  if (rating === 'keep') {
+    if (pendingMixRating.mix) saveExcellentMixEntryPad(pendingMixRating, true)
+    return
+  }
   if (rating === 'remove-excellent') {
     const { contentHash: from, toContentHash: to, entrySec } = pendingMixRating
     if (!from || !to) return
@@ -4976,7 +5034,7 @@ export function restoreBadMixes(fromHash: string, toHash: string) {
  * and a pad lands on whatever track is loaded (`persistCues`). Anything that
  * stops the save is said, not skipped.
  */
-function saveExcellentMixEntryPad(r: NonNullable<AppState['pendingMixRating']>) {
+function saveExcellentMixEntryPad(r: NonNullable<AppState['pendingMixRating']>, onlyUpdate = false) {
   const toDeckId: DeckId = r.fromDeckId === 'A' ? 'B' : 'A'
   const st = useStore.getState().decks[toDeckId]
   const verdict = mixEntryVerdict(r, st.track)
@@ -4991,8 +5049,19 @@ function saveExcellentMixEntryPad(r: NonNullable<AppState['pendingMixRating']>) 
     })
     return
   }
-  if (hasMixEntryNear(st.hotCues, r.entrySec)) return
-  saveMixEntryHotCue(toDeckId, r.entrySec, mixEntryLabel(r.entrySec))
+  const near = mixEntryNear(st.hotCues, r.entrySec)
+  if (near) {
+    // The same point rated again after a different kind of mix (a plain one included): the pad follows the latest one he rated. A 'keep'
+    // only ever adds a mix (`onlyUpdate`), never clears one.
+    if ((r.mix || !onlyUpdate) && (near.mix?.type !== r.mix?.type || near.mix?.voiceSec !== r.mix?.voiceSec)) {
+      const { mix: _old, ...rest } = near
+      useStore.getState().patchDeck(toDeckId, { hotCues: st.hotCues.map((c) => (c === near ? { ...rest, ...(r.mix ? { mix: r.mix } : {}) } : c)) })
+      persistCues(toDeckId)
+    }
+    return
+  }
+  if (onlyUpdate) return
+  saveMixEntryHotCue(toDeckId, r.entrySec, mixEntryLabel(r.entrySec), r.mix)
 }
 
 export function selectedTrack(): Track | undefined {

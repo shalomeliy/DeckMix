@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { customTextOf, hasMixEntryNear, isOrdinalLabel, mixEntryLabel, moveHotCue, pickHotCueSlot, shouldTriggerMixEntry } from '@/core/hotcues'
+import { customTextOf, hasMixEntryNear, mixEntryNear, isOrdinalLabel, mixEntryLabel, moveHotCue, pickHotCueSlot, shouldTriggerMixEntry } from '@/core/hotcues'
 import type { HotCue } from '@/core/types'
 
 function cue(index: number, overrides: Partial<HotCue> = {}): HotCue {
@@ -176,5 +176,14 @@ describe('mixEntryLabel / hasMixEntryNear (v0.8.14)', () => {
     expect(hasMixEntryNear(cues, 64.0)).toBe(true)
     expect(hasMixEntryNear(cues, 120)).toBe(false) // a plain pad there is not a mix-in pad
     expect(hasMixEntryNear(cues, 70)).toBe(false)
+  })
+})
+
+describe('mixEntryNear (v0.12.18)', () => {
+  it('returns the mix-in pad itself at that second, so an Excellent rating can teach it its mix', () => {
+    const pad = { index: 0, positionSec: 15.2, label: 'Mix in · 0:15', color: '#f00', kind: 'mixEntry' as const }
+    const plain = { index: 1, positionSec: 30, label: '2', color: '#0f0' }
+    expect(mixEntryNear([plain, pad], 15)).toBe(pad)
+    expect(mixEntryNear([plain, pad], 30)).toBeUndefined() // a plain pad is never taught a mix
   })
 })

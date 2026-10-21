@@ -123,5 +123,10 @@ export function mixEntryLabel(sec: number): string {
 
 /** Already a mix-in pad within half a second of `sec`? Rating the same replayed pairing "Excellent" twice must not fill the pad grid with copies of one point. */
 export function hasMixEntryNear(cues: HotCue[], sec: number): boolean {
-  return cues.some((c) => c.kind === 'mixEntry' && Math.abs(c.positionSec - sec) < 0.5)
+  return mixEntryNear(cues, sec) !== undefined
+}
+
+/** The mix-in pad at `sec` itself (v0.12.18), so an Excellent rating can teach it which mix it was. */
+export function mixEntryNear(cues: HotCue[], sec: number): HotCue | undefined {
+  return cues.find((c) => c.kind === 'mixEntry' && Math.abs(c.positionSec - sec) < 0.5)
 }

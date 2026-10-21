@@ -539,6 +539,76 @@ if (!setup.error) {
   await page.evaluate(async () => { const ctl = await window.mod('/src/controls.ts'); ctl.pause('A') })
 }
 
+// v0.12.18 (the owner, 21/10): an Excellent pad of a vocal handoff replays the handoff — it used to run the plain 5 s fade, "fast, not slow and elegant".
+if (!setup.error) {
+  const rep = await page.evaluate(async () => {
+    const { useStore } = await window.mod('/src/app/state/store.ts')
+    const ctl = await window.mod('/src/controls.ts')
+    const core = await window.mod('/src/core/vocal-handoff.ts')
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+    const s = useStore.getState()
+    const ta = s.library.tracks.find((t) => t.name.startsWith('Handoff A'))
+    const tb = s.library.tracks.find((t) => t.name.startsWith('Handoff B'))
+    const reset = async () => {
+      ctl.cancelTransition()
+      ctl.pause('A'); ctl.pause('B')
+      await ctl.loadTrackToDeck('A', ta)
+      await ctl.loadTrackToDeck('B', tb)
+      const deadline = Date.now() + 30000
+      while (Date.now() < deadline && !(useStore.getState().decks.A.beatGrid && useStore.getState().decks.B.beatGrid && !useStore.getState().decks.A.loading && !useStore.getState().decks.B.loading)) await sleep(200)
+      ctl.seekDeck('A', 12)
+      ctl.play('A')
+      await sleep(300)
+    }
+    await reset()
+    useStore.getState().patchDeck('B', { hotCues: [] })
+    // B's marks as the setup made them (20–55 s): the v0.9.29 check above left them at 70–90 s, too late for any handoff row.
+    const tbHash = useStore.getState().decks.B.track.contentHash
+    useStore.getState().setVocalManual(tbHash, { ...useStore.getState().vocalManual[tbHash], regions: [{ fromSec: 20, toSec: 55 }], updatedAt: Date.now() })
+    useStore.setState({ pendingMixRating: null }) // an earlier run's prompt, still open, is not this mix's
+    // A voice the panel would offer from here (its plan leaves B enough song after the mix), so the replay's own length check passes too.
+    const bSide = ctl.deckHandoffSide('B')
+    const voice = core.bVoiceStarts(bSide).find((v) => {
+      const p = core.planHandoff(ctl.deckHandoffSide('A'), useStore.getState().decks.A.positionSec, bSide, v)
+      return p && core.enoughSongAfterMix(bSide.durationSec, bSide.grid, core.handoffEndInB(p))
+    })
+    if (!voice) return { error: 'no handoff the panel would offer', starts: core.bVoiceStarts(bSide) }
+    ctl.startVocalHandoffAt('A', 'B', voice)
+    if (!useStore.getState().activeTransition) return { error: 'handoff did not start', notice: useStore.getState().notice?.text }
+    const deadline = Date.now() + 120000
+    while (Date.now() < deadline && !useStore.getState().pendingMixRating) await sleep(100)
+    const pending = useStore.getState().pendingMixRating
+    if (!pending) return { error: 'no rating prompt after the handoff' }
+    ctl.rateMixTransition('excellent')
+    const pad = useStore.getState().decks.B.hotCues.find((c) => c.kind === 'mixEntry')
+    if (!pad) return { error: 'no pad saved', pendingMix: pending.mix }
+    await reset()
+    ctl.pressHotCue('B', pad.index)
+    const t = useStore.getState().activeTransition
+    const replay = { handoffSec: t?.handoffSec ?? null, swap: t?.swap ?? null, onPhrase: t?.onPhrase ?? null, notice: t ? undefined : useStore.getState().notice?.text }
+    // An old pad with no mix learns it from "keep" on the already-Excellent prompt.
+    ctl.cancelTransition()
+    useStore.getState().patchDeck('B', { hotCues: [{ ...pad, mix: undefined }] })
+    useStore.setState({ pendingMixRating: { ...pending, alreadyExcellent: true } })
+    ctl.rateMixTransition('keep')
+    const kept = useStore.getState().decks.B.hotCues.find((c) => c.index === pad.index)?.mix ?? null
+    // B's marks no longer hold that voice line: the plain mix runs, and says it is not the mix that was rated.
+    await reset()
+    // positionSec 30: B's plain-mix start must leave 24 bars of B, or the plain rule refuses before the fallback is reached.
+    useStore.getState().patchDeck('B', { hotCues: [{ ...pad, positionSec: 30, mix: { type: 'handoff', voiceSec: 999 } }] })
+    ctl.pressHotCue('B', pad.index)
+    const ft = useStore.getState().activeTransition
+    const fallback = { handoffSec: ft?.handoffSec ?? null, onPhrase: ft?.onPhrase ?? null, notice: useStore.getState().notice?.text, tone: useStore.getState().notice?.tone }
+    ctl.cancelTransition()
+    ctl.pause('A')
+    return { voiceSec: voice.voiceSec, pendingMix: pending.mix, padMix: pad.mix, replay, kept, fallback }
+  })
+  ok('v0.12.18: the rating after a handoff carries the handoff, and its Excellent pad stores it', !rep.error && rep.pendingMix?.type === 'handoff' && rep.padMix?.type === 'handoff' && rep.padMix.voiceSec === rep.voiceSec, JSON.stringify(rep.error ? rep : { pendingMix: rep.pendingMix, padMix: rep.padMix }))
+  ok('v0.12.18: pressing that pad runs the handoff again, not the plain fade', !rep.error && rep.replay.handoffSec != null && rep.replay.swap === false, JSON.stringify(rep.replay ?? rep))
+  ok('v0.12.18: "keep" on an already-Excellent mix teaches an old pad its mix', !rep.error && rep.kept?.type === 'handoff', JSON.stringify(rep.kept ?? rep))
+  ok('v0.12.18: a pad whose voice line is gone runs the plain mix and warns that it is not the rated mix', !rep.error && rep.fallback.handoffSec == null && rep.fallback.onPhrase === true && rep.fallback.tone === 'warn' && /מעבר רגיל במקום/.test(rep.fallback.notice ?? ''), JSON.stringify(rep.fallback ?? rep))
+}
+
 // Since v0.9.33 the EQ is an isolator (core/isolator.ts): the MID knob is the volume of the 250 Hz–3 kHz band, nothing else.
 const resp = await page.evaluate(async () => {
   const { isolatorResponseDb, bandGain } = await window.mod('/src/core/isolator.ts')
