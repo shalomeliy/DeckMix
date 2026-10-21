@@ -5,6 +5,8 @@ import { songEndSec } from '@/core/audible-end'
 import { useSettings } from '@/app/hooks/useSettings'
 import { useFlash } from '@/app/state/flash'
 import { useStore } from '@/app/state/store'
+import { getBadEntries } from '@/platform/mix-bad-idb/store'
+import type { BadEntry } from '@/core/bad-mixes'
 import type { DeckId } from '@/core/types'
 import { heardSemitones, shiftCamelot } from '@/core/key-sync'
 import { Button, Fader, HintIcon, Pill } from '@/app/components/controls'
@@ -69,6 +71,24 @@ export function Deck({ deckId }: { deckId: DeckId }) {
   })
   const otherBeatGrid = useStore((s) => s.decks[otherDeckId].beatGrid)
   const otherTrack = useStore((s) => s.decks[otherDeckId].track)
+  // v0.12.14: mixes the owner rated Bad (outgoing = the playing deck's song) — Mix Assist's panel leaves those rows out.
+  const badMixesRev = useStore((s) => s.badMixesRev)
+  const pairFromHash = otherTrack?.contentHash
+  const pairToHash = deck.track?.contentHash
+  const [badEntries, setBadEntries] = useState<BadEntry[]>([])
+  useEffect(() => {
+    let cancelled = false
+    if (!pairFromHash || !pairToHash) {
+      setBadEntries([])
+      return
+    }
+    void getBadEntries(pairFromHash, pairToHash).then((b) => {
+      if (!cancelled) setBadEntries(b)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [pairFromHash, pairToHash, badMixesRev])
   const manualTags = useStore((s) => s.vocalManual)
   const vocalSide = useMemo(
     () => (showTransitionPoints ? ctl.deckHandoffSide(deckId) : { missing: '' }),
@@ -353,6 +373,8 @@ export function Deck({ deckId }: { deckId: DeckId }) {
               vocalSide={vocalSide}
               otherVocalSide={otherVocalSide}
               syncMult={ctl.handoffSyncMultiplier(otherDeckId, deckId)}
+              badEntries={badEntries}
+              onRestoreBad={() => pairFromHash && pairToHash && ctl.restoreBadMixes(pairFromHash, pairToHash)}
               onHandoff={(voice) => ctl.startVocalHandoffAt(otherDeckId, deckId, voice)}
               onVocalSwap={(entry) => ctl.startVocalSwapAt(otherDeckId, deckId, entry)}
               phraseJoin={(pos) => ctl.deckPhraseJoin(otherDeckId, pos)}

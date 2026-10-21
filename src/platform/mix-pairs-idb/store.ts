@@ -14,7 +14,7 @@
  * live" split `activeTransition.exitPointSec` already uses.
  */
 import { entries as idbEntries, get, set } from 'idb-keyval'
-import { addPairEntry, entriesOf, type PairEntry } from '@/core/pair-entries'
+import { addPairEntry, entriesOf, removeEntriesNear, type PairEntry } from '@/core/pair-entries'
 
 const KEY_PREFIX = 'deckmix:mixpairs:'
 
@@ -92,4 +92,23 @@ export async function getAllPairRecords(): Promise<{
     .filter(([, v]) => Array.isArray(v))
     .map(([k, v]) => ({ fromHash: (k as string).slice(KEY_PREFIX.length), followUps: v }))
   return { records, unreadable: all.length - records.length }
+}
+
+/**
+ * v0.12.14: a mix rated Bad at the same point as a saved Excellent one removes it (a pair with no point left is dropped). Throws on failure.
+ * `entrySec`/`exitSec` follow the latest remaining point, as `markExcellentPair` keeps them.
+ */
+export async function removeExcellentNear(fromHash: string, toHash: string, entrySec: number, windowSec: number): Promise<void> {
+  const existing = await getExcellentFollowUps(fromHash)
+  const pair = existing.find((p) => p.toHash === toHash)
+  if (!pair) return
+  const left = removeEntriesNear(entriesOf(pair), entrySec, windowSec)
+  if (left.length === entriesOf(pair).length) return
+  const rest = existing.filter((p) => p.toHash !== toHash)
+  if (left.length === 0) {
+    await set(KEY_PREFIX + fromHash, rest)
+    return
+  }
+  const latest = left.reduce((a, e) => (e.at >= a.at ? e : a))
+  await set(KEY_PREFIX + fromHash, [...rest, { ...pair, entrySec: latest.entrySec, exitSec: latest.exitSec, entries: left }])
 }

@@ -106,7 +106,9 @@ import { compareGrid, gridCheckExportText, type DriftRow } from '@/core/grid-dri
 import { barLineAtNearestBeat, checkStartSec, nextInQueue, queueOrder, queueRemaining } from '@/core/bar-one-queue'
 import { ownerCorrection, reconcileSavedGrid, resolveGridCorrection } from '@/core/grid-corrections'
 import { getExcellentPoints, markExcellent } from '@/platform/mix-ratings-idb/store'
-import { markExcellentPair } from '@/platform/mix-pairs-idb/store'
+import { markExcellentPair, removeExcellentNear } from '@/platform/mix-pairs-idb/store'
+import { clearBadMixes, markBadMix } from '@/platform/mix-bad-idb/store'
+import { SAME_BAD_WINDOW_SEC } from '@/core/bad-mixes'
 import { clock } from '@/platform/clock-audio'
 import { analyseDeckTrackNow, inBackgroundPass, readOriginalTempoKey, readTagBpm, readTrackData } from '@/platform/source-fsaccess/library'
 import { analysisCacheKey } from '@/core/analysis-cache'
@@ -4661,6 +4663,10 @@ export function rateMixTransition(rating: 'bad' | 'needs-work' | 'excellent') {
   const { pendingMixRating, decks, patchDeck } = useStore.getState()
   if (!pendingMixRating) return
   useStore.setState({ pendingMixRating: null })
+  if (rating === 'bad') {
+    saveBadMix(pendingMixRating)
+    return
+  }
   if (rating !== 'excellent') return
   saveExcellentMixEntryPad(pendingMixRating)
   if (!pendingMixRating.contentHash) return
@@ -4708,6 +4714,45 @@ export function rateMixTransition(rating: 'bad' | 'needs-work' | 'excellent') {
       patchDeck(pendingMixRating.fromDeckId, { excellentMixPoints: [...deck.excellentMixPoints, rounded] })
     }
   }
+}
+
+/**
+ * v0.12.14, the owner (21/10): a mix rated Bad must stop coming back, and another one be offered. The pair + the incoming song's entry second
+ * is remembered (`mix-bad-idb`); Mix Assist's panel then leaves those rows out and says how many (`TransitionPointsPanel`), so the other
+ * rows of the same pair are the alternative. An Excellent saved at the same point is removed — one point is never both. A hash still missing
+ * (analysis not done) is said, not skipped, same as the Excellent pair.
+ */
+function saveBadMix(r: NonNullable<AppState['pendingMixRating']>) {
+  const { setNotice } = useStore.getState()
+  if (!r.contentHash || !r.toContentHash) {
+    setNotice({ text: 'המיקס לא נזכר כרע — אחד השירים עוד לא סיים להיות מזוהה (ניתוח).', tone: 'info', source: 'mixRating' })
+    return
+  }
+  const { contentHash: from, toContentHash: to, entrySec } = r
+  void markBadMix(from, to, entrySec)
+    .then(() => removeExcellentNear(from, to, entrySec, SAME_BAD_WINDOW_SEC))
+    .then(() => {
+      useStore.setState((s) => ({ badMixesRev: s.badMixesRev + 1, excellentPairsRev: s.excellentPairsRev + 1 }))
+      setNotice({
+        text: `המיקס סומן כרע — נקודת הכניסה ${formatMinSec(entrySec)} של השיר הנכנס לא תוצע שוב אחרי השיר הזה. השורות האחרות בחלון Mix Assist נשארו.`,
+        tone: 'info',
+        source: 'mixRating',
+      })
+    })
+    .catch((err) => {
+      console.error('markBadMix failed', err)
+      setNotice({ text: 'הדירוג "רע" לא נשמר — המיקס עלול להופיע שוב.', tone: 'warn', source: 'mixRating' })
+    })
+}
+
+/** The panel's "show again" (v0.12.14): forgets every Bad rating of this pair. */
+export function restoreBadMixes(fromHash: string, toHash: string) {
+  void clearBadMixes(fromHash, toHash)
+    .then(() => useStore.setState((s) => ({ badMixesRev: s.badMixesRev + 1 })))
+    .catch((err) => {
+      console.error('clearBadMixes failed', err)
+      useStore.getState().setNotice({ text: 'לא הצלחתי להחזיר את המיקסים שסומנו כרעים.', tone: 'warn', source: 'mixRating' })
+    })
 }
 
 /**

@@ -10,6 +10,7 @@ import type { BeatGrid, DeckId } from '@/core/types'
 import { TRANSITION_CROSSFADE_SEC } from '@/core/constants'
 import { HANDOFF_NEEDS_STRAIGHT_SYNC, bVoiceStarts, enoughSongAfterMix, handoffEndInB, planHandoff, plainMixEndInB, type BVoiceStart, type HandoffPlan, type HandoffSide } from '@/core/vocal-handoff'
 import { SWAP_BARS, planVocalSwap, swapEntries, type SwapEntry, type VocalSwapPlan } from '@/core/vocal-swap-mix'
+import { withoutBad, type BadEntry } from '@/core/bad-mixes'
 import { Pill } from '@/app/components/controls'
 
 /**
@@ -102,6 +103,10 @@ interface Props {
   phraseJoin: (otherPositionSec: number) => { sec: number; why: string; aVoiceSec: number | null } | null
   /** A vocal-swap row was clicked (`ctl.startVocalSwapAt`): planned again from the live position. */
   onVocalSwap: (entry: SwapEntry) => void
+  /** v0.12.14: this pair's mixes rated Bad (by the incoming song's start second). Rows at those seconds are left out, and counted. */
+  badEntries: readonly BadEntry[]
+  /** "Show again": forgets the Bad ratings of this pair. */
+  onRestoreBad: () => void
 }
 
 /** Shown at most, earliest first. A row is a click target on a ~710 px screen, and the energy points still have to fit under them. */
@@ -175,6 +180,8 @@ export function TransitionPointsPanel({
   onHandoff,
   phraseJoin,
   onVocalSwap,
+  badEntries,
+  onRestoreBad,
 }: Props) {
   // bands stays null until *this deck's* load-time analysis resolves
   // (`controls.ts`'s `loadTrackToDeck`) — independent of the track's
@@ -182,13 +189,14 @@ export function TransitionPointsPanel({
   // earlier background pass while this specific deck load is still running.
   // v0.9.23: an energy point B enters at must leave B playing well past the crossfade — the late ones are not offered.
   // Where the mix ends is `plainMixEndInB`'s, the same one a saved pad and an excellent pair are refused by (`refuseTooLateEntry`, v0.9.26).
-  const { candidates, lateCandidates } = useMemo(() => {
+  const { candidates: allCandidates, lateCandidates } = useMemo(() => {
     const all = bands ? findTransitionCandidates(bands, durationSec, beatGrid) : []
     const ok = all.filter((c) => enoughSongAfterMix(endSec, beatGrid, plainMixEndInB(c.sec, beatGrid, TRANSITION_CROSSFADE_SEC)))
     ok.sort((x, y) => x.sec - y.sec)
     return { candidates: ok, lateCandidates: all.length > ok.length }
   }, [bands, durationSec, endSec, beatGrid])
 
+  const { shown: candidates, hidden: hiddenEnergy } = withoutBad(allCandidates, (c) => c.sec, badEntries)
   const incomingProfile = useMemo(
     () => (bands ? analyzeEnergyProfile(bands, durationSec) : null),
     [bands, durationSec],
@@ -209,16 +217,22 @@ export function TransitionPointsPanel({
   }
 
   const sides = 'missing' in vocalSide || 'missing' in otherVocalSide ? null : { self: vocalSide, other: otherVocalSide }
-  const { rows, allLate } = useMemo(
+  const { rows: allRows, allLate } = useMemo(
     () => (sides && syncMult === 1 && hasVoice(sides.self) ? handoffRows(sides.other, otherPositionBucketSec, sides.self) : { rows: [], allLate: false }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [vocalSide, otherVocalSide, otherPositionBucketSec, syncMult],
   )
-  const swap = useMemo(
+  const swapAll = useMemo(
     () => (sides && syncMult === 1 && hasVoice(sides.self) ? swapRows(sides.other, otherPositionBucketSec, sides.self, otherDeckId) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [vocalSide, otherVocalSide, otherPositionBucketSec, syncMult, otherDeckId],
   )
+  // v0.12.14: the Bad-rated rows come out after the notes below were decided on the full lists, so a section whose every row was rated Bad
+  // says so (hiddenBad) instead of claiming the song has no such mix.
+  const { shown: rows, hidden: hiddenHandoff } = withoutBad(allRows, (r) => r.plan.entrySec, badEntries)
+  const swapShown = swapAll ? withoutBad(swapAll.rows, (r) => r.plan.entrySec, badEntries) : null
+  const swap = swapAll && swapShown ? { ...swapAll, rows: swapShown.shown } : null
+  const hiddenBad = hiddenHandoff + (swapShown?.hidden ?? 0) + hiddenEnergy
   // Why there is no handoff row, in words — the panel never just leaves the section out.
   const handoffNote = !sides
     ? `מסירת שירה: ${'missing' in otherVocalSide ? `דק ${otherDeckId} — ${otherVocalSide.missing}` : `השיר הזה — ${(vocalSide as { missing: string }).missing}`}`
@@ -259,6 +273,14 @@ export function TransitionPointsPanel({
       className="absolute left-0 top-full z-30 mt-1 max-h-48 w-72 overflow-y-auto rounded-[var(--radius-md)] border border-hairline bg-surface-2 p-2.5 text-left shadow-[var(--shadow-pop)]"
       onClick={(e) => e.stopPropagation()}
     >
+      {hiddenBad > 0 && (
+        <div className="mb-2 flex items-center gap-2 text-2xs text-grid-muted" data-testid="bad-hidden">
+          <span className="min-w-0 flex-1">{`${hiddenBad} מיקסים שסימנת כרעים לא מוצגים כאן`}</span>
+          <button type="button" onClick={onRestoreBad} className="shrink-0 rounded-[var(--radius-xs)] px-1.5 py-0.5 hover:bg-surface-3">
+            הצג שוב
+          </button>
+        </div>
+      )}
       <div className="mb-1 label">מסירת שירה — לפי הצליל</div>
       {handoffNote ? (
         <div className="mb-2 text-2xs text-grid-muted" data-testid="handoff-note">{handoffNote}</div>
@@ -315,7 +337,9 @@ export function TransitionPointsPanel({
         </div>
       ) : candidates.length === 0 ? (
         <div className="text-2xs text-grid-muted">
-          {lateCandidates
+          {hiddenEnergy > 0
+            ? 'כל נקודות האנרגיה של השיר הזה סומנו כרעות — "הצג שוב" למעלה מחזיר אותן.'
+            : lateCandidates
             ? 'No transition point leaves enough of this song after the mix.'
             : 'No clear transition points found — energy stays roughly constant throughout.'}
         </div>

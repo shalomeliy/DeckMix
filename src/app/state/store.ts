@@ -284,6 +284,8 @@ export interface AppState {
    * rated while both tracks stay loaded didn't show until one was swapped.
    */
   excellentPairsRev: number
+  /** v0.12.14: bumped when a Bad rating is saved or restored, so Mix Assist's panel re-reads which rows to hide. */
+  badMixesRev: number
 
   pendingMixRating: {
     fromDeckId: DeckId
@@ -519,6 +521,7 @@ export const useStore = create<AppState>((set) => ({
   activeTransition: null,
   pendingMixRating: null,
   excellentPairsRev: 0,
+  badMixesRev: 0,
   mixer: {
     crossfader: 0,
     masterVolume: 0.85,
