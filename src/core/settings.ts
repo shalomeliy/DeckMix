@@ -125,6 +125,8 @@ export interface Settings {
    */
   artistSuggestions: boolean
   barOneQueue: boolean
+  /** v0.9.40 experiment: the "Mark intro/outro" queue above the list (`core/song-structure.ts`). Opt-in like the "1" check. */
+  structureMarking: boolean
   /** v0.9.18: how Mix Assist swaps the two basses (`core/eq-mix.ts`). Instant by default (Shalom, 05/10), gradual or together (v0.9.33, 07/10) by choice here. */
   bassSwap: BassSwapStyle
   /**
@@ -169,6 +171,7 @@ export const DEFAULTS: Settings = {
   artistSuggestions: true,
   // Off since v0.9.73 (Shalom, 19/10): the whole "1" check feature (button, count, filter, 1? marker, notices) is opt-in.
   barOneQueue: false,
+  structureMarking: false,
   bassSwap: 'instant',
   mixAssistKeySync: 2,
 }
@@ -572,6 +575,14 @@ export const FIELDS: Field[] = [
     help: 'Adds a "Check the 1" button above the list, a count of songs not checked yet, a "Show N unchecked" filter and a 1? marker on those rows. It loads a song you have not checked yet onto a stopped deck and plays it from a bar line: press "This is the 1" if the yellow line is on it, "The 1 is here" at the moment it should be, or "Skip". Songs the computer is least sure of (Hip Hop, Mizrahi) come first. Your answer is saved for that song. Nothing is written to your files.',
     group: 'library',
     keywords: ["bar", "one", "downbeat", "grid", "check", "queue", "bass", "תחילת בסים", "הראשון", "סימון", "רשת", "בדיקה", "תור"],
+  },
+  {
+    kind: 'toggle',
+    key: 'structureMarking',
+    label: 'Mark intro and outro song after song (experiment)',
+    help: 'Adds a "Mark intro/outro" button above the list. It loads, one after another, Techno, House and Mizrahi songs whose "1" you already checked and that you have not marked yet, onto a stopped deck. First it plays from the start: press "Intro ends here" when the full beat with the bass comes in. Then it plays from later on: press "Outro starts here" when the full beat ends. The mark moves to the nearest bar line. The computer\'s own guess is saved next to it but not shown, so it can be checked fairly after 20 songs. Nothing is written to your files.',
+    group: 'library',
+    keywords: ["intro", "outro", "structure", "mark", "queue", "drop", "פתיחה", "סיום", "מבנה", "סימון", "ניסוי"],
   },
   {
     kind: 'toggle',

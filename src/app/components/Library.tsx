@@ -172,12 +172,13 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
   const [artistOnly, setArtistOnly] = useState(false)
   const [oneOnly, setOneOnly] = useState(false)
   const barOneQueueOn = useStore((st) => st.barOneQueue != null)
+  const structureQueueOn = useStore((st) => st.structureQueue != null)
   const ownerChecked = useStore((st) => st.ownerCheckedHashes)
   // v0.8.38: the track whose BPM/key the owner is checking against Beatport — see SourceCheckPanel.
   const [checking, setChecking] = useState<string | null>(null)
   // Which key notation to show. DJs are split between musical and Camelot and
   // nobody wants to relearn theirs, so it's a preference that sticks.
-  const { keyMode, libraryTextScale, libraryTitleWidth, sourceCheck, artistSuggestions, barOneQueue } = useSettings()
+  const { keyMode, libraryTextScale, libraryTitleWidth, sourceCheck, artistSuggestions, barOneQueue, structureMarking } = useSettings()
   /** v0.9.43: the Title width while the header edge is being dragged; saved on release. */
   const [titleDrag, setTitleDrag] = useState<number | null>(null)
   const titlePct = Math.min(TITLE_MAX_PCT, Math.max(TITLE_MIN_PCT, titleDrag ?? libraryTitleWidth))
@@ -1457,6 +1458,17 @@ export function Library({ screenOpen = false }: { screenOpen?: boolean } = {}) {
               {barOneQueueOn ? 'Stop checking the 1' : 'Check the 1'}
               {!barOneQueueOn && barOneOpen && barOneOpen.unchecked > 0 && ` · ${barOneOpen.unchecked} new`}
               {!barOneQueueOn && barOneOpen && barOneOpen.unidentified > 0 && ` · ${barOneOpen.unidentified} identifying`}
+            </Button>
+          )}
+          {structureMarking && !library.scanning && library.tracks.length > 0 && (
+            <Button
+              variant="toggle"
+              size="sm"
+              active={structureQueueOn}
+              onClick={() => (structureQueueOn ? ctl.stopStructureQueue() : void ctl.startStructureQueue())}
+              title='Loads Techno, House and Mizrahi songs whose "1" you checked and that you have not marked yet, one after another, onto a stopped deck. You press where the intro ends, then where the outro starts. Nothing is written to your files.'
+            >
+              {structureQueueOn ? 'Stop marking intro/outro' : 'Mark intro/outro'}
             </Button>
           )}
           {barOneQueue && !library.scanning && barOneOpen && barOneOpen.unchecked > 0 && (
