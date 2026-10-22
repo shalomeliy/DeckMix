@@ -14,6 +14,7 @@ import { heardSemitones, shiftCamelot } from '@/core/key-sync'
 import { Button, Fader, HintIcon, Pill } from '@/app/components/controls'
 import { BeatGridPanel } from '@/app/components/BeatGridPanel'
 import { BarOneQueue } from '@/app/components/BarOneQueue'
+import { StructureQueue } from '@/app/components/StructureQueue'
 import { PadGrid } from '@/app/components/PadGrid'
 import { Platter } from '@/app/components/Platter'
 import { TransitionPointsPanel } from '@/app/components/TransitionPointsPanel'
@@ -550,6 +551,7 @@ export function Deck({ deckId }: { deckId: DeckId }) {
         onSeek={(s) => ctl.seekDeckByHand(deckId, s)}
       />
       <BarOneQueue deckId={deckId} />
+      <StructureQueue deckId={deckId} />
 
       <div className="flex gap-3">
         {/* left: transport + pads ------------------------------------- */}

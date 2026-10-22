@@ -56,6 +56,7 @@ import {
   quantizeToGrid,
   setDownbeatAt,
   shiftGrid,
+  nextBarLineSec,
 } from '@/core/beatgrid'
 import { exitWaitStatus, phaseAlignedEntrySec } from '@/core/transition'
 import { catchUpFactor, kickLockStep, KICK_LOCK_MAX_BARS, KICK_LOCK_SEC, KICK_LOCK_SETTLE_SEC, KICK_LOCK_KEEP_START_SEC, KICK_LOCK_NUDGE_SEC, KICK_LOCK_PLAIN_SHIFT_BARS } from '@/core/kick-lock'
@@ -107,6 +108,8 @@ import { clearTempo, getTempo } from '@/platform/tempo-idb/store'
 import { getAllGridCorrections, getGridCorrection, putGridCorrection } from '@/platform/grid-corrections-idb/store'
 import { compareGrid, gridCheckExportText, type DriftRow } from '@/core/grid-drift'
 import { barLineAtNearestBeat, checkStartSec, nextInQueue, queueOrder, queueRemaining } from '@/core/bar-one-queue'
+import { STRUCTURE_TARGET, inStructureGenre, snapToBar, structureHint, structureMarksExportText, structureQueueOrder, type StructureMark } from '@/core/song-structure'
+import { getAllStructureMarks, putStructureMark } from '@/platform/structure-marks-idb/store'
 import { ownerCorrection, reconcileSavedGrid, resolveGridCorrection } from '@/core/grid-corrections'
 import { getExcellentPoints, markExcellent } from '@/platform/mix-ratings-idb/store'
 import { getExcellentFollowUps, markExcellentPair, removeExcellentNear } from '@/platform/mix-pairs-idb/store'
@@ -5991,6 +5994,10 @@ export async function refreshOwnerChecked(): Promise<void> {
 
 export async function startBarOneQueue(): Promise<void> {
   if (useStore.getState().barOneQueue || barOneQ.working) return
+  if (useStore.getState().structureQueue || structQ.working) {
+    barOneNotice('Marking intro/outro is running. Stop it first, then check the 1.')
+    return
+  }
   if (barOneQ.busyRun !== 0) {
     barOneNotice('The previous run is still finishing its last load. Try again in a moment.')
     return
@@ -6025,6 +6032,22 @@ export async function startBarOneQueue(): Promise<void> {
   await advanceBarOne()
 }
 
+/**
+ * Loading finishes before the analysis does, and a queue can only ask about a song once its grid is there. The grid can lag the load by
+ * a moment, so a missing grid gets a short grace; a running analysis gets up to 90 s. A song whose analysis ended with no grid returns
+ * at once, so the caller skips it instead of keeping the owner waiting. Shared by the "1" and the intro/outro queues.
+ */
+async function waitForDeckGrid(deckId: DeckId, trackId: string, aborted: () => boolean): Promise<void> {
+  const graceEnd = Date.now() + 5_000
+  const deadline = Date.now() + 90_000
+  while (!aborted() && Date.now() < deadline) {
+    if (useStore.getState().decks[deckId].track?.id !== trackId) break
+    const noGridYet = useStore.getState().decks[deckId].beatGrid == null
+    if (deckAnalysisPending[deckId] == null && !(noGridYet && Date.now() < graceEnd)) break
+    await new Promise((r) => setTimeout(r, 200))
+  }
+}
+
 async function advanceBarOne(): Promise<void> {
   const run = barOneQ.run
   if (barOneQ.busyRun === run || !useStore.getState().barOneQueue) return
@@ -6046,17 +6069,7 @@ async function advanceBarOne(): Promise<void> {
       barOneSet({ name: track.title ?? track.name, phase: 'loading', remaining: queueRemaining(barOneQ.order, barOneQ.visited, barOneQ.checked), checked: barOneQ.doneCount, skipped: barOneQ.skipped })
       await loadTrackToDeck(deckId, track)
       if (aborted()) return
-      // Loading finishes before the analysis does; the "1" can only be answered once the grid is there.
-      // The grid can lag the load by a moment, so a missing grid gets a short grace; a running analysis gets up to 90 s. A song whose
-      // analysis ended with no grid goes straight to the skip below instead of keeping the owner waiting.
-      const graceEnd = Date.now() + 5_000
-      const deadline = Date.now() + 90_000
-      while (!aborted() && Date.now() < deadline) {
-        if (useStore.getState().decks[deckId].track?.id !== track.id) break
-        const noGridYet = useStore.getState().decks[deckId].beatGrid == null
-        if (deckAnalysisPending[deckId] == null && !(noGridYet && Date.now() < graceEnd)) break
-        await new Promise((r) => setTimeout(r, 200))
-      }
+      await waitForDeckGrid(deckId, track.id, aborted)
       if (aborted()) return
       const d = useStore.getState().decks[deckId]
       if (d.track?.id !== track.id || !d.beatGrid) {
@@ -6148,6 +6161,269 @@ export function stopBarOneQueue(): void {
   if (engine.decks[q.deckId].playing) togglePlay(q.deckId)
   barOneNotice(`Stopped. ${barOneSummary()}`, 'info')
   useStore.getState().setBarOneQueue(null)
+}
+
+/**
+ * v0.9.40 experiment: the "mark intro/outro" queue. Songs of the three genres whose "1" he checked and that carry no mark yet are loaded
+ * one after another onto a stopped deck. It plays from the start and asks where the intro ends, then from near the end and asks where
+ * the outro starts; each press moves to the nearest bar line. The computer's guess (`structureHint`) is saved with the mark and never
+ * shown, so the later comparison is not his press measured against a line he was looking at.
+ */
+const structQ = {
+  order: [] as Track[],
+  visited: new Set<string>(),
+  marked: new Set<string>(),
+  busyRun: 0,
+  run: 0,
+  deckId: 'A' as DeckId,
+  current: null as Track | null,
+  hint: { introEndSec: null, outroStartSec: null } as StructureMark['hint'],
+  /** His intro answer for the current song, held until the outro answer saves both. undefined = not answered yet. */
+  intro: undefined as number | null | undefined,
+  /**
+   * The outro question appears where the intro button was, so a double-click on "Intro ends here" or "No intro" would answer it with a
+   * press he never meant, and quietly spoil the score. Outro answers before this time are ignored.
+   */
+  outroArmedAt: 0,
+  skipped: 0,
+  noGrid: [] as string[],
+  working: false,
+}
+
+function structNotice(text: string, tone: 'warn' | 'info' = 'warn') {
+  useStore.getState().setNotice({ text, tone, source: 'grid' })
+}
+
+function structSet(patch: Partial<NonNullable<ReturnType<typeof useStore.getState>['structureQueue']>>) {
+  const q = useStore.getState().structureQueue
+  if (q) useStore.getState().setStructureQueue({ ...q, ...patch })
+}
+
+function structRemaining(): number {
+  return structQ.order.filter((t) => !structQ.visited.has(t.id)).length
+}
+
+/** Near the end, where an outro lives: 48 bars before the end (about 90 s at 128 BPM), never before his intro mark. */
+function outroListenSec(durationSec: number, grid: BeatGrid, introSec: number | null): number {
+  const t = Math.max(introSec ?? 0, durationSec - 48 * barSecOf(grid), 0)
+  return nextBarLineSec(t, grid)
+}
+
+export async function startStructureQueue(): Promise<void> {
+  if (useStore.getState().structureQueue || structQ.working) return
+  if (useStore.getState().barOneQueue || barOneQ.working) {
+    structNotice('"Check the 1" is running. Stop it first, then mark intro/outro.')
+    return
+  }
+  if (structQ.busyRun !== 0) {
+    structNotice('The previous run is still finishing its last load. Try again in a moment.')
+    return
+  }
+  if (engine.decks.A.playing || engine.decks.B.playing) {
+    structNotice('A deck is playing. Stop both decks first: marking plays each song through the speakers.')
+    return
+  }
+  structQ.working = true
+  let checked: Set<string>
+  try {
+    checked = await ownerCheckedHashes()
+    structQ.marked = new Set((await getAllStructureMarks()).map((m) => m.contentHash))
+  } catch (err) {
+    structNotice(`The saved marks could not be read, so the queue was not started: ${err instanceof Error ? err.message : String(err)}`)
+    return
+  } finally {
+    structQ.working = false
+  }
+  const tracks = useStore.getState().library.tracks
+  structQ.order = structureQueueOrder(tracks, checked, structQ.marked)
+  // Songs of the three genres left out, by reason, said at every start: a song missing from the run must never be a silent gap.
+  const inGenre = tracks.filter((t) => inStructureGenre(t.genre))
+  const unidentified = inGenre.filter((t) => !t.contentHash).length
+  const noOne = inGenre.filter((t) => t.contentHash && !checked.has(t.contentHash)).length
+  const leftOut = [
+    noOne > 0 ? `${noOne} wait for a checked "1" first (use "Check the 1")` : '',
+    unidentified > 0 ? `${unidentified} are still being identified` : '',
+  ].filter(Boolean)
+  structQ.visited = new Set()
+  structQ.skipped = 0
+  structQ.noGrid = []
+  structQ.intro = undefined
+  structQ.run++
+  const { decks } = useStore.getState()
+  structQ.deckId = decks.A.track == null ? 'A' : decks.B.track == null ? 'B' : 'A'
+  if (structQ.order.length === 0) {
+    // Say why, by count: a song left out for a missing "1" is not marked, and he has to know that is the reason.
+    structNotice(
+      inGenre.length === 0
+        ? 'No Techno, House or Mizrahi songs in this list.'
+        : `Nothing left to mark: ${structQ.marked.size} marked.${leftOut.length > 0 ? ` Of the Techno/House/Mizrahi songs, ${leftOut.join(', ')}.` : ''}`,
+      'info',
+    )
+    return
+  }
+  structNotice(`${structQ.order.length} songs to mark.${leftOut.length > 0 ? ` Left out for now: ${leftOut.join(', ')}.` : ''}`, 'info')
+  useStore.getState().setStructureQueue({ deckId: structQ.deckId, name: '', phase: 'loading', marked: structQ.marked.size, skipped: 0, remaining: structQ.order.length })
+  await advanceStructure()
+}
+
+async function advanceStructure(): Promise<void> {
+  const run = structQ.run
+  if (structQ.busyRun === run || !useStore.getState().structureQueue) return
+  structQ.busyRun = run
+  const aborted = () => run !== structQ.run || !useStore.getState().structureQueue
+  try {
+    for (;;) {
+      const track = nextInQueue(structQ.order, structQ.visited)
+      const deckId = structQ.deckId
+      if (!track) {
+        if (engine.decks[deckId].playing) togglePlay(deckId)
+        structNotice(`${structSummary()} No more songs to mark.`, structQ.noGrid.length > 0 ? 'warn' : 'info')
+        useStore.getState().setStructureQueue(null)
+        return
+      }
+      structQ.visited.add(track.id)
+      structQ.current = track
+      structQ.intro = undefined
+      if (engine.decks[deckId].playing) togglePlay(deckId)
+      structSet({ name: track.title ?? track.name, phase: 'loading', remaining: structRemaining(), skipped: structQ.skipped })
+      await loadTrackToDeck(deckId, track)
+      if (aborted()) return
+      await waitForDeckGrid(deckId, track.id, aborted)
+      if (aborted()) return
+      const d = useStore.getState().decks[deckId]
+      if (d.track?.id !== track.id) {
+        // Something else was loaded on this deck (library, MIDI): loading the next song over it would throw his choice away.
+        structNotice(`Another song was loaded on deck ${deckId}, so marking stopped. "${track.title ?? track.name}" stays unmarked.`)
+        structQ.run++
+        useStore.getState().setStructureQueue(null)
+        return
+      }
+      if (!d.beatGrid) {
+        structQ.skipped++
+        structQ.noGrid.push(track.title ?? track.name)
+        structNotice(`"${track.title ?? track.name}" has no beat grid (it did not load or the analysis found none), so it was skipped.`)
+        continue
+      }
+      // No bands = no guess; the mark is still worth having, and the export says the guess is missing (null) rather than inventing one.
+      structQ.hint = d.bands ? structureHint(d.bands, d.durationSec, d.beatGrid) : { introEndSec: null, outroStartSec: null }
+      seekDeck(deckId, 0)
+      togglePlay(deckId)
+      structSet({ phase: 'intro', remaining: structRemaining() })
+      return
+    }
+  } finally {
+    if (structQ.busyRun === run) structQ.busyRun = 0
+  }
+}
+
+/** 'here' = the mark is where the playhead is now (moved to the nearest bar line); 'none' = the song has no intro / no outro. */
+export async function answerStructure(answer: 'here' | 'none' | 'skip'): Promise<void> {
+  const q = useStore.getState().structureQueue
+  if (!q || q.phase === 'loading' || structQ.working || structQ.busyRun === structQ.run) return
+  const deckId = q.deckId
+  const st = useStore.getState().decks[deckId]
+  const track = structQ.current
+  // The mark belongs to the song named on the bar. Another song loaded on this deck meanwhile would get it, so the run ends instead.
+  if (!track || st.track?.id !== track.id || !st.beatGrid) {
+    structNotice('Another song was loaded on this deck, so the run was stopped and nothing was saved for it.')
+    stopStructureQueue()
+    return
+  }
+  if (q.phase === 'outro' && Date.now() < structQ.outroArmedAt) return // the second click of a double-click on the intro button
+  if (answer === 'skip') {
+    structQ.skipped++
+    await advanceStructure()
+    return
+  }
+  const grid = st.beatGrid
+  const at = answer === 'here' ? snapToBar(engine.decks[deckId].position, grid) : null
+  if (q.phase === 'intro') {
+    structQ.intro = at
+    structQ.outroArmedAt = Date.now() + 800
+    seekDeck(deckId, outroListenSec(st.durationSec, grid, at))
+    if (!engine.decks[deckId].playing) togglePlay(deckId)
+    structSet({ phase: 'outro' })
+    return
+  }
+  const intro = structQ.intro ?? null
+  if (at != null && intro != null && at <= intro) {
+    structNotice(`The outro has to start after the intro ends (${Math.floor(intro / 60)}:${String(Math.floor(intro % 60)).padStart(2, '0')}). Press again where the full beat ends.`)
+    return
+  }
+  const hash = st.track?.contentHash
+  if (!hash) {
+    structNotice('This song is not identified yet, so the mark cannot be saved. Skip it; it comes back next run.')
+    return
+  }
+  structQ.working = true
+  structSet({ phase: 'loading' }) // synchronous: a second click finds the buttons off
+  try {
+    await putStructureMark({
+      schema: 1,
+      contentHash: hash,
+      trackId: track.id,
+      name: track.title ?? track.name,
+      genre: track.genre,
+      introEndSec: intro,
+      outroStartSec: at,
+      hint: structQ.hint,
+      barSec: barSecOf(grid),
+      updatedAt: Date.now(),
+    })
+  } catch (err) {
+    structNotice(`The mark was not saved: ${err instanceof Error ? err.message : String(err)}. Press again or skip.`)
+    structSet({ phase: 'outro' })
+    return
+  } finally {
+    structQ.working = false
+  }
+  structQ.intro = undefined // saved: a Stop from here on must not say this song was left half-marked
+  structQ.marked.add(hash)
+  structSet({ marked: structQ.marked.size })
+  if (structQ.marked.size === STRUCTURE_TARGET) structNotice(`${STRUCTURE_TARGET} songs marked. Press "Export" on the bar and send the file; you can also keep going.`, 'info')
+  await advanceStructure()
+}
+
+/** Moves the playhead by whole bars, so waiting through a long intro or looking back at a missed change takes one press. */
+export function jumpStructureBars(bars: number): void {
+  const q = useStore.getState().structureQueue
+  const grid = q ? useStore.getState().decks[q.deckId].beatGrid : null
+  if (!q || !grid || q.phase === 'loading') return
+  const d = useStore.getState().decks[q.deckId]
+  seekDeck(q.deckId, Math.min(Math.max(0, engine.decks[q.deckId].position + bars * barSecOf(grid)), Math.max(0, d.durationSec - 1)))
+}
+
+function structSummary(): string {
+  const names = structQ.noGrid.slice(0, 3).map((n) => `"${n}"`).join(', ')
+  const noGrid = structQ.noGrid.length > 0 ? ` No beat grid, so not shown: ${names}${structQ.noGrid.length > 3 ? ` and ${structQ.noGrid.length - 3} more` : ''}.` : ''
+  return `Marked ${structQ.marked.size} in all, skipped ${structQ.skipped} this run.${noGrid}`
+}
+
+export function stopStructureQueue(): void {
+  const q = useStore.getState().structureQueue
+  if (!q) return
+  structQ.run++
+  if (engine.decks[q.deckId].playing) togglePlay(q.deckId)
+  const half = structQ.working
+    ? ' The song you were on was being saved; check the count on the next start.'
+    : structQ.intro !== undefined ? ' The song you were on had only its intro marked, so nothing was saved for it.' : ''
+  structNotice(`Stopped. ${structSummary()}${half}`, 'info')
+  useStore.getState().setStructureQueue(null)
+}
+
+export async function exportStructureMarks(): Promise<void> {
+  const day = new Date().toISOString().slice(0, 10)
+  try {
+    const all = await getAllStructureMarks()
+    if (all.length === 0) {
+      structNotice('No intro/outro marks to export yet.', 'info')
+      return
+    }
+    const r = await saveTagsJson(structureMarksExportText(all, Date.now()), `deckmix-structure-marks-${day}.json`)
+    if (r === 'ok') structNotice(`Exported intro/outro marks of ${all.length} songs.`, 'info')
+  } catch (err) {
+    structNotice(`The intro/outro marks were not exported: ${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 /**
