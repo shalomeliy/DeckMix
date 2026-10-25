@@ -152,7 +152,7 @@ export interface StructureQueueState {
   deckId: DeckId
   name: string
   phase: 'loading' | 'intro' | 'outro'
-  /** Songs marked so far, all runs together (the target is `STRUCTURE_TARGET`). */
+  /** Songs marked under the current guess, all runs together (the target is `STRUCTURE_TARGET`). */
   marked: number
   skipped: number
   remaining: number

@@ -108,7 +108,7 @@ import { clearTempo, getTempo } from '@/platform/tempo-idb/store'
 import { getAllGridCorrections, getGridCorrection, putGridCorrection } from '@/platform/grid-corrections-idb/store'
 import { compareGrid, gridCheckExportText, type DriftRow } from '@/core/grid-drift'
 import { barLineAtNearestBeat, checkStartSec, nextInQueue, queueOrder, queueRemaining } from '@/core/bar-one-queue'
-import { STRUCTURE_TARGET, inStructureGenre, snapToBar, structureHint, structureMarksExportText, structureQueueOrder, type StructureMark } from '@/core/song-structure'
+import { STRUCTURE_TARGET, currentRoundMarks, inStructureGenre, snapToBar, structureHintV2, structureMarksExportText, structureQueueOrder, type StructureMark } from '@/core/song-structure'
 import { getAllStructureMarks, putStructureMark } from '@/platform/structure-marks-idb/store'
 import { ownerCorrection, reconcileSavedGrid, resolveGridCorrection } from '@/core/grid-corrections'
 import { getExcellentPoints, markExcellent } from '@/platform/mix-ratings-idb/store'
@@ -6166,13 +6166,17 @@ export function stopBarOneQueue(): void {
 /**
  * v0.9.40 experiment: the "mark intro/outro" queue. Songs of the three genres whose "1" he checked and that carry no mark yet are loaded
  * one after another onto a stopped deck. It plays from the start and asks where the intro ends, then from near the end and asks where
- * the outro starts; each press moves to the nearest bar line. The computer's guess (`structureHint`) is saved with the mark and never
+ * the outro starts; each press moves to the nearest bar line. The computer's guess (`structureHintV2` since 25/10) is saved with the mark and never
  * shown, so the later comparison is not his press measured against a line he was looking at.
  */
 const structQ = {
   order: [] as Track[],
   visited: new Set<string>(),
   marked: new Set<string>(),
+  /** Songs marked under the current guess: the count on the bar and the target of 20 are this round's, not the first round's. */
+  roundMarked: 0,
+  /** Copies of a song already marked, met in the queue (same content under another file name). */
+  sameContent: 0,
   busyRun: 0,
   run: 0,
   deckId: 'A' as DeckId,
@@ -6227,7 +6231,9 @@ export async function startStructureQueue(): Promise<void> {
   let checked: Set<string>
   try {
     checked = await ownerCheckedHashes()
-    structQ.marked = new Set((await getAllStructureMarks()).map((m) => m.contentHash))
+    const all = await getAllStructureMarks()
+    structQ.marked = new Set(all.map((m) => m.contentHash))
+    structQ.roundMarked = currentRoundMarks(all).length
   } catch (err) {
     structNotice(`The saved marks could not be read, so the queue was not started: ${err instanceof Error ? err.message : String(err)}`)
     return
@@ -6246,6 +6252,7 @@ export async function startStructureQueue(): Promise<void> {
   ].filter(Boolean)
   structQ.visited = new Set()
   structQ.skipped = 0
+  structQ.sameContent = 0
   structQ.noGrid = []
   structQ.intro = undefined
   structQ.run++
@@ -6262,7 +6269,7 @@ export async function startStructureQueue(): Promise<void> {
     return
   }
   structNotice(`${structQ.order.length} songs to mark.${leftOut.length > 0 ? ` Left out for now: ${leftOut.join(', ')}.` : ''}`, 'info')
-  useStore.getState().setStructureQueue({ deckId: structQ.deckId, name: '', phase: 'loading', marked: structQ.marked.size, skipped: 0, remaining: structQ.order.length })
+  useStore.getState().setStructureQueue({ deckId: structQ.deckId, name: '', phase: 'loading', marked: structQ.roundMarked, skipped: 0, remaining: structQ.order.length })
   await advanceStructure()
 }
 
@@ -6282,6 +6289,12 @@ async function advanceStructure(): Promise<void> {
         return
       }
       structQ.visited.add(track.id)
+      // A second copy of a song marked earlier in this run (same content, another folder): marks are kept one per content, so marking it
+      // again would overwrite the first and count one song twice. Counted in the summary instead of loaded.
+      if (track.contentHash && structQ.marked.has(track.contentHash)) {
+        structQ.sameContent++
+        continue
+      }
       structQ.current = track
       structQ.intro = undefined
       if (engine.decks[deckId].playing) togglePlay(deckId)
@@ -6305,7 +6318,7 @@ async function advanceStructure(): Promise<void> {
         continue
       }
       // No bands = no guess; the mark is still worth having, and the export says the guess is missing (null) rather than inventing one.
-      structQ.hint = d.bands ? structureHint(d.bands, d.durationSec, d.beatGrid) : { introEndSec: null, outroStartSec: null }
+      structQ.hint = d.bands ? structureHintV2(d.bands, d.durationSec, d.beatGrid) : { introEndSec: null, outroStartSec: null }
       seekDeck(deckId, 0)
       togglePlay(deckId)
       structSet({ phase: 'intro', remaining: structRemaining() })
@@ -6367,6 +6380,7 @@ export async function answerStructure(answer: 'here' | 'none' | 'skip'): Promise
       introEndSec: intro,
       outroStartSec: at,
       hint: structQ.hint,
+      hintVersion: 2,
       barSec: barSecOf(grid),
       updatedAt: Date.now(),
     })
@@ -6379,8 +6393,9 @@ export async function answerStructure(answer: 'here' | 'none' | 'skip'): Promise
   }
   structQ.intro = undefined // saved: a Stop from here on must not say this song was left half-marked
   structQ.marked.add(hash)
-  structSet({ marked: structQ.marked.size })
-  if (structQ.marked.size === STRUCTURE_TARGET) structNotice(`${STRUCTURE_TARGET} songs marked. Press "Export" on the bar and send the file; you can also keep going.`, 'info')
+  structQ.roundMarked++
+  structSet({ marked: structQ.roundMarked })
+  if (structQ.roundMarked === STRUCTURE_TARGET) structNotice(`${STRUCTURE_TARGET} songs marked. Press "Export" on the bar and send the file; you can also keep going.`, 'info')
   await advanceStructure()
 }
 
@@ -6396,7 +6411,8 @@ export function jumpStructureBars(bars: number): void {
 function structSummary(): string {
   const names = structQ.noGrid.slice(0, 3).map((n) => `"${n}"`).join(', ')
   const noGrid = structQ.noGrid.length > 0 ? ` No beat grid, so not shown: ${names}${structQ.noGrid.length > 3 ? ` and ${structQ.noGrid.length - 3} more` : ''}.` : ''
-  return `Marked ${structQ.marked.size} in all, skipped ${structQ.skipped} this run.${noGrid}`
+  const same = structQ.sameContent > 0 ? ` ${structQ.sameContent} copies of a song already marked were passed over.` : ''
+  return `Marked ${structQ.roundMarked} this round (${structQ.marked.size} in all), skipped ${structQ.skipped} this run.${same}${noGrid}`
 }
 
 export function stopStructureQueue(): void {
