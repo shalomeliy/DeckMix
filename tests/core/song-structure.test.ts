@@ -6,6 +6,7 @@ import {
   scoreStructure,
   snapToBar,
   structureHint,
+  structureHintV2,
   structureMarksExportText,
   structureQueueOrder,
   type StructureMark,
@@ -31,7 +32,7 @@ describe('structureQueueOrder', () => {
     const tracks = [t('1', 'Techno', 'a'), t('2', 'Hip Hop', 'b'), t('3', 'Trance', 'c'), t('4', 'House', 'd'), t('5', 'Mizrahi', 'e'), t('6', 'Techno', 'f'), t('7', 'Techno', 'g'), t('8', undefined, 'h'), t('9', 'Techno')]
     const checked = new Set(['a', 'b', 'c', 'd', 'e', 'f', 'h'])
     const marked = new Set(['f'])
-    expect(structureQueueOrder(tracks, checked, marked).map((x) => x.id)).toEqual(['1', '4', '5'])
+    expect(structureQueueOrder(tracks, checked, marked).map((x) => x.id)).toEqual(['1', '5', '4']) // House last since 25/10
   })
 })
 
@@ -74,6 +75,46 @@ describe('structureHint', () => {
   })
 })
 
+/** `bands` with separate bass and mid+high levels per second. */
+function bandsSplit(low: (sec: number) => number, top: (sec: number) => number, durationSec: number): Float32Array {
+  const perSec = 10
+  const b = new Float32Array(durationSec * perSec * 3)
+  for (let i = 0; i < durationSec * perSec; i++) {
+    b[i * 3] = low(i / perSec)
+    b[i * 3 + 1] = top(i / perSec)
+    b[i * 3 + 2] = top(i / perSec)
+  }
+  return b
+}
+
+describe('structureHintV2', () => {
+  // bar = 2 s from 0.5 s: bar 8 = 16.5 s, bar 16 = 32.5 s, bar 80 = 160.5 s. Song 200 s.
+  it('his House case: the bass comes in at bar 8 but the drop is at 16, and the bass runs on through the outro', () => {
+    const b = bandsSplit((s) => (s >= 16.5 ? 1 : 0.1), (s) => (s >= 32.5 && s < 160.5 ? 1 : 0.3), 200)
+    const h = structureHintV2(b, 200, grid)
+    expect(h.introEndSec).toBeCloseTo(32.5, 6) // the first guess said bar 8 here
+    expect(h.outroStartSec).toBeCloseTo(160.5, 6) // the first guess, watching the bass, found no outro at all
+  })
+  it('only phrase lines are candidates: a rise on bar 12 is on no intro line, so no intro is guessed (both sides of 16 are loud)', () => {
+    const b = bandsSplit(() => 1, (s) => (s >= 24.5 ? 1 : 0.3), 200)
+    expect(structureHintV2(b, 200, grid).introEndSec).toBeNull()
+  })
+  it('an outro on a 4-bar line that is not an 8-bar one is still found', () => {
+    // drop at bar 76 (152.5 s): his outro marks sat on a 4-bar line 17 of 22 times, on an 8-bar one 9 times
+    const b = bandsSplit(() => 1, (s) => (s >= 32.5 && s < 152.5 ? 1 : 0.3), 200)
+    expect(structureHintV2(b, 200, grid).outroStartSec).toBeCloseTo(152.5, 6)
+  })
+  it('a flat song gets no guess on either side', () => {
+    const b = bandsSplit(() => 1, () => 1, 200)
+    expect(structureHintV2(b, 200, grid)).toEqual({ introEndSec: null, outroStartSec: null })
+  })
+  it('the outro is never looked for in the first 55% of the song', () => {
+    const b = bandsSplit(() => 1, (s) => (s >= 32.5 && s < 64.5 ? 1 : 0.3), 200)
+    const o = structureHintV2(b, 200, grid).outroStartSec
+    expect(o == null || o >= 110).toBe(true)
+  })
+})
+
 describe('scoreStructure', () => {
   const mark = (own: [number | null, number | null], guess: [number | null, number | null], i = 0): StructureMark => ({
     schema: 1,
@@ -98,11 +139,15 @@ describe('scoreStructure', () => {
     const bad = Array.from({ length: STRUCTURE_TARGET }, (_, i) => mark([32, 160], i < 13 ? [32, 160] : [50, 100], i))
     expect(scoreStructure(bad).passed).toBe(false)
   })
-  it('the export carries the marks, the guesses and the score', () => {
-    const j = JSON.parse(structureMarksExportText([mark([32, 160], [32, 160])], 5))
+  it('the export carries the marks, the guesses and the score; only marks under the second guess count in `score`', () => {
+    const first = mark([32, 160], [32, 160])
+    const second = { ...mark([32, 160], [50, 160], 1), hintVersion: 2 as const }
+    const j = JSON.parse(structureMarksExportText([first, second], 5))
     expect(j.kind).toBe('structure-marks')
     expect(j.marks[0].hint.introEndSec).toBe(32)
-    expect(j.score.intro.hit).toBe(1)
+    expect(j.score.intro).toEqual({ answered: 1, hit: 0 })
+    expect(j.score.outro).toEqual({ answered: 1, hit: 1 })
+    expect(j.firstRoundScore.intro).toEqual({ answered: 1, hit: 1 })
   })
 })
 

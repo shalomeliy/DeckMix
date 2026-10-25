@@ -22,6 +22,8 @@ export interface StructureMark {
   outroStartSec: number | null
   /** The computer's guess at the moment he marked, same meaning; null = it found none. */
   hint: { introEndSec: number | null; outroStartSec: number | null }
+  /** Which guess `hint` is: absent = the first rule (failed 25/10, 6 of 44), 2 = the phrase-line rule (`structureHintV2`). */
+  hintVersion?: 2
   /** The bar length the marks were snapped with, so a later comparison can speak in bars without the grid. */
   barSec: number
   updatedAt: number
@@ -51,9 +53,13 @@ export interface StructureQueueTrack {
  * every mark a beat off), and not marked yet. Library order.
  */
 export function structureQueueOrder<T extends StructureQueueTrack>(tracks: readonly T[], ownerChecked: ReadonlySet<string>, marked: ReadonlySet<string>): T[] {
-  return tracks.filter(
+  const open = tracks.filter(
     (t) => t.contentHash != null && ownerChecked.has(t.contentHash) && !marked.has(t.contentHash) && inStructureGenre(t.genre),
   )
+  // Techno and Mizrahi first (25/10): the first round, in library order, was all House, so the second rule is tested on genres the
+  // first round never saw instead of on more of the songs it was shaped from.
+  const fresh = open.filter((t) => !/house/i.test(t.genre ?? ''))
+  return [...fresh, ...open.filter((t) => /house/i.test(t.genre ?? ''))]
 }
 
 /** How many marked songs the comparison needs (the pass rule below). */
@@ -125,6 +131,75 @@ export function structureHint(bands: Float32Array, durationSec: number, grid: Be
   return { introEndSec: intro, outroStartSec: outro }
 }
 
+/** Bars where an intro may end, counted from the first bar line: 18 of his 21 intro marks (25/10) sat on 8, 16 or 24. */
+const INTRO_LINES = [8, 16, 24, 32]
+/** A change smaller than this (louder after / before, or the reverse for an outro) is not one; the guess says "none" instead. */
+const MIN_CHANGE = 1.15
+/** Bars compared on each side of a candidate line. */
+const SIDE_BARS = 4
+
+/**
+ * The second guess (25/10), shaped by what the first one got wrong on his 22 House songs:
+ * - the first watched the bass, so it put the intro where the bass comes in (often bar 8) while his intro ends at the drop (often 16);
+ *   and his outro starts while the bass still runs (the beat stays for mixing). So this one watches mid + high, where the vocals,
+ *   leads and drop live, not the low band.
+ * - his marks sit on phrase lines, so only phrase lines are candidates: intro end on bar 8/16/24/32, outro start on a line 8 bars apart
+ *   4 bars apart (only 9 of his 22 outro marks sat on an 8-bar line, 17 on a 4-bar one), in the last 45% of the song and at least 8 bars
+ *   before its end.
+ * Each side takes the line with the biggest change across it, or null below MIN_CHANGE.
+ */
+export function structureHintV2(bands: Float32Array, durationSec: number, grid: BeatGrid): { introEndSec: number | null; outroStartSec: number | null } {
+  const none = { introEndSec: null, outroStartSec: null }
+  const buckets = Math.floor(bands.length / 3)
+  const bar = barSecOf(grid)
+  if (buckets === 0 || durationSec <= 0 || !(bar > 0)) return none
+  const secPerBucket = durationSec / buckets
+  const starts: number[] = []
+  const levels: number[] = []
+  for (let s = grid.offsetSec; s + bar <= durationSec; s += bar) {
+    const a = Math.floor(s / secPerBucket)
+    const b = Math.min(buckets, Math.floor((s + bar) / secPerBucket))
+    let sum = 0
+    for (let i = a; i < b; i++) sum += bands[i * 3 + 1] + bands[i * 3 + 2]
+    starts.push(s)
+    levels.push(b > a ? sum / (b - a) : 0)
+  }
+  const n = levels.length
+  const mean = (from: number, to: number) => {
+    let sum = 0
+    for (let k = from; k < to; k++) sum += levels[k]
+    return sum / Math.max(1, to - from)
+  }
+  /** How much louder after the line than before it (> 1 = rise). */
+  const ratio = (line: number) => {
+    const before = mean(line - SIDE_BARS, line)
+    const after = mean(line, line + SIDE_BARS)
+    return before > 0 ? after / before : after > 0 ? Infinity : 1
+  }
+  let intro: number | null = null
+  let best = MIN_CHANGE
+  for (const line of INTRO_LINES) {
+    if (line + SIDE_BARS > n) break
+    const r = ratio(line)
+    if (r >= best) {
+      best = r
+      intro = line
+    }
+  }
+  let outro: number | null = null
+  let fall = MIN_CHANGE
+  for (let line = (intro ?? 0) + 4; line + 8 <= n; line += 4) {
+    if (starts[line] < durationSec * 0.55) continue
+    const r = ratio(line)
+    const f = r > 0 ? 1 / r : Infinity
+    if (f >= fall) {
+      fall = f
+      outro = line
+    }
+  }
+  return { introEndSec: intro == null ? null : starts[intro], outroStartSec: outro == null ? null : starts[outro] }
+}
+
 export interface StructureScore {
   /** Songs with a mark on that side (an answer of "no intro" counts: the guess can be right or wrong about it too). */
   answered: number
@@ -150,6 +225,16 @@ export function scoreStructure(marks: readonly StructureMark[]): { intro: Struct
   return { intro, outro, passed: marks.length < STRUCTURE_TARGET ? null : (intro.hit + outro.hit) / total >= STRUCTURE_PASS_SHARE }
 }
 
+/** The marks made under the current guess: only these decide the second round, the first round's marks carry the old guess. */
+export function currentRoundMarks(marks: readonly StructureMark[]): StructureMark[] {
+  return marks.filter((m) => m.hintVersion === 2)
+}
+
 export function structureMarksExportText(marks: readonly StructureMark[], now: number): string {
-  return JSON.stringify({ app: 'DeckMix', kind: 'structure-marks', schema: 1, exportedAt: now, score: scoreStructure(marks), marks }, null, 2)
+  const first = marks.filter((m) => m.hintVersion == null)
+  return JSON.stringify(
+    { app: 'DeckMix', kind: 'structure-marks', schema: 1, exportedAt: now, score: scoreStructure(currentRoundMarks(marks)), firstRoundScore: scoreStructure(first), marks },
+    null,
+    2,
+  )
 }
