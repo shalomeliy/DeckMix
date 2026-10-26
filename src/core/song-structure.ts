@@ -8,6 +8,8 @@
  * would then measure the guess against itself.
  */
 import { BEATS_PER_BAR } from '@/core/beatgrid'
+import { effectiveTimeline, type VocalManualTag } from '@/core/sound/vocal-manual'
+import { voiceRuns } from '@/core/sound/vocal-timeline'
 import type { BeatGrid } from '@/core/types'
 
 export interface StructureMark {
@@ -26,6 +28,12 @@ export interface StructureMark {
   hintVersion?: 2
   /** The bar length the marks were snapped with, so a later comparison can speak in bars without the grid. */
   barSec: number
+  /**
+   * v0.9.40b: which answers were "at singing start/end" (the button that takes his own vocal mark) rather than a press while listening. Kept
+   * so a later measurement of a vocal-based guess can leave them out: they agree with the vocal marks by construction. The bass-band guess
+   * scored today does not read vocals, so `scoreStructure` still counts them.
+   */
+  fromSinging?: { intro: boolean; outro: boolean }
   updatedAt: number
 }
 
@@ -76,6 +84,33 @@ export function barSecOf(grid: BeatGrid): number {
 export function snapToBar(sec: number, grid: BeatGrid): number {
   const bar = barSecOf(grid)
   return Math.max(0, grid.offsetSec + Math.round((sec - grid.offsetSec) / bar) * bar)
+}
+
+/**
+ * v0.9.40b, the owner's idea (26/10): "before the singing is the intro, after it the outro". Measured on 89 of his songs it is right about
+ * half the time (43%), but when it is right it is right to the bar (39 songs), so it becomes a shortcut while he marks, never a guess saved
+ * as his. Only a song he FINISHED marking counts: an unfinished one has stretches nobody listened to, and its "first singing" could be
+ * the first stretch he happened to reach. Both ends land on the nearest bar line of today's grid (the marks were snapped to the grid of
+ * the day he made them, and his grid may have been fixed since). null = no finished marks, or no singing in them.
+ * A side is null when singing starts on the first bar or runs to the end: that answer is "No intro" / "No outro", and a 0 or an outro at
+ * the very end saved from the shortcut would score differently from the same fact saved with those buttons.
+ */
+export function singingSpan(
+  tag: Pick<VocalManualTag, 'regions' | 'finished'> | null,
+  durationSec: number,
+  grid: BeatGrid,
+): { startSec: number | null; endSec: number | null } | null {
+  if (!tag?.finished) return null
+  const t = effectiveTimeline(null, tag, durationSec)
+  const runs = t ? voiceRuns(t, durationSec) : []
+  if (runs.length === 0) return null
+  const bar = barSecOf(grid)
+  const start = snapToBar(runs[0].from, grid)
+  const end = snapToBar(runs[runs.length - 1].to, grid)
+  const startSec = start > grid.offsetSec + bar / 2 ? start : null
+  const endSec = end < durationSec - bar / 2 ? end : null
+  if (startSec != null && endSec != null && endSec <= startSec) return null
+  return startSec == null && endSec == null ? null : { startSec, endSec }
 }
 
 /** A bar's bass is "full" at this share of the song's loud level (90th percentile of bars). Same rule stage 0 measured. */

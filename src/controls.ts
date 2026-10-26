@@ -108,7 +108,7 @@ import { clearTempo, getTempo } from '@/platform/tempo-idb/store'
 import { getAllGridCorrections, getGridCorrection, putGridCorrection } from '@/platform/grid-corrections-idb/store'
 import { compareGrid, gridCheckExportText, type DriftRow } from '@/core/grid-drift'
 import { barLineAtNearestBeat, checkStartSec, nextInQueue, queueOrder, queueRemaining } from '@/core/bar-one-queue'
-import { STRUCTURE_TARGET, currentRoundMarks, inStructureGenre, snapToBar, structureHintV2, structureMarksExportText, structureQueueOrder, type StructureMark } from '@/core/song-structure'
+import { STRUCTURE_TARGET, currentRoundMarks, inStructureGenre, singingSpan, snapToBar, structureHintV2, structureMarksExportText, structureQueueOrder, type StructureMark } from '@/core/song-structure'
 import { getAllStructureMarks, putStructureMark } from '@/platform/structure-marks-idb/store'
 import { ownerCorrection, reconcileSavedGrid, resolveGridCorrection } from '@/core/grid-corrections'
 import { getExcellentPoints, markExcellent } from '@/platform/mix-ratings-idb/store'
@@ -6184,6 +6184,9 @@ const structQ = {
   hint: { introEndSec: null, outroStartSec: null } as StructureMark['hint'],
   /** His intro answer for the current song, held until the outro answer saves both. undefined = not answered yet. */
   intro: undefined as number | null | undefined,
+  /** v0.9.40b: where his own finished vocal marks put the first and last singing, for the "At singing start/end" shortcut. */
+  singing: null as { startSec: number | null; endSec: number | null } | null,
+  introFromSinging: false,
   /**
    * The outro question appears where the intro button was, so a double-click on "Intro ends here" or "No intro" would answer it with a
    * press he never meant, and quietly spoil the score. Outro answers before this time are ignored.
@@ -6211,6 +6214,15 @@ function structRemaining(): number {
 function outroListenSec(durationSec: number, grid: BeatGrid, introSec: number | null): number {
   const t = Math.max(introSec ?? 0, durationSec - 48 * barSecOf(grid), 0)
   return nextBarLineSec(t, grid)
+}
+
+/** Bars of run-up played before the singing line, so he hears the change into it (or out of it) before he answers. */
+const SINGING_LEAD_BARS = 4
+
+/** The singing end is an outro answer only after the intro he gave: an outro has to start after the intro ends. */
+function singingEndAfter(introSec: number | null): number | null {
+  const end = structQ.singing?.endSec
+  return end != null && end > (introSec ?? 0) ? end : null
 }
 
 export async function startStructureQueue(): Promise<void> {
@@ -6269,7 +6281,7 @@ export async function startStructureQueue(): Promise<void> {
     return
   }
   structNotice(`${structQ.order.length} songs to mark.${leftOut.length > 0 ? ` Left out for now: ${leftOut.join(', ')}.` : ''}`, 'info')
-  useStore.getState().setStructureQueue({ deckId: structQ.deckId, name: '', phase: 'loading', marked: structQ.roundMarked, skipped: 0, remaining: structQ.order.length })
+  useStore.getState().setStructureQueue({ deckId: structQ.deckId, name: '', phase: 'loading', singingSec: null, marked: structQ.roundMarked, skipped: 0, remaining: structQ.order.length })
   await advanceStructure()
 }
 
@@ -6298,7 +6310,7 @@ async function advanceStructure(): Promise<void> {
       structQ.current = track
       structQ.intro = undefined
       if (engine.decks[deckId].playing) togglePlay(deckId)
-      structSet({ name: track.title ?? track.name, phase: 'loading', remaining: structRemaining(), skipped: structQ.skipped })
+      structSet({ name: track.title ?? track.name, phase: 'loading', singingSec: null, remaining: structRemaining(), skipped: structQ.skipped })
       await loadTrackToDeck(deckId, track)
       if (aborted()) return
       await waitForDeckGrid(deckId, track.id, aborted)
@@ -6319,9 +6331,21 @@ async function advanceStructure(): Promise<void> {
       }
       // No bands = no guess; the mark is still worth having, and the export says the guess is missing (null) rather than inventing one.
       structQ.hint = d.bands ? structureHintV2(d.bands, d.durationSec, d.beatGrid) : { introEndSec: null, outroStartSec: null }
-      seekDeck(deckId, 0)
+      structQ.singing = null
+      structQ.introFromSinging = false
+      if (track.contentHash) {
+        try {
+          structQ.singing = singingSpan(await getVocalManual(track.contentHash), d.durationSec, d.beatGrid)
+        } catch (err) {
+          // The shortcut is missing for this song, said once; marking by ear still works.
+          structNotice(`Your singing marks for "${track.title ?? track.name}" could not be read, so the "At singing start/end" button is off for it: ${err instanceof Error ? err.message : String(err)}`)
+        }
+        if (aborted()) return
+      }
+      const lead = SINGING_LEAD_BARS * barSecOf(d.beatGrid)
+      seekDeck(deckId, structQ.singing?.startSec != null ? Math.max(0, structQ.singing.startSec - lead) : 0)
       togglePlay(deckId)
-      structSet({ phase: 'intro', remaining: structRemaining() })
+      structSet({ phase: 'intro', remaining: structRemaining(), singingSec: structQ.singing?.startSec ?? null })
       return
     }
   } finally {
@@ -6330,7 +6354,7 @@ async function advanceStructure(): Promise<void> {
 }
 
 /** 'here' = the mark is where the playhead is now (moved to the nearest bar line); 'none' = the song has no intro / no outro. */
-export async function answerStructure(answer: 'here' | 'none' | 'skip'): Promise<void> {
+export async function answerStructure(answer: 'here' | 'singing' | 'none' | 'skip'): Promise<void> {
   const q = useStore.getState().structureQueue
   if (!q || q.phase === 'loading' || structQ.working || structQ.busyRun === structQ.run) return
   const deckId = q.deckId
@@ -6348,14 +6372,18 @@ export async function answerStructure(answer: 'here' | 'none' | 'skip'): Promise
     await advanceStructure()
     return
   }
+  if (answer === 'singing' && q.singingSec == null) return
   const grid = st.beatGrid
-  const at = answer === 'here' ? snapToBar(engine.decks[deckId].position, grid) : null
+  // The singing line is snapped again here: a grid fixed after the song loaded would otherwise leave this answer on the old grid's line.
+  const at = answer === 'here' ? snapToBar(engine.decks[deckId].position, grid) : answer === 'singing' && q.singingSec != null ? snapToBar(q.singingSec, grid) : null
   if (q.phase === 'intro') {
     structQ.intro = at
+    structQ.introFromSinging = answer === 'singing'
     structQ.outroArmedAt = Date.now() + 800
-    seekDeck(deckId, outroListenSec(st.durationSec, grid, at))
+    const end = singingEndAfter(at)
+    seekDeck(deckId, end != null ? Math.max(at ?? 0, end - SINGING_LEAD_BARS * barSecOf(grid)) : outroListenSec(st.durationSec, grid, at))
     if (!engine.decks[deckId].playing) togglePlay(deckId)
-    structSet({ phase: 'outro' })
+    structSet({ phase: 'outro', singingSec: end })
     return
   }
   const intro = structQ.intro ?? null
@@ -6382,6 +6410,7 @@ export async function answerStructure(answer: 'here' | 'none' | 'skip'): Promise
       hint: structQ.hint,
       hintVersion: 2,
       barSec: barSecOf(grid),
+      fromSinging: { intro: structQ.introFromSinging, outro: answer === 'singing' },
       updatedAt: Date.now(),
     })
   } catch (err) {

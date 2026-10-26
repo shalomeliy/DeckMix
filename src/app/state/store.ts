@@ -152,6 +152,11 @@ export interface StructureQueueState {
   deckId: DeckId
   name: string
   phase: 'loading' | 'intro' | 'outro'
+  /**
+   * v0.9.40b: the bar line his own vocal marks give for the current question (singing starts / singing ends), for the "At singing start/end"
+   * button. null = no finished vocal marks for this song, or none that fit this question.
+   */
+  singingSec: number | null
   /** Songs marked under the current guess, all runs together (the target is `STRUCTURE_TARGET`). */
   marked: number
   skipped: number
