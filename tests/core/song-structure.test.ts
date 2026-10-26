@@ -4,6 +4,7 @@ import {
   STRUCTURE_TARGET,
   inStructureGenre,
   scoreStructure,
+  singingSpan,
   snapToBar,
   structureHint,
   structureHintV2,
@@ -154,5 +155,34 @@ describe('scoreStructure', () => {
 describe('setting', () => {
   it('is off by default: an experiment he turns on', () => {
     expect(DEFAULTS.structureMarking).toBe(false)
+  })
+})
+
+describe('singingSpan (v0.9.40b, the "On the singing" shortcut)', () => {
+  const tag = (regions: { fromSec: number; toSec: number; kind?: 'none' }[], finished = true) => ({ regions, finished })
+
+  it('gives the first singing start and the last singing end, on the nearest bar line of the grid', () => {
+    // bar lines at 0.5, 2.5, 4.5 ... ; singing 16.4-40.6 and 60.5-90.3
+    expect(singingSpan(tag([{ fromSec: 16.4, toSec: 40.6 }, { fromSec: 60.5, toSec: 90.3 }]), 200, grid)).toEqual({ startSec: 16.5, endSec: 90.5 })
+  })
+
+  it('a "no singing" region painted over the start wins, as on his strip', () => {
+    expect(singingSpan(tag([{ fromSec: 10.5, toSec: 40.5 }, { fromSec: 10.5, toSec: 20.5, kind: 'none' }]), 200, grid)).toEqual({ startSec: 20.5, endSec: 40.5 })
+  })
+
+  it('an unfinished song gives nothing: the stretch he never listened to could hold the first singing', () => {
+    expect(singingSpan(tag([{ fromSec: 16.5, toSec: 40.5 }], false), 200, grid)).toBeNull()
+  })
+
+  it('singing from the first bar or to the very end leaves that side empty: it is "No intro" / "No outro", not a line', () => {
+    expect(singingSpan(tag([{ fromSec: 0, toSec: 40.5 }]), 200, grid)).toEqual({ startSec: null, endSec: 40.5 })
+    expect(singingSpan(tag([{ fromSec: 16.5, toSec: 200 }]), 200, grid)).toEqual({ startSec: 16.5, endSec: null })
+    expect(singingSpan(tag([{ fromSec: 0, toSec: 200 }]), 200, grid)).toBeNull()
+  })
+
+  it('no marks, or a finished song with no singing at all, gives nothing', () => {
+    expect(singingSpan(null, 200, grid)).toBeNull()
+    expect(singingSpan(tag([]), 200, grid)).toBeNull()
+    expect(singingSpan(tag([{ fromSec: 10.5, toSec: 40.5, kind: 'none' }]), 200, grid)).toBeNull()
   })
 })
