@@ -53,6 +53,12 @@ describe('the client shows the version package.json declares', () => {
     ).toBe(true)
   })
 
+  it('the top bar shows the version and the commit it was built from (26/10: he could not tell if his copy was updated)', () => {
+    const top = read('src/app/components/TopBar.tsx')
+    expect(top.includes('__APP_VERSION__') && top.includes('__APP_BUILD__')).toBe(true)
+    expect(read('vite.config.ts')).toContain('__APP_BUILD__')
+  })
+
   it('no source file under src/ hard-codes the current version as a string literal', () => {
     const semver = new RegExp(`['"\`]v?${pkg.version.replace(/\./g, '\\.')}['"\`]`)
     const offenders = sourceFiles().filter((rel) => semver.test(stripComments(read(rel))))

@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 import react from '@vitejs/plugin-react'
@@ -6,6 +7,16 @@ import { defineConfig } from 'vite'
 
 const pkg = JSON.parse(readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf8')) as {
   version: string
+}
+
+// v0.9.40 (26/10, Shalom): the version number alone did not tell him whether his copy was updated — most commits on main
+// do not change package.json. The commit and its date do. A build outside git (a zip) says so on screen instead of guessing.
+function buildId(): string {
+  try {
+    return execSync('git log -1 --format="%h %cd" --date=format:%d/%m', { encoding: 'utf8' }).trim().replace(/^"|"$/g, '')
+  } catch {
+    return 'build unknown'
+  }
 }
 
 // The two headers below make the page "cross-origin isolated", which is what
@@ -46,5 +57,6 @@ export default defineConfig({
     // package.json at build time, never typed a second time. See
     // tests/repo/client-version.test.ts, which fails on a second hard-coded copy.
     __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_BUILD__: JSON.stringify(buildId()),
   },
 })

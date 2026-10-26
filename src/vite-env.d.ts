@@ -6,3 +6,6 @@
  * `tests/repo/client-version.test.ts`.
  */
 declare const __APP_VERSION__: string
+
+/** The commit the running copy was built from and its date ("747cb97 26/10"), or "build unknown" outside git. Set in `vite.config.ts`. */
+declare const __APP_BUILD__: string

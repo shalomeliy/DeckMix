@@ -288,6 +288,14 @@ export function TopBar({
         >
           Not affiliated with Pioneer DJ · Privacy
         </button>
+        {/* v0.9.40 (26/10): top right, so after an update he can see at a glance whether his copy changed. */}
+        <span
+          className="tnum whitespace-nowrap text-2xs text-grid-dim"
+          title={`DeckMix v${__APP_VERSION__}, built from commit ${__APP_BUILD__}. After an update this should change; if it does not, the update did not reach this copy.`}
+          data-testid="app-version"
+        >
+          v{__APP_VERSION__} · {__APP_BUILD__}
+        </span>
       </div>
     </header>
   )
